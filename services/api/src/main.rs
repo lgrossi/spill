@@ -1145,12 +1145,24 @@ impl FakeGifProvider {
             .trim_matches('-')
             .to_owned();
 
-        Ok((1..=4)
-            .map(|index| GifResult {
-                id: format!("{slug}-{index}"),
-                url: format!("https://media.spillitout.local/{slug}-{index}.gif"),
-                preview_url: format!("https://media.spillitout.local/{slug}-{index}.webp"),
-                alt_text: format!("{query} GIF {index}"),
+        let gif_ids = [
+            "111ebonMs90YLu",
+            "xT9IgG50Fb7Mi0prBC",
+            "l0MYt5jPR6QX5pnqM",
+            "26u4cqiYI30juCOGY",
+            "13HgwGsXF0aiGY",
+            "3oEjI6SIIHBdRxXI40",
+        ];
+
+        Ok(gif_ids
+            .iter()
+            .take(4)
+            .enumerate()
+            .map(|(index, gif_id)| GifResult {
+                id: format!("{slug}-{}", index + 1),
+                url: format!("https://media.giphy.com/media/{gif_id}/giphy.gif"),
+                preview_url: format!("https://media.giphy.com/media/{gif_id}/200.gif"),
+                alt_text: format!("{query} GIF {}", index + 1),
             })
             .collect())
     }
@@ -1665,7 +1677,7 @@ mod tests {
                     .header(HEADER_USER_SUBJECT, "ava")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
-                        r#"{{"column_id":"{column_id}","gif_url":"https://media.spillitout.local/high-five-1.gif","gif_alt_text":"high five"}}"#
+                        r#"{{"column_id":"{column_id}","gif_url":"https://media.giphy.com/media/111ebonMs90YLu/giphy.gif","gif_alt_text":"high five"}}"#
                     )))
                     .unwrap(),
             )
@@ -1677,7 +1689,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             gif_card["gif_url"],
-            "https://media.spillitout.local/high-five-1.gif"
+            "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif"
         );
     }
 

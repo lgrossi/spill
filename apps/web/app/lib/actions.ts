@@ -45,10 +45,11 @@ export async function createDraftCardAction(formData: FormData) {
 
 export async function searchGifsAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
+  const columnId = String(formData.get("column_id") ?? "");
   const query = String(formData.get("gif_query") ?? "").trim();
   const results = query ? await searchGifs(query) : { results: [], degraded: false };
 
-  redirect(`/retros/${retroId}?gif=${encodeURIComponent(query)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(results.results))}`);
+  redirect(`/retros/${retroId}?gif=${encodeURIComponent(query)}&gifColumn=${encodeURIComponent(columnId)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(results.results))}`);
 }
 
 function parseGifChoice(value: string): { url: string; altText: string } | null {

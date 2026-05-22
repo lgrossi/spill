@@ -1,7 +1,26 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRetro, type GifResult } from "../../lib/api";
-import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDeliveryAction, createDraftCardAction, createMeetingNoteAction, markReadyAction, rejectActionItemAction, retryAiJobAction, retryDeliveryAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { getRetro, type GifResult, type RetroBoard } from "../../lib/api";
+import {
+  acceptDeckItemAction,
+  castVoteAction,
+  clusterBoardAction,
+  completeRetroAction,
+  confirmActionItemAction,
+  createDeliveryAction,
+  createDraftCardAction,
+  createMeetingNoteAction,
+  markReadyAction,
+  rejectActionItemAction,
+  retryAiJobAction,
+  retryDeliveryAction,
+  revealRetroAction,
+  searchGifsAction,
+  startActionDiscussionAction,
+  startAiJobAction,
+  startVotingAction,
+  updateActionItemAction,
+} from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -9,7 +28,7 @@ export default async function RetroBoardPage({
   searchParams,
 }: {
   params: Promise<{ retroId: string }>;
-  searchParams: Promise<{ gif?: string; gifResults?: string; gifDegraded?: string }>;
+  searchParams: Promise<{ gif?: string; gifColumn?: string; gifResults?: string; gifDegraded?: string }>;
 }) {
   const { retroId } = await params;
   const gifSearch = await searchParams;
@@ -20,365 +39,422 @@ export default async function RetroBoardPage({
   }
 
   const gifResults = parseGifResults(gifSearch.gifResults);
+  const gifColumnId = gifSearch.gifColumn;
   const gifDegraded = gifSearch.gifDegraded === "1";
+  const boardPhase = phaseLabel(board.retro.phase);
+  const showToolRail =
+    (board.retro.phase === "writing" && board.deck.length > 0) ||
+    board.retro.phase === "action_discussion" ||
+    board.retro.phase === "completed" ||
+    board.meeting_notes.length > 0 ||
+    board.ai_artifacts.length > 0;
 
   return (
-    <main>
+    <main className="board-app">
       <BoardSync retroId={board.retro.id} />
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Board</p>
+      <header className="board-topbar">
+        <div className="board-title">
+          <p className="eyebrow">SpillItOut</p>
           <h1>{board.retro.title}</h1>
-          <p>Phase: {board.retro.phase.replaceAll("_", " ")}</p>
+        </div>
+        <div className="chips board-status">
+          <span className="chip blue">{boardPhase}</span>
+          <span className="chip">
+            Ready {board.ready.ready_count}/{board.ready.participant_count}
+          </span>
+          {board.retro.phase === "voting" ? <span className="chip">Votes left {board.voting.votes_remaining}</span> : null}
         </div>
         <nav className="tabs" aria-label="Main navigation">
           <Link className="button" href="/">
             Overview
           </Link>
           <Link className="button" href="/retros/new">
-            Create
+            New
           </Link>
           <Link className="button" href="/history">
             History
           </Link>
         </nav>
       </header>
-      <div className="page single">
-        <section className="scene">
-          <div className="scene-head">
-            <p className="eyebrow">{board.retro.phase.replaceAll("_", " ")}</p>
-            <h2>{board.retro.phase === "writing" ? "Draft board" : "Revealed board"}</h2>
-            <p>
-              {board.retro.phase === "completed"
-                ? "This retro is completed. Confirmed/proposed actions remain visible for follow-through."
-                : board.retro.phase === "writing"
-                ? "Cards are private by default. Other participants' card contents remain blurred until everyone is ready and the board is revealed."
-                : "The same board is now the shared discussion surface."}
-            </p>
-          </div>
-          <article className="board">
-            <div className="board-head">
-              <div>
-                <div className="chips">
-                  <span className="chip blue">{board.retro.phase.replaceAll("_", " ")}</span>
-                  <span className="chip">
-                    Ready: {board.ready.ready_count}/{board.ready.participant_count}
-                  </span>
-                  <span className="chip">{board.retro.vote_limit} votes/person</span>
-                  {board.retro.phase === "voting" ? <span className="chip">Votes left: {board.voting.votes_remaining}</span> : null}
-                </div>
-                <h3>{board.retro.title}</h3>
-                <p className="muted">Persisted board id: {board.retro.id}</p>
+
+      <section className={`board-shell ${showToolRail ? "with-tools" : ""}`}>
+        <article className="board board-primary" aria-label="Retro board">
+          <div className="board-head">
+            <div>
+              <div className="chips">
+                <span className="chip blue">{board.retro.phase === "writing" ? "Draft board" : "Revealed board"}</span>
+                <span className="chip">{board.retro.vote_limit} votes/person</span>
               </div>
-              <div className="actions">
-                {board.retro.phase === "writing" ? (
-                  <>
-                    <form action={markReadyAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button className="primary" type="submit">
-                        {board.ready.current_user_ready ? "Ready marked" : "Mark ready"}
-                      </button>
-                    </form>
-                    <form action={revealRetroAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button type="submit">Reveal board</button>
-                    </form>
-                  </>
-                ) : null}
-                {board.retro.phase === "discussion" ? (
-                  <>
-                    <form action={clusterBoardAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button type="submit" disabled={board.clusters.length > 0}>Cluster-fy once</button>
-                    </form>
-                    <form action={startVotingAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button className="primary" type="submit">Start voting</button>
-                    </form>
-                  </>
-                ) : null}
-                {board.retro.phase === "voting" ? (
-                  <>
-                    <form action={markReadyAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button className="primary" type="submit">
-                        {board.ready.current_user_ready ? "Voting ready" : "Mark voting ready"}
-                      </button>
-                    </form>
-                    <form action={startActionDiscussionAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <button type="submit">Discuss top actions</button>
-                    </form>
-                  </>
-                ) : null}
-              </div>
+              <h2>{board.retro.title}</h2>
+              <p className="muted">
+                {board.retro.phase === "writing"
+                  ? "Private writing: cards stay blurred for everyone else until reveal."
+                  : "Shared board: discuss, vote, and turn the right cards into actions."}
+              </p>
             </div>
-            {board.retro.phase === "action_discussion" ? (
-              <form action={completeRetroAction}>
-                <input name="retro_id" type="hidden" value={board.retro.id} />
-                <button className="primary" type="submit">Complete retro</button>
-              </form>
-            ) : null}
-            {board.retro.phase === "completed" ? <Link className="button" href="/history">Back to history</Link> : null}
-            {board.retro.phase === "completed" ? (
-              <section className="scene action-panel">
-                <div className="scene-head">
-                  <p className="eyebrow">Delivery</p>
-                  <h3>Copy/export follow-through</h3>
-                  <p>Export a completed summary or create an external action-link placeholder. Failed delivery can be retried.</p>
-                </div>
-                <form className="vote-row" action={createDeliveryAction}>
-                  <input name="retro_id" type="hidden" value={board.retro.id} />
-                  <label>
-                    Delivery
-                    <select name="kind" defaultValue="summary_export">
-                      <option value="summary_export">Summary export</option>
-                      <option value="external_action_link">External action link placeholder</option>
-                    </select>
-                  </label>
-                  <label>
-                    <input name="fail" type="checkbox" /> Simulate failure
-                  </label>
-                  <button className="primary" type="submit">Create delivery</button>
-                </form>
-                {board.deliveries.map((delivery) => (
-                  <article className={`card action-card ${delivery.status}`} key={delivery.id}>
-                    <div className="chips">
-                      <span className="chip">{delivery.kind.replaceAll("_", " ")}</span>
-                      <span className="chip">{delivery.status}</span>
-                      <span className="chip">Retries: {delivery.retry_count}</span>
-                    </div>
-                    {delivery.error_message ? <p className="muted">{delivery.error_message}</p> : null}
-                    {delivery.output ? <pre>{JSON.stringify(delivery.output, null, 2)}</pre> : null}
-                    {delivery.status === "failed" ? (
-                      <form action={retryDeliveryAction}>
-                        <input name="retro_id" type="hidden" value={board.retro.id} />
-                        <input name="delivery_id" type="hidden" value={delivery.id} />
-                        <button type="submit">Retry delivery</button>
-                      </form>
-                    ) : null}
-                  </article>
-                ))}
-              </section>
-            ) : null}
-            {board.retro.phase === "writing" && board.deck.length > 0 ? (
-              <section className="scene action-panel">
-                <div className="scene-head">
-                  <p className="eyebrow">User deck</p>
-                  <h3>Connector suggestions</h3>
-                  <p>Private items from Pi, Claude Code, uploads, or other connectors. Accept one into a board column when ready.</p>
-                </div>
-                {board.deck.map((item) => (
-                  <article className="card action-card" key={item.id}>
-                    <p>{item.suggested_text ?? item.gif_url ?? "Connector item"}</p>
-                    <div className="chips">
-                      <span className="chip">{item.source.replaceAll("_", " ")}</span>
-                      <span className="chip">{item.status}</span>
-                    </div>
-                    <form className="vote-row" action={acceptDeckItemAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <input name="item_id" type="hidden" value={item.id} />
-                      <label>
-                        Column
-                        <select name="column_id" defaultValue={board.columns[0]?.id}>
-                          {board.columns.map((column) => (
-                            <option key={column.id} value={column.id}>
-                              {column.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button className="primary" type="submit">Accept into board</button>
-                    </form>
-                  </article>
-                ))}
-              </section>
-            ) : null}
-            <section className="scene action-panel">
-              <div className="scene-head">
-                <p className="eyebrow">Meeting notes</p>
-                <h3>Optional summary/mood context</h3>
-                <p>Paste notes when useful. Retros and completion still work without notes.</p>
-              </div>
-              <form className="draft-form" action={createMeetingNoteAction}>
-                <input name="retro_id" type="hidden" value={board.retro.id} />
-                <label>
-                  Title
-                  <input name="title" defaultValue="Meeting notes" />
-                </label>
-                <label>
-                  Notes
-                  <textarea name="body_text" rows={4} placeholder="Paste meeting notes or upload text contents here" />
-                </label>
-                <button className="primary" type="submit">Attach notes</button>
-              </form>
-              {board.meeting_notes.map((note) => (
-                <article className="card action-card" key={note.id}>
-                  <h4>{note.title}</h4>
-                  <p>{note.body_text}</p>
-                </article>
-              ))}
-            </section>
-            <section className="scene action-panel">
-              <div className="scene-head">
-                <p className="eyebrow">Optional AI</p>
-                <h3>Human-reviewable board jobs</h3>
-                <p>Fake-provider jobs persist status, retry failures, and expose outputs for review before any human uses them.</p>
-              </div>
-              <form className="vote-row" action={startAiJobAction}>
-                <input name="retro_id" type="hidden" value={board.retro.id} />
-                <label>
-                  Job
-                  <select name="kind" defaultValue="summary">
-                    <option value="gif_suggestions">GIF suggestions</option>
-                    <option value="clustering">Clustering</option>
-                    <option value="action_suggestions">Action proposals</option>
-                    <option value="summary">Summary</option>
-                    <option value="mood">Team mood</option>
-                    <option value="tagging">Tagging</option>
-                  </select>
-                </label>
-                <label>
-                  <input name="fail" type="checkbox" /> Simulate failure
-                </label>
-                <button className="primary" type="submit">Run AI job</button>
-              </form>
-              {board.ai_artifacts.map((artifact) => (
-                <article className={`card action-card ${artifact.status}`} key={artifact.id}>
-                  <div className="chips">
-                    <span className="chip">{artifact.kind.replaceAll("_", " ")}</span>
-                    <span className="chip">{artifact.status}</span>
-                    <span className="chip">Retries: {artifact.retry_count}</span>
-                  </div>
-                  {artifact.error_message ? <p className="muted">{artifact.error_message}</p> : null}
-                  {artifact.output ? <pre>{JSON.stringify(artifact.output, null, 2)}</pre> : null}
-                  {artifact.status === "failed" ? (
-                    <form action={retryAiJobAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <input name="artifact_id" type="hidden" value={artifact.id} />
-                      <button type="submit">Retry</button>
-                    </form>
-                  ) : null}
-                </article>
-              ))}
-            </section>
-            {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? (
-              <section className="scene action-panel">
-                <div className="scene-head">
-                  <p className="eyebrow">Action agenda</p>
-                  <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top voted action cards"}</h3>
-                  <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order. Tags support recurring-action history.</p>
-                </div>
-                {board.actions.map((action) => (
-                  <article className={`card action-card ${action.status}`} key={action.id}>
-                    <form className="draft-form" action={updateActionItemAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <input name="action_id" type="hidden" value={action.id} />
-                      <label>
-                        Action
-                        <input name="title" defaultValue={action.title} />
-                      </label>
-                      <label>
-                        Details
-                        <textarea name="details" rows={2} defaultValue={action.details ?? ""} />
-                      </label>
-                      <div className="vote-row">
-                        <span className="chip">{action.status}</span>
-                        {action.tags.map((tag) => <span className="chip" key={tag}>{tag}</span>)}
-                        <button type="submit">Save edit</button>
-                      </div>
-                    </form>
-                    <div className="vote-row">
-                      <form action={confirmActionItemAction}>
-                        <input name="retro_id" type="hidden" value={board.retro.id} />
-                        <input name="action_id" type="hidden" value={action.id} />
-                        <button className="primary" type="submit">Confirm</button>
-                      </form>
-                      <form action={rejectActionItemAction}>
-                        <input name="retro_id" type="hidden" value={board.retro.id} />
-                        <input name="action_id" type="hidden" value={action.id} />
-                        <button type="submit">Reject</button>
-                      </form>
-                    </div>
-                  </article>
-                ))}
-              </section>
-            ) : null}
-            <div className={`columns ${board.columns.length === 5 ? "five" : ""}`}>
-              {board.columns.map((column) => (
+            <PhaseControls board={board} />
+          </div>
+
+          <div className={`columns board-columns ${board.columns.length === 5 ? "five" : ""}`}>
+            {board.columns.map((column) => {
+              return (
                 <section className="column" key={column.id}>
                   <div className="column-head">
                     <div>
-                      <h4>{column.title}</h4>
-                      <small>Private drafts</small>
+                      <h3>{column.title}</h3>
+                      <small>{board.retro.phase === "writing" ? "Private drafts" : "Shared cards"}</small>
                     </div>
                     <span className="chip">{column.cards.length}</span>
                   </div>
-                  {column.cards.map((card) => (
-                    <article className={`card ${card.hidden ? "hidden" : ""}`} key={card.id}>
-                      {card.hidden ? (
-                        <>
-                          <span className="skeleton" />
-                          <span className="skeleton short" />
-                        </>
-                      ) : (
-                        <>
-                          {card.body_text ? <p>{card.body_text}</p> : null}
-                          {card.gif_url ? <div className="gif">{card.gif_alt_text ?? "Attached GIF"}</div> : null}
-                          {card.cluster_title ? (
-                            <p className="merged">{card.cluster_title} · {card.cluster_category}</p>
-                          ) : null}
-                          {board.retro.phase === "voting" ? (
-                            <div className="vote-row">
-                              <span className="vote">{card.vote_count} votes</span>
-                              {card.current_user_vote_count > 0 ? <span className="chip">You: {card.current_user_vote_count}</span> : null}
-                              <form action={castVoteAction}>
-                                <input name="retro_id" type="hidden" value={board.retro.id} />
-                                <input name="card_id" type="hidden" value={card.id} />
-                                <button type="submit" disabled={board.voting.votes_remaining <= 0}>Vote</button>
-                              </form>
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </article>
-                  ))}
-                  {board.retro.phase === "writing" ? (
-                    <div className="draft-form">
-                      <form action={searchGifsAction}>
-                        <input name="retro_id" type="hidden" value={board.retro.id} />
-                        <label>
-                          GIF search
-                          <input name="gif_query" defaultValue={gifSearch.gif ?? ""} placeholder="high five, ship it, confused" />
-                        </label>
-                        <button type="submit">Search GIFs</button>
-                      </form>
-                      {gifDegraded ? <p className="muted">GIF search is degraded. You can still add a text-only card.</p> : null}
-                      <form className="draft-form" action={createDraftCardAction}>
-                        <input name="retro_id" type="hidden" value={board.retro.id} />
-                        <input name="column_id" type="hidden" value={column.id} />
-                        <textarea name="body_text" rows={3} placeholder={`Add private ${column.title} draft`} />
-                        {gifResults.length > 0 ? (
-                          <div className="gif-grid">
-                            {gifResults.map((gif) => (
-                              <label className="gif-option" key={gif.id}>
-                                <input name="gif_choice" type="radio" value={JSON.stringify({ url: gif.url, altText: gif.alt_text })} />
-                                <span>{gif.alt_text}</span>
-                              </label>
-                            ))}
-                          </div>
-                        ) : null}
-                        <button type="submit">Add draft</button>
-                      </form>
-                    </div>
-                  ) : null}
+
+                  <div className="card-stack">
+                    {column.cards.map((card) => (
+                      <article className={`card ${card.hidden ? "hidden" : ""}`} key={card.id}>
+                        {card.hidden ? (
+                          <>
+                            <span className="skeleton" />
+                            <span className="skeleton short" />
+                          </>
+                        ) : (
+                          <>
+                            {card.gif_url ? (
+                              <img className="gif-image" src={card.gif_url} alt={card.gif_alt_text ?? "Attached GIF"} loading="lazy" />
+                            ) : null}
+                            {card.body_text ? <p>{card.body_text}</p> : null}
+                            {card.cluster_title ? (
+                              <p className="merged">
+                                {card.cluster_title} · {card.cluster_category}
+                              </p>
+                            ) : null}
+                            {board.retro.phase === "voting" ? (
+                              <div className="vote-row">
+                                <span className="vote">{card.vote_count} votes</span>
+                                {card.current_user_vote_count > 0 ? <span className="chip">You {card.current_user_vote_count}</span> : null}
+                                <form action={castVoteAction}>
+                                  <input name="retro_id" type="hidden" value={board.retro.id} />
+                                  <input name="card_id" type="hidden" value={card.id} />
+                                  <button type="submit" disabled={board.voting.votes_remaining <= 0}>
+                                    Vote
+                                  </button>
+                                </form>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+
                 </section>
-              ))}
-            </div>
-          </article>
-        </section>
-      </div>
+              );
+            })}
+          </div>
+          {board.retro.phase === "writing" ? (
+            <BoardComposer
+              board={board}
+              degraded={gifDegraded}
+              gifColumnId={gifColumnId}
+              gifQuery={gifSearch.gif ?? ""}
+              gifResults={gifResults}
+            />
+          ) : null}
+        </article>
+
+        {showToolRail ? (
+          <aside className="board-tools" aria-label="Board tools">
+            {board.retro.phase === "writing" && board.deck.length > 0 ? <DeckTool board={board} /> : null}
+            {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? <ActionTool board={board} /> : null}
+            {board.retro.phase === "completed" ? <DeliveryTool board={board} /> : null}
+            {board.meeting_notes.length > 0 ? <NotesTool board={board} /> : null}
+            {board.ai_artifacts.length > 0 ? <AiTool board={board} /> : null}
+          </aside>
+        ) : null}
+      </section>
     </main>
+  );
+}
+
+function PhaseControls({ board }: { board: RetroBoard }) {
+  if (board.retro.phase === "writing") {
+    return (
+      <div className="actions">
+        <form action={markReadyAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button className="primary" type="submit">
+            {board.ready.current_user_ready ? "Ready marked" : "Mark ready"}
+          </button>
+        </form>
+        <form action={revealRetroAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button type="submit">Reveal</button>
+        </form>
+      </div>
+    );
+  }
+
+  if (board.retro.phase === "discussion") {
+    return (
+      <div className="actions">
+        <form action={clusterBoardAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button type="submit" disabled={board.clusters.length > 0}>
+            Cluster-fy
+          </button>
+        </form>
+        <form action={startVotingAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button className="primary" type="submit">
+            Start voting
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (board.retro.phase === "voting") {
+    return (
+      <div className="actions">
+        <form action={markReadyAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button className="primary" type="submit">
+            {board.ready.current_user_ready ? "Voting ready" : "Mark ready"}
+          </button>
+        </form>
+        <form action={startActionDiscussionAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <button type="submit">Actions</button>
+        </form>
+      </div>
+    );
+  }
+
+  if (board.retro.phase === "action_discussion") {
+    return (
+      <form action={completeRetroAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <button className="primary" type="submit">
+          Complete
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <Link className="button" href="/history">
+      History
+    </Link>
+  );
+}
+
+function BoardComposer({
+  board,
+  degraded,
+  gifColumnId,
+  gifQuery,
+  gifResults,
+}: {
+  board: RetroBoard;
+  degraded: boolean;
+  gifColumnId?: string;
+  gifQuery: string;
+  gifResults: GifResult[];
+}) {
+  const selectedColumnId = gifColumnId && board.columns.some((column) => column.id === gifColumnId) ? gifColumnId : board.columns[0]?.id;
+
+  return (
+    <div className="floating-composer" aria-label="My card hand">
+      <form className="gif-search-form" action={searchGifsAction} autoComplete="off">
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <select name="column_id" defaultValue={selectedColumnId} aria-label="Target column">
+          {board.columns.map((column) => (
+            <option key={column.id} value={column.id}>
+              {column.title}
+            </option>
+          ))}
+        </select>
+        <input name="gif_query" defaultValue={gifQuery} placeholder="GIF search" autoComplete="off" aria-label="GIF search" />
+        <button type="submit">Search GIF</button>
+      </form>
+      {degraded ? <p className="muted compact-copy">GIF search failed. Text cards still work.</p> : null}
+      <form className="draft-form deck-form" action={createDraftCardAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <select name="column_id" defaultValue={selectedColumnId} aria-label="Add to column">
+          {board.columns.map((column) => (
+            <option key={column.id} value={column.id}>
+              {column.title}
+            </option>
+          ))}
+        </select>
+        <textarea name="body_text" rows={1} placeholder="Write a card..." />
+        {gifResults.length > 0 ? (
+          <div className="gif-grid">
+            {gifResults.map((gif) => (
+              <label className="gif-option" key={gif.id}>
+                <input name="gif_choice" type="radio" value={JSON.stringify({ url: gif.url, altText: gif.alt_text })} />
+                <img className="gif-thumb" src={gif.preview_url || gif.url} alt="" loading="lazy" />
+                <span>{gif.alt_text}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        <button className="primary" type="submit">
+          Play card
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function DeckTool({ board }: { board: RetroBoard }) {
+  return (
+    <section className="tool-card">
+      <h3>Deck</h3>
+      {board.deck.map((item) => (
+        <article className="tool-item" key={item.id}>
+          <p>{item.suggested_text ?? item.gif_url ?? "Connector item"}</p>
+          <form className="compact-form" action={acceptDeckItemAction}>
+            <input name="retro_id" type="hidden" value={board.retro.id} />
+            <input name="item_id" type="hidden" value={item.id} />
+            <select name="column_id" defaultValue={board.columns[0]?.id}>
+              {board.columns.map((column) => (
+                <option key={column.id} value={column.id}>
+                  {column.title}
+                </option>
+              ))}
+            </select>
+            <button type="submit">Accept</button>
+          </form>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function ActionTool({ board }: { board: RetroBoard }) {
+  return (
+    <section className="tool-card">
+      <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top actions"}</h3>
+      {board.actions.map((action) => (
+        <article className={`tool-item ${action.status}`} key={action.id}>
+          <form className="compact-form" action={updateActionItemAction}>
+            <input name="retro_id" type="hidden" value={board.retro.id} />
+            <input name="action_id" type="hidden" value={action.id} />
+            <input name="title" defaultValue={action.title} aria-label="Action title" />
+            <textarea name="details" rows={2} defaultValue={action.details ?? ""} aria-label="Action details" />
+            <button type="submit">Save</button>
+          </form>
+          <div className="vote-row">
+            <span className="chip">{action.status}</span>
+            <form action={confirmActionItemAction}>
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="action_id" type="hidden" value={action.id} />
+              <button className="primary" type="submit">Confirm</button>
+            </form>
+            <form action={rejectActionItemAction}>
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="action_id" type="hidden" value={action.id} />
+              <button type="submit">Reject</button>
+            </form>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function NotesTool({ board }: { board: RetroBoard }) {
+  return (
+    <details className="tool-card">
+      <summary>Notes</summary>
+      <form className="compact-form" action={createMeetingNoteAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <input name="title" defaultValue="Meeting notes" aria-label="Notes title" />
+        <textarea name="body_text" rows={3} placeholder="Paste notes" aria-label="Notes" />
+        <button type="submit">Attach</button>
+      </form>
+      {board.meeting_notes.map((note) => (
+        <article className="tool-item" key={note.id}>
+          <strong>{note.title}</strong>
+          <p>{note.body_text}</p>
+        </article>
+      ))}
+    </details>
+  );
+}
+
+function AiTool({ board }: { board: RetroBoard }) {
+  return (
+    <details className="tool-card">
+      <summary>AI</summary>
+      <form className="compact-form" action={startAiJobAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <select name="kind" defaultValue="summary" aria-label="AI job">
+          <option value="gif_suggestions">GIF suggestions</option>
+          <option value="clustering">Clustering</option>
+          <option value="action_suggestions">Action proposals</option>
+          <option value="summary">Summary</option>
+          <option value="mood">Team mood</option>
+          <option value="tagging">Tagging</option>
+        </select>
+        <label className="inline-check">
+          <input name="fail" type="checkbox" /> fail
+        </label>
+        <button type="submit">Run</button>
+      </form>
+      {board.ai_artifacts.map((artifact) => (
+        <article className={`tool-item ${artifact.status}`} key={artifact.id}>
+          <div className="chips">
+            <span className="chip">{artifact.kind.replaceAll("_", " ")}</span>
+            <span className="chip">{artifact.status}</span>
+          </div>
+          {artifact.error_message ? <p>{artifact.error_message}</p> : null}
+          {artifact.output ? <pre>{JSON.stringify(artifact.output, null, 2)}</pre> : null}
+          {artifact.status === "failed" ? (
+            <form action={retryAiJobAction}>
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="artifact_id" type="hidden" value={artifact.id} />
+              <button type="submit">Retry</button>
+            </form>
+          ) : null}
+        </article>
+      ))}
+    </details>
+  );
+}
+
+function DeliveryTool({ board }: { board: RetroBoard }) {
+  return (
+    <section className="tool-card">
+      <h3>Delivery</h3>
+      <form className="compact-form" action={createDeliveryAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <select name="kind" defaultValue="summary_export" aria-label="Delivery kind">
+          <option value="summary_export">Summary export</option>
+          <option value="external_action_link">External action link</option>
+        </select>
+        <label className="inline-check">
+          <input name="fail" type="checkbox" /> fail
+        </label>
+        <button type="submit">Create</button>
+      </form>
+      {board.deliveries.map((delivery) => (
+        <article className={`tool-item ${delivery.status}`} key={delivery.id}>
+          <div className="chips">
+            <span className="chip">{delivery.kind.replaceAll("_", " ")}</span>
+            <span className="chip">{delivery.status}</span>
+          </div>
+          {delivery.error_message ? <p>{delivery.error_message}</p> : null}
+          {delivery.output ? <pre>{JSON.stringify(delivery.output, null, 2)}</pre> : null}
+          {delivery.status === "failed" ? (
+            <form action={retryDeliveryAction}>
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="delivery_id" type="hidden" value={delivery.id} />
+              <button type="submit">Retry</button>
+            </form>
+          ) : null}
+        </article>
+      ))}
+    </section>
   );
 }
 
@@ -400,4 +476,8 @@ function parseGifResults(value?: string): GifResult[] {
   } catch {
     return [];
   }
+}
+
+function phaseLabel(phase: RetroBoard["retro"]["phase"]) {
+  return phase.replaceAll("_", " ");
 }
