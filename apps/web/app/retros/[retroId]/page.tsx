@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { castVoteAction, clusterBoardAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -49,7 +49,9 @@ export default async function RetroBoardPage({
             <p className="eyebrow">{board.retro.phase.replaceAll("_", " ")}</p>
             <h2>{board.retro.phase === "writing" ? "Draft board" : "Revealed board"}</h2>
             <p>
-              {board.retro.phase === "writing"
+              {board.retro.phase === "completed"
+                ? "This retro is completed. Confirmed/proposed actions remain visible for follow-through."
+                : board.retro.phase === "writing"
                 ? "Cards are private by default. Other participants' card contents remain blurred until everyone is ready and the board is revealed."
                 : "The same board is now the shared discussion surface."}
             </p>
@@ -112,11 +114,20 @@ export default async function RetroBoardPage({
               </div>
             </div>
             {board.retro.phase === "action_discussion" ? (
+                  <form action={completeRetroAction}>
+                    <input name="retro_id" type="hidden" value={board.retro.id} />
+                    <button className="primary" type="submit">Complete retro</button>
+                  </form>
+                ) : null}
+                {board.retro.phase === "completed" ? (
+                  <Link className="button" href="/history">Back to history</Link>
+                ) : null}
+                {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? (
               <section className="scene action-panel">
                 <div className="scene-head">
                   <p className="eyebrow">Action agenda</p>
-                  <h3>Top voted action cards</h3>
-                  <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order.</p>
+                      <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top voted action cards"}</h3>
+                      <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order. Tags support recurring-action history.</p>
                 </div>
                 {board.actions.map((action) => (
                   <article className={`card action-card ${action.status}`} key={action.id}>
@@ -133,6 +144,7 @@ export default async function RetroBoardPage({
                       </label>
                       <div className="vote-row">
                         <span className="chip">{action.status}</span>
+                          {action.tags.map((tag) => <span className="chip" key={tag}>{tag}</span>)}
                         <button type="submit">Save edit</button>
                       </div>
                     </form>
@@ -149,8 +161,8 @@ export default async function RetroBoardPage({
                       </form>
                     </div>
                   </article>
-                ))}
-              </section>
+                    ))}
+                  </section>
             ) : null}
             <div className={`columns ${board.columns.length === 5 ? "five" : ""}`}>
               {board.columns.map((column) => (

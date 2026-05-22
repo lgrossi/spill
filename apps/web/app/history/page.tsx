@@ -26,7 +26,7 @@ export default async function HistoryPage() {
           <div className="scene-head">
             <p className="eyebrow">Memory</p>
             <h2>Boards, not analytics cosplay</h2>
-            <p>History currently reopens persisted boards. Tags, unresolved actions, and recurring pain come in later slices.</p>
+            <p>Completed retros show unresolved actions and recurring tags; active boards stay reopenable.</p>
           </div>
           <div className="grid three">
             {boards.length === 0 ? <p className="muted">No boards yet.</p> : null}
@@ -37,6 +37,8 @@ export default async function HistoryPage() {
                 <div className="chips">
                   <span className="chip">{board.column_count} columns</span>
                   <span className="chip">{board.participant_count} participants</span>
+                  <span className="chip">{board.unresolved_action_count} unresolved actions</span>
+                  {board.recurring_tags.slice(0, 3).map((tag) => <span className="chip" key={tag}>{tag}</span>)}
                 </div>
               </Link>
             ))}

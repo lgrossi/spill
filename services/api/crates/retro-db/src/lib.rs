@@ -163,7 +163,7 @@ impl RetroRepository {
     }
 
     pub async fn list_retros(&self) -> Result<RetroOverview, sqlx::Error> {
-        let summaries = sqlx::query_as::<_, RetroSummary>(
+        let rows = sqlx::query_as::<_, RetroSummaryRow>(
             "SELECT
                 r.id,
                 r.title,
@@ -171,16 +171,21 @@ impl RetroRepository {
                 r.vote_limit,
                 r.action_discussion_limit,
                 COUNT(DISTINCT p.id)::BIGINT AS participant_count,
-                COUNT(DISTINCT c.id)::BIGINT AS column_count
+                COUNT(DISTINCT c.id)::BIGINT AS column_count,
+                COUNT(DISTINCT a.id) FILTER (WHERE a.status <> 'rejected')::BIGINT AS unresolved_action_count,
+                COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags
              FROM retros r
              LEFT JOIN participants p ON p.retro_id = r.id
              LEFT JOIN retro_columns c ON c.retro_id = r.id
+             LEFT JOIN action_items a ON a.retro_id = r.id
+             LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
              GROUP BY r.id
              ORDER BY r.created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
 
+        let summaries = rows.into_iter().map(RetroSummary::from).collect::<Vec<_>>();
         let (completed, active): (Vec<_>, Vec<_>) = summaries
             .into_iter()
             .partition(|summary| summary.phase == "completed");
@@ -498,15 +503,17 @@ impl RetroRepository {
         .await?;
 
         for (position, candidate) in candidates.iter().enumerate() {
+            let tags = action_tags(&candidate.title);
             sqlx::query(
-                "INSERT INTO action_items (retro_id, source_card_id, title, details, status, position)
-                 VALUES ($1, $2, $3, $4, 'proposed', $5)",
+                "INSERT INTO action_items (retro_id, source_card_id, title, details, status, position, tags)
+                 VALUES ($1, $2, $3, $4, 'proposed', $5, $6)",
             )
             .bind(retro_id)
             .bind(candidate.id)
             .bind(format!("Follow up: {}", candidate.title))
             .bind(format!("Based on {votes} vote(s).", votes = candidate.vote_count))
             .bind(position as i32)
+            .bind(Json(tags))
             .execute(&mut *tx)
             .await?;
         }
@@ -515,22 +522,38 @@ impl RetroRepository {
         Ok(self.fetch_actions(retro_id).await?)
     }
 
+    pub async fn complete_retro(&self, retro_id: Uuid) -> Result<Option<RetroRecord>, ActionError> {
+        let retro = sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET phase = 'completed', completed_at = NOW()
+             WHERE id = $1 AND phase = 'action_discussion'
+             RETURNING id, title, phase, vote_limit, action_discussion_limit",
+        )
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(retro)
+    }
+
     pub async fn update_action(
         &self,
         input: UpdateActionInput,
     ) -> Result<Option<ActionItemRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ActionItemRecord>(
+        let row = sqlx::query_as::<_, ActionItemRow>(
             "UPDATE action_items
              SET title = $3, details = $4
              WHERE id = $1 AND retro_id = $2
-             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position",
+             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position, tags",
         )
         .bind(input.action_id)
         .bind(input.retro_id)
         .bind(input.title.trim())
         .bind(input.details.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .fetch_optional(&self.pool)
-        .await
+        .await?;
+
+        Ok(row.map(Into::into))
     }
 
     pub async fn set_action_status(
@@ -539,17 +562,19 @@ impl RetroRepository {
         action_id: Uuid,
         status: &str,
     ) -> Result<Option<ActionItemRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ActionItemRecord>(
+        let row = sqlx::query_as::<_, ActionItemRow>(
             "UPDATE action_items
              SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN NOW() ELSE confirmed_at END
              WHERE id = $1 AND retro_id = $2
-             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position",
+             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position, tags",
         )
         .bind(action_id)
         .bind(retro_id)
         .bind(status)
         .fetch_optional(&self.pool)
-        .await
+        .await?;
+
+        Ok(row.map(Into::into))
     }
 
     async fn ensure_participant(
@@ -673,15 +698,17 @@ impl RetroRepository {
     }
 
     async fn fetch_actions(&self, retro_id: Uuid) -> Result<Vec<ActionItemRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ActionItemRecord>(
-            "SELECT id, retro_id, source_card_id, source_cluster_id, title, details, status, position
+        let rows = sqlx::query_as::<_, ActionItemRow>(
+            "SELECT id, retro_id, source_card_id, source_cluster_id, title, details, status, position, tags
              FROM action_items
              WHERE retro_id = $1
              ORDER BY position, created_at",
         )
         .bind(retro_id)
         .fetch_all(&self.pool)
-        .await
+        .await?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 }
 
@@ -803,7 +830,7 @@ pub struct VotingInfo {
     pub votes_remaining: i32,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ActionItemRecord {
     pub id: Uuid,
     pub retro_id: Uuid,
@@ -813,9 +840,39 @@ pub struct ActionItemRecord {
     pub details: Option<String>,
     pub status: String,
     pub position: i32,
+    pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ActionItemRow {
+    id: Uuid,
+    retro_id: Uuid,
+    source_card_id: Option<Uuid>,
+    source_cluster_id: Option<Uuid>,
+    title: String,
+    details: Option<String>,
+    status: String,
+    position: i32,
+    tags: Json<Vec<String>>,
+}
+
+impl From<ActionItemRow> for ActionItemRecord {
+    fn from(row: ActionItemRow) -> Self {
+        Self {
+            id: row.id,
+            retro_id: row.retro_id,
+            source_card_id: row.source_card_id,
+            source_cluster_id: row.source_cluster_id,
+            title: row.title,
+            details: row.details,
+            status: row.status,
+            position: row.position,
+            tags: row.tags.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RetroSummary {
     pub id: Uuid,
     pub title: String,
@@ -824,6 +881,37 @@ pub struct RetroSummary {
     pub action_discussion_limit: i32,
     pub participant_count: i64,
     pub column_count: i64,
+    pub unresolved_action_count: i64,
+    pub recurring_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RetroSummaryRow {
+    id: Uuid,
+    title: String,
+    phase: String,
+    vote_limit: i32,
+    action_discussion_limit: i32,
+    participant_count: i64,
+    column_count: i64,
+    unresolved_action_count: i64,
+    recurring_tags: Json<Vec<String>>,
+}
+
+impl From<RetroSummaryRow> for RetroSummary {
+    fn from(row: RetroSummaryRow) -> Self {
+        Self {
+            id: row.id,
+            title: row.title,
+            phase: row.phase,
+            vote_limit: row.vote_limit,
+            action_discussion_limit: row.action_discussion_limit,
+            participant_count: row.participant_count,
+            column_count: row.column_count,
+            unresolved_action_count: row.unresolved_action_count,
+            recurring_tags: row.recurring_tags.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -998,6 +1086,24 @@ fn cluster_key(text: &str) -> Option<String> {
                 .collect::<String>()
         })
         .find(|word| word.len() >= 4)
+}
+
+fn action_tags(text: &str) -> Vec<String> {
+    let mut tags = text
+        .split_whitespace()
+        .map(|word| {
+            word.chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        })
+        .filter(|word| word.len() >= 4)
+        .take(3)
+        .collect::<Vec<_>>();
+    if !tags.iter().any(|tag| tag == "topvoted") {
+        tags.push("topvoted".to_owned());
+    }
+    tags
 }
 
 #[cfg(test)]
@@ -1446,6 +1552,7 @@ mod tests {
         assert_eq!(actions.len(), 2);
         assert_eq!(actions[0].source_card_id, Some(cards[0].id));
         assert_eq!(actions[1].source_card_id, Some(cards[1].id));
+        assert!(actions[0].tags.contains(&"topvoted".to_owned()));
 
         let edited = repo
             .update_action(UpdateActionInput {
@@ -1472,5 +1579,22 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(rejected.status, "rejected");
+
+        let completed = repo
+            .complete_retro(created.retro.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.phase, "completed");
+
+        let overview = repo.list_retros().await.unwrap();
+        assert_eq!(overview.active.len(), 0);
+        assert_eq!(overview.completed.len(), 1);
+        assert_eq!(overview.completed[0].unresolved_action_count, 1);
+        assert!(
+            overview.completed[0]
+                .recurring_tags
+                .contains(&"topvoted".to_owned())
+        );
     }
 }

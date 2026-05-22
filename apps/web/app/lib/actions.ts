@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { castVote, clusterBoard, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
+import { castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -133,4 +133,12 @@ export async function rejectActionItemAction(formData: FormData) {
 
   await rejectActionItem(retroId, actionId);
   revalidatePath(`/retros/${retroId}`);
+}
+
+export async function completeRetroAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+
+  await completeRetro(retroId);
+  revalidatePath(`/retros/${retroId}`);
+  revalidatePath("/history");
 }

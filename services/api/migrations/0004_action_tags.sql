@@ -1,0 +1,2 @@
+ALTER TABLE action_items
+    ADD COLUMN tags JSONB NOT NULL DEFAULT '[]'::JSONB;

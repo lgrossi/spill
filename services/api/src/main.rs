@@ -357,6 +357,7 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/actions/{action_id}/reject",
             post(reject_action),
         )
+        .route("/retros/{retro_id}/complete", post(complete_retro))
         .fallback(api_not_found)
 }
 
@@ -666,6 +667,28 @@ async fn reject_action(
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
     set_action_status(repository, event_hub, retro_id, action_id, "rejected").await
+}
+
+async fn complete_retro(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .complete_retro(retro_id)
+        .await
+        .map_err(action_error)?
+        .ok_or_else(|| ApiError::bad_request("retro must be in action discussion to complete"))?;
+    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn set_action_status(
@@ -1422,6 +1445,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -1439,5 +1463,58 @@ mod tests {
         assert_eq!(board["ready"]["current_user_ready"], true);
         assert_eq!(board["voting"]["votes_remaining"], 1);
         assert_eq!(board["columns"][0]["cards"][0]["vote_count"], 2);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/actions/start"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let action_board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(action_board["retro"]["phase"], "action_discussion");
+        let action_id = action_board["actions"][0]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/retros/{retro_id}/actions/{action_id}/confirm"
+                    ))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/complete"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let completed_board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(completed_board["retro"]["phase"], "completed");
     }
 }

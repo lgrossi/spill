@@ -10,6 +10,8 @@ export type RetroSummary = {
   action_discussion_limit: number;
   participant_count: number;
   column_count: number;
+  unresolved_action_count: number;
+  recurring_tags: string[];
 };
 
 export type RetroOverview = {
@@ -94,6 +96,7 @@ export type RetroActionItem = {
   details: string | null;
   status: "proposed" | "confirmed" | "rejected";
   position: number;
+  tags: string[];
 };
 
 export type CreateRetroPayload =
@@ -210,6 +213,13 @@ export async function confirmActionItem(retroId: string, actionId: string): Prom
 
 export async function rejectActionItem(retroId: string, actionId: string): Promise<RetroActionItem> {
   return apiFetch(`/api/retros/${retroId}/actions/${actionId}/reject`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function completeRetro(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/complete`, {
     method: "POST",
     cache: "no-store",
   });
