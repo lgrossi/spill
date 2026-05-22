@@ -1,9 +1,16 @@
-use std::net::SocketAddr;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Context;
 use axum::{
     Json, Router,
-    extract::{FromRef, Path, State},
+    extract::{
+        FromRef, Path, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
@@ -12,7 +19,7 @@ use clap::{Parser, Subcommand};
 use retro_db::{CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository, RetroTemplate};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
@@ -55,6 +62,7 @@ struct HealthResponse {
 struct AppState {
     access_policy: LinkAccessPolicy,
     repository: Option<RetroRepository>,
+    event_hub: BoardEventHub,
 }
 
 #[derive(Clone, Default)]
@@ -75,6 +83,65 @@ impl FromRef<AppState> for LinkAccessPolicy {
 impl FromRef<AppState> for Option<RetroRepository> {
     fn from_ref(state: &AppState) -> Self {
         state.repository.clone()
+    }
+}
+
+impl FromRef<AppState> for BoardEventHub {
+    fn from_ref(state: &AppState) -> Self {
+        state.event_hub.clone()
+    }
+}
+
+#[derive(Clone, Default)]
+struct BoardEventHub {
+    channels: Arc<Mutex<HashMap<Uuid, broadcast::Sender<BoardEvent>>>>,
+}
+
+impl BoardEventHub {
+    fn subscribe(&self, retro_id: Uuid) -> broadcast::Receiver<BoardEvent> {
+        let sender = self.sender(retro_id);
+        let receiver = sender.subscribe();
+        let _ = sender.send(BoardEvent::BoardSnapshot { retro_id });
+        receiver
+    }
+
+    fn publish(&self, event: BoardEvent) {
+        let sender = self.sender(event.retro_id());
+        let _ = sender.send(event);
+    }
+
+    fn sender(&self, retro_id: Uuid) -> broadcast::Sender<BoardEvent> {
+        let mut channels = self
+            .channels
+            .lock()
+            .expect("board event hub mutex poisoned");
+        channels
+            .entry(retro_id)
+            .or_insert_with(|| {
+                let (sender, _) = broadcast::channel(128);
+                sender
+            })
+            .clone()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum BoardEvent {
+    BoardSnapshot { retro_id: Uuid },
+    CardChanged { retro_id: Uuid },
+    ReadyChanged { retro_id: Uuid },
+    PhaseChanged { retro_id: Uuid },
+}
+
+impl BoardEvent {
+    fn retro_id(&self) -> Uuid {
+        match self {
+            Self::BoardSnapshot { retro_id }
+            | Self::CardChanged { retro_id }
+            | Self::ReadyChanged { retro_id }
+            | Self::PhaseChanged { retro_id } => *retro_id,
+        }
     }
 }
 
@@ -206,6 +273,7 @@ fn app_with_repository(repository: RetroRepository) -> Router {
     app_with_state(AppState {
         access_policy: LinkAccessPolicy,
         repository: Some(repository),
+        event_hub: BoardEventHub::default(),
     })
 }
 
@@ -222,6 +290,7 @@ fn api_router() -> Router<AppState> {
         .route("/session", get(session))
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro))
+        .route("/retros/{retro_id}/events", get(board_events))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
             "/retros/{retro_id}/cards/{card_id}",
@@ -302,6 +371,7 @@ async fn open_retro(
 
 async fn create_draft_card(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CreateDraftCardRequest>,
@@ -319,13 +389,16 @@ async fn create_draft_card(
         .await
         .map_err(|error| ApiError::internal(format!("failed to create draft card: {error}")))?;
 
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+
     Ok((StatusCode::CREATED, Json(card)))
 }
 
 async fn update_draft_card(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
-    Path((_retro_id, card_id)): Path<(Uuid, Uuid)>,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateDraftCardRequest>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
     let repository = configured_repository(repository)?;
@@ -338,14 +411,18 @@ async fn update_draft_card(
         )
         .await
         .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
-        .map(Json)
+        .map(|card| {
+            event_hub.publish(BoardEvent::CardChanged { retro_id });
+            Json(card)
+        })
         .ok_or_else(|| ApiError::not_found("draft card not found"))
 }
 
 async fn delete_draft_card(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
-    Path((_retro_id, card_id)): Path<(Uuid, Uuid)>,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
@@ -354,6 +431,7 @@ async fn delete_draft_card(
         .await
         .map_err(|error| ApiError::internal(format!("failed to delete draft card: {error}")))?
     {
+        event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::not_found("draft card not found"))
@@ -362,6 +440,7 @@ async fn delete_draft_card(
 
 async fn mark_ready(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
@@ -371,6 +450,7 @@ async fn mark_ready(
         .mark_ready(retro_id, &user.subject, &user.display_name)
         .await
         .map_err(|error| ApiError::internal(format!("failed to mark ready: {error}")))?;
+    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
     repository
         .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
         .await
@@ -381,6 +461,7 @@ async fn mark_ready(
 
 async fn reveal_board(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
@@ -390,12 +471,39 @@ async fn reveal_board(
         .reveal_board(retro_id)
         .await
         .map_err(|error| ApiError::internal(format!("failed to reveal board: {error}")))?;
+    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
     repository
         .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
         .await
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn board_events(
+    State(event_hub): State<BoardEventHub>,
+    Path(retro_id): Path<Uuid>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| board_event_socket(socket, event_hub, retro_id))
+}
+
+async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, retro_id: Uuid) {
+    let mut receiver = event_hub.subscribe(retro_id);
+
+    loop {
+        let event = match receiver.recv().await {
+            Ok(event) => event,
+            Err(broadcast::error::RecvError::Lagged(_)) => BoardEvent::BoardSnapshot { retro_id },
+            Err(broadcast::error::RecvError::Closed) => break,
+        };
+        let Ok(payload) = serde_json::to_string(&event) else {
+            continue;
+        };
+        if socket.send(Message::Text(payload.into())).await.is_err() {
+            break;
+        }
+    }
 }
 
 async fn api_not_found() -> ApiError {
@@ -568,6 +676,30 @@ mod tests {
 
         assert_eq!(response.status, "ok");
         assert_eq!(response.service, "spillio-api");
+    }
+
+    #[tokio::test]
+    async fn board_event_hub_sends_snapshot_then_mutation_events() {
+        let hub = BoardEventHub::default();
+        let retro_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+        let mut first = hub.subscribe(retro_id);
+        assert_eq!(
+            first.recv().await.unwrap(),
+            BoardEvent::BoardSnapshot { retro_id }
+        );
+
+        hub.publish(BoardEvent::CardChanged { retro_id });
+        assert_eq!(
+            first.recv().await.unwrap(),
+            BoardEvent::CardChanged { retro_id }
+        );
+
+        let mut reconnected = hub.subscribe(retro_id);
+        assert_eq!(
+            reconnected.recv().await.unwrap(),
+            BoardEvent::BoardSnapshot { retro_id }
+        );
     }
 
     #[tokio::test]

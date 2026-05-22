@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro } from "../../lib/api";
 import { createDraftCardAction, markReadyAction, revealRetroAction } from "../../lib/actions";
+import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({ params }: { params: Promise<{ retroId: string }> }) {
   const { retroId } = await params;
@@ -13,6 +14,7 @@ export default async function RetroBoardPage({ params }: { params: Promise<{ ret
 
   return (
     <main>
+      <BoardSync retroId={board.retro.id} />
       <header className="topbar">
         <div>
           <p className="eyebrow">Board</p>
