@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createDraftCard, createRetro, markReady, revealRetro, searchGifs, type CreateRetroPayload } from "./api";
+import { castVote, createDraftCard, createRetro, markReady, revealRetro, searchGifs, startVoting, type CreateRetroPayload } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -77,5 +77,20 @@ export async function revealRetroAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await revealRetro(retroId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function startVotingAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+
+  await startVoting(retroId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function castVoteAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const cardId = String(formData.get("card_id") ?? "");
+
+  await castVote(retroId, cardId, 1);
   revalidatePath(`/retros/${retroId}`);
 }

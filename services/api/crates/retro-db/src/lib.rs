@@ -71,6 +71,7 @@ impl RetroRepository {
             retro,
             columns: records,
             ready: ReadyInfo::default(),
+            voting: VotingInfo::default(),
         })
     }
 
@@ -80,10 +81,12 @@ impl RetroRepository {
         };
         let columns = self.fetch_columns(id).await?;
         let ready = self.ready_info(id, "").await?;
+        let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
             retro,
             columns,
             ready,
+            voting,
         }))
     }
 
@@ -107,10 +110,12 @@ impl RetroRepository {
                 .collect();
         }
         let ready = self.ready_info(id, subject).await?;
+        let voting = self.voting_info(id, subject).await?;
         Ok(Some(RetroBoard {
             retro,
             columns,
             ready,
+            voting,
         }))
     }
 
@@ -181,7 +186,7 @@ impl RetroRepository {
                 'draft',
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
              )
-             RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, false AS hidden",
+             RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(input.retro_id)
         .bind(input.column_id)
@@ -209,7 +214,7 @@ impl RetroRepository {
                AND c.author_participant_id = p.id
                AND p.external_subject = $2
                AND c.state = 'draft'
-             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, false AS hidden",
+             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
         .bind(subject)
@@ -252,7 +257,11 @@ impl RetroRepository {
             .await?;
         sqlx::query(
             "INSERT INTO participant_ready_marks (participant_id, retro_id, phase)
-             VALUES ($1, $2, 'writing')
+             VALUES (
+                $1,
+                $2,
+                (SELECT CASE WHEN phase = 'voting' THEN 'voting' ELSE 'writing' END FROM retros WHERE id = $2)
+             )
              ON CONFLICT (participant_id, phase) DO NOTHING",
         )
         .bind(participant_id)
@@ -281,6 +290,77 @@ impl RetroRepository {
 
         tx.commit().await?;
         Ok(retro)
+    }
+
+    pub async fn start_voting(&self, retro_id: Uuid) -> Result<RetroRecord, VotingError> {
+        let retro = sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET phase = 'voting'
+             WHERE id = $1 AND phase = 'discussion'
+             RETURNING id, title, phase, vote_limit, action_discussion_limit",
+        )
+        .bind(retro_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(retro)
+    }
+
+    pub async fn cast_vote(&self, input: CastVoteInput) -> Result<VotingInfo, VotingError> {
+        let participant_id = self
+            .ensure_participant(input.retro_id, &input.subject, &input.display_name)
+            .await?;
+        let retro = self
+            .fetch_retro(input.retro_id)
+            .await?
+            .ok_or_else(|| VotingError::Invalid("retro not found".to_owned()))?;
+
+        if retro.phase != "voting" {
+            return Err(VotingError::Invalid(
+                "retro is not in voting phase".to_owned(),
+            ));
+        }
+        if input.count <= 0 {
+            return Err(VotingError::Invalid(
+                "vote count must be positive".to_owned(),
+            ));
+        }
+
+        let target = sqlx::query_as::<_, VoteTarget>(
+            "SELECT id FROM cards WHERE id = $1 AND retro_id = $2 AND state = 'revealed'",
+        )
+        .bind(input.card_id)
+        .bind(input.retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if target.is_none() {
+            return Err(VotingError::Invalid(
+                "vote target is not available".to_owned(),
+            ));
+        }
+
+        let used = self.votes_used(input.retro_id, participant_id).await?;
+        let attempted = used + input.count;
+        if attempted > retro.vote_limit {
+            return Err(VotingError::Invalid("vote limit exceeded".to_owned()));
+        }
+
+        sqlx::query(
+            "INSERT INTO votes (retro_id, participant_id, target_card_id, count)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(input.retro_id)
+        .bind(participant_id)
+        .bind(input.card_id)
+        .bind(input.count)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(VotingInfo {
+            vote_limit: retro.vote_limit,
+            votes_used: attempted as i64,
+            votes_remaining: retro.vote_limit - attempted,
+        })
     }
 
     async fn ensure_participant(
@@ -330,11 +410,16 @@ impl RetroRepository {
                 END AS gif_alt_text,
                 c.state,
                 c.position,
+                COALESCE(SUM(v.count), 0)::BIGINT AS vote_count,
+                COALESCE(SUM(CASE WHEN vp.external_subject = $2 THEN v.count ELSE 0 END), 0)::BIGINT AS current_user_vote_count,
                 (r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2) AS hidden
              FROM cards c
              JOIN participants p ON p.id = c.author_participant_id
              JOIN retros r ON r.id = c.retro_id
+             LEFT JOIN votes v ON v.target_card_id = c.id
+             LEFT JOIN participants vp ON vp.id = v.participant_id
              WHERE c.retro_id = $1
+             GROUP BY c.id, r.phase, p.external_subject
              ORDER BY c.column_id, c.position, c.created_at",
         )
         .bind(retro_id)
@@ -350,8 +435,43 @@ impl RetroRepository {
                 COUNT(DISTINCT m.participant_id)::BIGINT AS ready_count,
                 COALESCE(BOOL_OR(p.external_subject = $2 AND m.participant_id IS NOT NULL), false) AS current_user_ready
              FROM participants p
-             LEFT JOIN participant_ready_marks m ON m.participant_id = p.id AND m.phase = 'writing'
+             JOIN retros r ON r.id = p.retro_id
+             LEFT JOIN participant_ready_marks m
+                ON m.participant_id = p.id
+               AND m.phase = CASE WHEN r.phase = 'voting' THEN 'voting' ELSE 'writing' END
              WHERE p.retro_id = $1",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    async fn votes_used(&self, retro_id: Uuid, participant_id: Uuid) -> Result<i32, sqlx::Error> {
+        let record = sqlx::query_as::<_, VoteCount>(
+            "SELECT COALESCE(SUM(count), 0)::BIGINT AS count
+             FROM votes
+             WHERE retro_id = $1 AND participant_id = $2",
+        )
+        .bind(retro_id)
+        .bind(participant_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(record.count as i32)
+    }
+
+    async fn voting_info(&self, retro_id: Uuid, subject: &str) -> Result<VotingInfo, sqlx::Error> {
+        sqlx::query_as::<_, VotingInfo>(
+            "SELECT
+                r.vote_limit,
+                COALESCE(SUM(v.count), 0)::BIGINT AS votes_used,
+                GREATEST(r.vote_limit - COALESCE(SUM(v.count), 0)::INTEGER, 0) AS votes_remaining
+             FROM retros r
+             LEFT JOIN participants p ON p.retro_id = r.id AND p.external_subject = $2
+             LEFT JOIN votes v ON v.retro_id = r.id AND v.participant_id = p.id
+             WHERE r.id = $1
+             GROUP BY r.id",
         )
         .bind(retro_id)
         .bind(subject)
@@ -374,6 +494,7 @@ pub struct RetroBoard {
     pub retro: RetroRecord,
     pub columns: Vec<RetroColumnRecord>,
     pub ready: ReadyInfo,
+    pub voting: VotingInfo,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -423,6 +544,8 @@ pub struct CardRecord {
     pub gif_alt_text: Option<String>,
     pub state: String,
     pub position: i32,
+    pub vote_count: i64,
+    pub current_user_vote_count: i64,
     pub hidden: bool,
 }
 
@@ -431,6 +554,13 @@ pub struct ReadyInfo {
     pub participant_count: i64,
     pub ready_count: i64,
     pub current_user_ready: bool,
+}
+
+#[derive(Debug, Clone, Default, sqlx::FromRow, Serialize)]
+pub struct VotingInfo {
+    pub vote_limit: i32,
+    pub votes_used: i64,
+    pub votes_remaining: i32,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
@@ -471,9 +601,41 @@ pub struct DraftCardInput {
     pub gif_alt_text: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CastVoteInput {
+    pub retro_id: Uuid,
+    pub card_id: Uuid,
+    pub subject: String,
+    pub display_name: String,
+    pub count: i32,
+}
+
+#[derive(Debug)]
+pub enum VotingError {
+    Sqlx(sqlx::Error),
+    Invalid(String),
+}
+
+impl From<sqlx::Error> for VotingError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Sqlx(error)
+    }
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct ParticipantId {
     id: Uuid,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct VoteTarget {
+    #[allow(dead_code)]
+    id: Uuid,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct VoteCount {
+    count: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -777,5 +939,75 @@ mod tests {
         assert_eq!(board.ready.ready_count, 2);
         assert_eq!(board.ready.participant_count, 2);
         assert!(board.ready.current_user_ready);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn voting_tracks_counts_limits_remaining_and_ready_marks(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Voting retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Vote on this".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        let voting = repo.start_voting(created.retro.id).await.unwrap();
+        assert_eq!(voting.phase, "voting");
+
+        let info = repo
+            .cast_vote(CastVoteInput {
+                retro_id: created.retro.id,
+                card_id: card.id,
+                subject: "lee".to_owned(),
+                display_name: "Lee".to_owned(),
+                count: 2,
+            })
+            .await
+            .unwrap();
+        assert_eq!(info.votes_used, 2);
+        assert_eq!(info.votes_remaining, 1);
+
+        let too_many = repo
+            .cast_vote(CastVoteInput {
+                retro_id: created.retro.id,
+                card_id: card.id,
+                subject: "lee".to_owned(),
+                display_name: "Lee".to_owned(),
+                count: 2,
+            })
+            .await;
+        assert!(matches!(too_many, Err(VotingError::Invalid(_))));
+
+        repo.mark_ready(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.ready.ready_count, 1);
+        assert!(board.ready.current_user_ready);
+        assert_eq!(board.voting.votes_remaining, 1);
+        assert_eq!(board.columns[0].cards[0].vote_count, 2);
+        assert_eq!(board.columns[0].cards[0].current_user_vote_count, 2);
     }
 }

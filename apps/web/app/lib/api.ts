@@ -37,6 +37,8 @@ export type RetroCard = {
   state: "draft" | "revealed";
   position: number;
   hidden: boolean;
+  vote_count: number;
+  current_user_vote_count: number;
 };
 
 export type GifResult = {
@@ -64,6 +66,11 @@ export type RetroBoard = {
     participant_count: number;
     ready_count: number;
     current_user_ready: boolean;
+  };
+  voting: {
+    vote_limit: number;
+    votes_used: number;
+    votes_remaining: number;
   };
 };
 
@@ -129,6 +136,22 @@ export async function markReady(retroId: string): Promise<RetroBoard> {
 export async function revealRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/reveal`, {
     method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function startVoting(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/voting/start`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function castVote(retroId: string, cardId: string, count = 1): Promise<RetroBoard["voting"]> {
+  return apiFetch(`/api/retros/${retroId}/votes`, {
+    method: "POST",
+    body: JSON.stringify({ card_id: cardId, count }),
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction } from "../../lib/actions";
+import { castVoteAction, createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction, startVotingAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -63,6 +63,7 @@ export default async function RetroBoardPage({
                     Ready: {board.ready.ready_count}/{board.ready.participant_count}
                   </span>
                   <span className="chip">{board.retro.vote_limit} votes/person</span>
+                  {board.retro.phase === "voting" ? <span className="chip">Votes left: {board.voting.votes_remaining}</span> : null}
                 </div>
                 <h3>{board.retro.title}</h3>
                 <p className="muted">Persisted board id: {board.retro.id}</p>
@@ -81,6 +82,20 @@ export default async function RetroBoardPage({
                       <button type="submit">Reveal board</button>
                     </form>
                   </>
+                ) : null}
+                {board.retro.phase === "discussion" ? (
+                  <form action={startVotingAction}>
+                    <input name="retro_id" type="hidden" value={board.retro.id} />
+                    <button className="primary" type="submit">Start voting</button>
+                  </form>
+                ) : null}
+                {board.retro.phase === "voting" ? (
+                  <form action={markReadyAction}>
+                    <input name="retro_id" type="hidden" value={board.retro.id} />
+                    <button className="primary" type="submit">
+                      {board.ready.current_user_ready ? "Voting ready" : "Mark voting ready"}
+                    </button>
+                  </form>
                 ) : null}
               </div>
             </div>
@@ -105,6 +120,17 @@ export default async function RetroBoardPage({
                         <>
                           {card.body_text ? <p>{card.body_text}</p> : null}
                           {card.gif_url ? <div className="gif">{card.gif_alt_text ?? "Attached GIF"}</div> : null}
+                          {board.retro.phase === "voting" ? (
+                            <div className="vote-row">
+                              <span className="vote">{card.vote_count} votes</span>
+                              {card.current_user_vote_count > 0 ? <span className="chip">You: {card.current_user_vote_count}</span> : null}
+                              <form action={castVoteAction}>
+                                <input name="retro_id" type="hidden" value={board.retro.id} />
+                                <input name="card_id" type="hidden" value={card.id} />
+                                <button type="submit" disabled={board.voting.votes_remaining <= 0}>Vote</button>
+                              </form>
+                            </div>
+                          ) : null}
                         </>
                       )}
                     </article>

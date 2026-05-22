@@ -16,7 +16,10 @@ use axum::{
     routing::{get, patch, post},
 };
 use clap::{Parser, Subcommand};
-use retro_db::{CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository, RetroTemplate};
+use retro_db::{
+    CastVoteInput, CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository, RetroTemplate,
+    VotingError,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, sync::broadcast};
@@ -204,6 +207,13 @@ struct UpdateDraftCardRequest {
 }
 
 #[derive(Deserialize)]
+struct CastVoteRequest {
+    card_id: Uuid,
+    #[serde(default = "default_vote_count")]
+    count: i32,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -322,6 +332,8 @@ fn api_router() -> Router<AppState> {
         )
         .route("/retros/{retro_id}/ready", post(mark_ready))
         .route("/retros/{retro_id}/reveal", post(reveal_board))
+        .route("/retros/{retro_id}/voting/start", post(start_voting))
+        .route("/retros/{retro_id}/votes", post(cast_vote))
         .fallback(api_not_found)
 }
 
@@ -510,6 +522,50 @@ async fn reveal_board(
         .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
+async fn start_voting(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .start_voting(retro_id)
+        .await
+        .map_err(voting_error)?;
+    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn cast_vote(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<CastVoteRequest>,
+) -> Result<Json<retro_db::VotingInfo>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let info = repository
+        .cast_vote(CastVoteInput {
+            retro_id,
+            card_id: request.card_id,
+            subject: user.subject,
+            display_name: user.display_name,
+            count: request.count,
+        })
+        .await
+        .map_err(voting_error)?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(info))
+}
+
 async fn board_events(
     State(event_hub): State<BoardEventHub>,
     Path(retro_id): Path<Uuid>,
@@ -678,6 +734,17 @@ fn require_positive(field: &'static str, value: i32) -> Result<i32, ApiError> {
         Ok(value)
     } else {
         Err(ApiError::bad_request(format!("{field} must be positive")))
+    }
+}
+
+fn default_vote_count() -> i32 {
+    1
+}
+
+fn voting_error(error: VotingError) -> ApiError {
+    match error {
+        VotingError::Sqlx(error) => ApiError::internal(format!("voting failed: {error}")),
+        VotingError::Invalid(message) => ApiError::bad_request(message),
     }
 }
 
@@ -1120,5 +1187,123 @@ mod tests {
             gif_card["gif_url"],
             "https://media.spillitout.local/high-five-1.gif"
         );
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Voting API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+        let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/cards"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"column_id":"{column_id}","body_text":"vote here"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let card: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let card_id = card["id"].as_str().unwrap();
+
+        for path in ["reveal", "voting/start"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/retros/{retro_id}/{path}"))
+                        .header(HEADER_USER_SUBJECT, "ava")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/votes"))
+                    .header(HEADER_USER_SUBJECT, "lee")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"card_id":"{card_id}","count":2}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let voting: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(voting["votes_remaining"], 1);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/votes"))
+                    .header(HEADER_USER_SUBJECT, "lee")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"card_id":"{card_id}","count":2}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ready"))
+                    .header(HEADER_USER_SUBJECT, "lee")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(board["ready"]["current_user_ready"], true);
+        assert_eq!(board["voting"]["votes_remaining"], 1);
+        assert_eq!(board["columns"][0]["cards"][0]["vote_count"], 2);
     }
 }

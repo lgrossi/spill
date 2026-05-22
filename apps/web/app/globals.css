@@ -54,6 +54,7 @@ input,select,textarea { width:100%; margin-top:.35rem; border:1px solid rgba(255
 .action { background:linear-gradient(180deg,#f0fbf5,#fffdf7); }
 .summary { background:#fff6db; }
 .vote { border-radius:999px; background:#e7ebff; color:#334bd3; padding:.35rem .5rem; font-weight:800; }
+.vote-row { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
 .progress { width:min(320px,100%); height:10px; border-radius:999px; background:rgba(255,255,255,.12); overflow:hidden; }
 .progress span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#ff82b2,var(--blue)); }
 .deck { display:flex; align-items:end; justify-content:center; gap:0; padding:0 1rem 1.2rem; }
