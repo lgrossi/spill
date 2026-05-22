@@ -39,4 +39,5 @@ pnpm build
 - `docs/mvp-product-doc.md`
 - `docs/tech-stack-design.md`
 - `docs/implementation-plan.md`
+- `docs/companions.md`
 - `mock/index.html`
