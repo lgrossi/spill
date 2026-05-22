@@ -6,10 +6,10 @@ use axum::{
     extract::{FromRef, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, patch, post},
 };
 use clap::{Parser, Subcommand};
-use retro_db::{CreateRetroInput, RetroOverview, RetroRepository, RetroTemplate};
+use retro_db::{CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository, RetroTemplate};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
@@ -121,6 +121,17 @@ struct CreateRetroRequest {
     action_discussion_limit: i32,
 }
 
+#[derive(Deserialize)]
+struct CreateDraftCardRequest {
+    column_id: Uuid,
+    body_text: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateDraftCardRequest {
+    body_text: String,
+}
+
 #[derive(Serialize)]
 struct ErrorBody {
     error: ErrorDetail,
@@ -211,6 +222,13 @@ fn api_router() -> Router<AppState> {
         .route("/session", get(session))
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro))
+        .route("/retros/{retro_id}/cards", post(create_draft_card))
+        .route(
+            "/retros/{retro_id}/cards/{card_id}",
+            patch(update_draft_card).delete(delete_draft_card),
+        )
+        .route("/retros/{retro_id}/ready", post(mark_ready))
+        .route("/retros/{retro_id}/reveal", post(reveal_board))
         .fallback(api_not_found)
 }
 
@@ -269,11 +287,111 @@ async fn create_retro(
 
 async fn open_retro(
     State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
     repository
-        .fetch_board(retro_id)
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn create_draft_card(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<CreateDraftCardRequest>,
+) -> Result<(StatusCode, Json<retro_db::CardRecord>), ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let card = repository
+        .create_draft_card(DraftCardInput {
+            retro_id,
+            column_id: request.column_id,
+            author_subject: user.subject,
+            author_display_name: user.display_name,
+            body_text: require_non_empty("body_text", request.body_text)?,
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to create draft card: {error}")))?;
+
+    Ok((StatusCode::CREATED, Json(card)))
+}
+
+async fn update_draft_card(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path((_retro_id, card_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<UpdateDraftCardRequest>,
+) -> Result<Json<retro_db::CardRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .update_draft_card(
+            card_id,
+            &user.subject,
+            &require_non_empty("body_text", request.body_text)?,
+        )
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("draft card not found"))
+}
+
+async fn delete_draft_card(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path((_retro_id, card_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    if repository
+        .delete_draft_card(card_id, &user.subject)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to delete draft card: {error}")))?
+    {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("draft card not found"))
+    }
+}
+
+async fn mark_ready(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .mark_ready(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to mark ready: {error}")))?;
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn reveal_board(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .reveal_board(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to reveal board: {error}")))?;
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
         .await
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
@@ -564,5 +682,110 @@ mod tests {
                 .unwrap();
         assert_eq!(overview["active"].as_array().unwrap().len(), 1);
         assert_eq!(overview["completed"].as_array().unwrap().len(), 0);
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_USER_NAME, "Ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Writing API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+        let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+        for (subject, body) in [("ava", "Ava draft"), ("lee", "Lee private draft")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/retros/{retro_id}/cards"))
+                        .header(HEADER_USER_SUBJECT, subject)
+                        .header("content-type", "application/json")
+                        .body(Body::from(format!(
+                            r#"{{"column_id":"{column_id}","body_text":"{body}"}}"#
+                        )))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/retros/{retro_id}"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let ava_board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+
+        assert_eq!(
+            ava_board["columns"][0]["cards"][0]["body_text"],
+            "Ava draft"
+        );
+        assert_eq!(
+            ava_board["columns"][0]["cards"][1]["body_text"],
+            Value::Null
+        );
+        assert_eq!(ava_board["columns"][0]["cards"][1]["hidden"], true);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ready"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/reveal"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let revealed: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(revealed["retro"]["phase"], "discussion");
+        assert_eq!(
+            revealed["columns"][0]["cards"][1]["body_text"],
+            "Lee private draft"
+        );
     }
 }

@@ -24,6 +24,17 @@ export type RetroColumn = {
   title: string;
   position: number;
   order_direction: string;
+  cards: RetroCard[];
+};
+
+export type RetroCard = {
+  id: string;
+  retro_id: string;
+  column_id: string;
+  body_text: string | null;
+  state: "draft" | "revealed";
+  position: number;
+  hidden: boolean;
 };
 
 export type RetroBoard = {
@@ -35,6 +46,11 @@ export type RetroBoard = {
     action_discussion_limit: number;
   };
   columns: RetroColumn[];
+  ready: {
+    participant_count: number;
+    ready_count: number;
+    current_user_ready: boolean;
+  };
 };
 
 export type CreateRetroPayload =
@@ -67,6 +83,29 @@ export async function createRetro(payload: CreateRetroPayload): Promise<RetroBoa
 
 export async function getRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, { cache: "no-store" });
+}
+
+export async function createDraftCard(retroId: string, columnId: string, bodyText: string): Promise<RetroCard> {
+  return apiFetch(`/api/retros/${retroId}/cards`, {
+    method: "POST",
+    body: JSON.stringify({ column_id: columnId, body_text: bodyText }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function markReady(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/ready`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function revealRetro(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/reveal`, {
+    method: "POST",
+    cache: "no-store",
+  });
 }
 
 async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {

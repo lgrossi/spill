@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRetro, type CreateRetroPayload } from "./api";
+import { revalidatePath } from "next/cache";
+import { createDraftCard, createRetro, markReady, revealRetro, type CreateRetroPayload } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -30,4 +31,27 @@ export async function createRetroAction(formData: FormData) {
 
   const board = await createRetro(payload);
   redirect(`/retros/${board.retro.id}`);
+}
+
+export async function createDraftCardAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const columnId = String(formData.get("column_id") ?? "");
+  const bodyText = String(formData.get("body_text") ?? "").trim();
+
+  await createDraftCard(retroId, columnId, bodyText);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function markReadyAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+
+  await markReady(retroId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function revealRetroAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+
+  await revealRetro(retroId);
+  revalidatePath(`/retros/${retroId}`);
 }
