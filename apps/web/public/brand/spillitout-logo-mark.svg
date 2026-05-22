@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288 240" role="img" aria-labelledby="title desc">
   <title id="title">SpillItOut logo mark</title>
   <desc id="desc">Rounded paper sheet with spilled colorful idea tiles.</desc>
-  <ellipse cx="91" cy="222" rx="75" ry="5" fill="#d9d6d0" opacity=".82"/>
-  <path d="M40 35 162 31C176 30 186 41 186 55V88C186 98 180 104 169 106L155 108C144 110 137 118 137 130V139C137 151 129 158 115 161L95 164C80 166 72 175 73 189C74 198 68 204 57 205L36 206C24 207 17 199 17 187L16 55C16 44 27 36 40 35Z" fill="#fffaf2" stroke="#07192b" stroke-width="13" stroke-linejoin="round"/>
-  <path d="M39 42 160 38C170 38 178 46 178 57V87C178 91 176 95 172 97" fill="none" stroke="#f8f0e6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <ellipse cx="91" cy="222" rx="75" ry="5" fill="#d7d3cc" opacity=".78"/>
+  <path d="M40 35 162 31C176 30 186 41 186 55V88C186 98 180 104 169 106 158 107 150 110 145 116 140 122 137 130 137 139 137 151 129 158 114 161L97 164C83 166 74 175 76 187 78 197 71 203 59 204L36 205C24 206 17 198 17 187L16 55C16 44 27 36 40 35Z" fill="#fffaf2" stroke="#07192b" stroke-width="13" stroke-linejoin="round"/>
+  <path d="M174 43C177 47 179 51 179 56V87C179 91 176 95 171 97" fill="none" stroke="#f4eadc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".32"/>
   <path d="M51 82h66M52 110h55M53 136h40" fill="none" stroke="#aeb5be" stroke-width="8" stroke-linecap="round"/>
   <path d="M51 82h27" fill="none" stroke="#8d96a1" stroke-width="8" stroke-linecap="round" opacity=".55"/>
   <path d="M198 103C203 98 210 98 215 103L233 121C238 126 238 133 233 138L215 156C210 161 203 161 198 156L180 138C175 133 175 126 180 121L198 103Z" fill="#ff5b54"/>
-  <path d="M162 147C167 142 174 142 179 147L197 166C202 171 202 178 197 184L178 204C173 209 166 209 161 204L141 184C136 179 136 172 141 167L162 147Z" fill="#2eb9b9"/>
-  <path d="M224 151C228 147 235 147 239 151L257 169C263 175 263 181 257 187L239 204C235 208 228 208 224 204L206 186C201 181 201 175 206 170L224 151Z" fill="#ffad22"/>
+  <path d="M163 151C168 146 175 146 180 151L197 169C203 175 203 182 198 188L179 208C174 213 167 213 162 208L142 188C137 183 137 176 142 171L163 151Z" fill="#2eb9b9"/>
+  <path d="M228 154C233 149 239 150 244 155L261 172C267 178 267 184 261 190L243 207C238 212 232 211 228 207L210 189C205 184 205 178 210 173L228 154Z" fill="#ffad22"/>
   <circle cx="249" cy="128" r="9" fill="#2eb9b9"/>
-  <path d="M160 116C165 121 169 126 167 131C165 136 158 138 154 134C150 130 152 123 160 116Z" fill="#ffad22"/>
-  <circle cx="229" cy="92" r="7" fill="#ffad22"/>
+  <path d="M160 121C165 126 169 131 167 136C165 141 158 143 154 139C150 135 152 128 160 121Z" fill="#ffad22"/>
+  <circle cx="229" cy="97" r="7" fill="#ffad22"/>
   <path d="M127 186C133 193 136 199 133 204C129 210 119 208 117 201C116 195 121 190 127 186Z" fill="#ff5b54"/>
   <circle cx="207" cy="212" r="6" fill="#ff5b54"/>
 </svg>
