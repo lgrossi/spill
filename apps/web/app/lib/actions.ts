@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
+import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -141,4 +141,13 @@ export async function completeRetroAction(formData: FormData) {
   await completeRetro(retroId);
   revalidatePath(`/retros/${retroId}`);
   revalidatePath("/history");
+}
+
+export async function acceptDeckItemAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const itemId = String(formData.get("item_id") ?? "");
+  const columnId = String(formData.get("column_id") ?? "");
+
+  await acceptDeckItem(retroId, itemId, columnId);
+  revalidatePath(`/retros/${retroId}`);
 }

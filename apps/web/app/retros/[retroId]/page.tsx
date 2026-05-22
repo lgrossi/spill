@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -114,20 +114,51 @@ export default async function RetroBoardPage({
               </div>
             </div>
             {board.retro.phase === "action_discussion" ? (
-                  <form action={completeRetroAction}>
-                    <input name="retro_id" type="hidden" value={board.retro.id} />
-                    <button className="primary" type="submit">Complete retro</button>
-                  </form>
-                ) : null}
-                {board.retro.phase === "completed" ? (
-                  <Link className="button" href="/history">Back to history</Link>
-                ) : null}
-                {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? (
+              <form action={completeRetroAction}>
+                <input name="retro_id" type="hidden" value={board.retro.id} />
+                <button className="primary" type="submit">Complete retro</button>
+              </form>
+            ) : null}
+            {board.retro.phase === "completed" ? <Link className="button" href="/history">Back to history</Link> : null}
+            {board.retro.phase === "writing" && board.deck.length > 0 ? (
+              <section className="scene action-panel">
+                <div className="scene-head">
+                  <p className="eyebrow">User deck</p>
+                  <h3>Connector suggestions</h3>
+                  <p>Private items from Pi, Claude Code, uploads, or other connectors. Accept one into a board column when ready.</p>
+                </div>
+                {board.deck.map((item) => (
+                  <article className="card action-card" key={item.id}>
+                    <p>{item.suggested_text ?? item.gif_url ?? "Connector item"}</p>
+                    <div className="chips">
+                      <span className="chip">{item.source.replaceAll("_", " ")}</span>
+                      <span className="chip">{item.status}</span>
+                    </div>
+                    <form className="vote-row" action={acceptDeckItemAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <input name="item_id" type="hidden" value={item.id} />
+                      <label>
+                        Column
+                        <select name="column_id" defaultValue={board.columns[0]?.id}>
+                          {board.columns.map((column) => (
+                            <option key={column.id} value={column.id}>
+                              {column.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button className="primary" type="submit">Accept into board</button>
+                    </form>
+                  </article>
+                ))}
+              </section>
+            ) : null}
+            {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? (
               <section className="scene action-panel">
                 <div className="scene-head">
                   <p className="eyebrow">Action agenda</p>
-                      <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top voted action cards"}</h3>
-                      <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order. Tags support recurring-action history.</p>
+                  <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top voted action cards"}</h3>
+                  <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order. Tags support recurring-action history.</p>
                 </div>
                 {board.actions.map((action) => (
                   <article className={`card action-card ${action.status}`} key={action.id}>
@@ -144,7 +175,7 @@ export default async function RetroBoardPage({
                       </label>
                       <div className="vote-row">
                         <span className="chip">{action.status}</span>
-                          {action.tags.map((tag) => <span className="chip" key={tag}>{tag}</span>)}
+                        {action.tags.map((tag) => <span className="chip" key={tag}>{tag}</span>)}
                         <button type="submit">Save edit</button>
                       </div>
                     </form>
@@ -161,8 +192,8 @@ export default async function RetroBoardPage({
                       </form>
                     </div>
                   </article>
-                    ))}
-                  </section>
+                ))}
+              </section>
             ) : null}
             <div className={`columns ${board.columns.length === 5 ? "five" : ""}`}>
               {board.columns.map((column) => (

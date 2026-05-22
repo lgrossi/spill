@@ -85,6 +85,7 @@ export type RetroBoard = {
     tags: string[];
   }[];
   actions: RetroActionItem[];
+  deck: IngestedItem[];
 };
 
 export type RetroActionItem = {
@@ -97,6 +98,17 @@ export type RetroActionItem = {
   status: "proposed" | "confirmed" | "rejected";
   position: number;
   tags: string[];
+};
+
+export type IngestedItem = {
+  id: string;
+  retro_id: string | null;
+  source: "pi" | "claude_code" | "upload" | "other";
+  placement: "user_deck" | "retro_draft";
+  target_column_id: string | null;
+  suggested_text: string | null;
+  gif_url: string | null;
+  status: "pending" | "accepted" | "dismissed";
 };
 
 export type CreateRetroPayload =
@@ -221,6 +233,15 @@ export async function rejectActionItem(retroId: string, actionId: string): Promi
 export async function completeRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/complete`, {
     method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function acceptDeckItem(retroId: string, itemId: string, columnId: string): Promise<RetroCard> {
+  return apiFetch(`/api/retros/${retroId}/deck/${itemId}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ column_id: columnId }),
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
 }

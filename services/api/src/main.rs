@@ -17,8 +17,9 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use retro_db::{
-    ActionError, CastVoteInput, ClusterError, CreateRetroInput, DraftCardInput, RetroOverview,
-    RetroRepository, RetroTemplate, UpdateActionInput, VotingError,
+    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterError, CreateRetroInput,
+    DraftCardInput, IngestItemInput, RetroOverview, RetroRepository, RetroTemplate,
+    UpdateActionInput, VotingError,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -220,6 +221,25 @@ struct UpdateActionRequest {
 }
 
 #[derive(Deserialize)]
+struct IngestItemRequest {
+    source: String,
+    placement: String,
+    target_column_id: Option<Uuid>,
+    suggested_text: Option<String>,
+    gif_url: Option<String>,
+    idempotency_key: Option<String>,
+    #[serde(default)]
+    source_metadata: serde_json::Value,
+    #[serde(default)]
+    raw_payload: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+struct AcceptDeckItemRequest {
+    column_id: Uuid,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -358,6 +378,11 @@ fn api_router() -> Router<AppState> {
             post(reject_action),
         )
         .route("/retros/{retro_id}/complete", post(complete_retro))
+        .route("/retros/{retro_id}/ingest", post(ingest_item))
+        .route(
+            "/retros/{retro_id}/deck/{item_id}/accept",
+            post(accept_deck_item),
+        )
         .fallback(api_not_found)
 }
 
@@ -455,6 +480,61 @@ async fn create_draft_card(
     event_hub.publish(BoardEvent::CardChanged { retro_id });
 
     Ok((StatusCode::CREATED, Json(card)))
+}
+
+async fn ingest_item(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<IngestItemRequest>,
+) -> Result<(StatusCode, Json<retro_db::IngestedItemRecord>), ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    validate_source(&request.source)?;
+    validate_placement(&request)?;
+    let item = repository
+        .ingest_item(IngestItemInput {
+            retro_id,
+            subject: user.subject,
+            display_name: user.display_name,
+            source: request.source,
+            placement: request.placement,
+            target_column_id: request.target_column_id,
+            suggested_text: optional_non_empty(request.suggested_text),
+            gif_url: optional_non_empty(request.gif_url),
+            idempotency_key: optional_non_empty(request.idempotency_key),
+            raw_payload: request.raw_payload,
+            source_metadata: request.source_metadata,
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to ingest item: {error}")))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn accept_deck_item(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path((retro_id, item_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<AcceptDeckItemRequest>,
+) -> Result<Json<retro_db::CardRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let card = repository
+        .accept_deck_item(AcceptDeckItemInput {
+            retro_id,
+            item_id,
+            column_id: request.column_id,
+            subject: user.subject,
+            display_name: user.display_name,
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to accept deck item: {error}")))?
+        .ok_or_else(|| ApiError::not_found("deck item not found"))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(card))
 }
 
 async fn update_draft_card(
@@ -775,6 +855,33 @@ fn card_body_payload(
         gif_url,
         gif_alt_text,
     })
+}
+
+fn validate_source(source: &str) -> Result<(), ApiError> {
+    matches!(source, "pi" | "claude_code" | "upload" | "other")
+        .then_some(())
+        .ok_or_else(|| ApiError::bad_request("source must be pi, claude_code, upload, or other"))
+}
+
+fn validate_placement(request: &IngestItemRequest) -> Result<(), ApiError> {
+    match request.placement.as_str() {
+        "user_deck" => Ok(()),
+        "retro_draft" if request.target_column_id.is_some() => Ok(()),
+        "retro_draft" => Err(ApiError::bad_request(
+            "retro_draft placement requires target_column_id",
+        )),
+        _ => Err(ApiError::bad_request(
+            "placement must be user_deck or retro_draft",
+        )),
+    }?;
+
+    if optional_non_empty(request.suggested_text.clone()).is_none()
+        && optional_non_empty(request.gif_url.clone()).is_none()
+    {
+        return Err(ApiError::bad_request("ingested item requires text or gif"));
+    }
+
+    Ok(())
 }
 
 fn optional_non_empty(value: Option<String>) -> Option<String> {
@@ -1516,5 +1623,104 @@ mod tests {
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(completed_board["retro"]["phase"], "completed");
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Ingestion API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+        let first_column_id = created["columns"][0]["id"].as_str().unwrap();
+        let second_column_id = created["columns"][1]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ingest"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"source":"pi","placement":"user_deck","suggested_text":"Deck idea","idempotency_key":"event-1"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let deck_item: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let deck_item_id = deck_item["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/deck/{deck_item_id}/accept"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"column_id":"{first_column_id}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ingest"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"source":"claude_code","placement":"retro_draft","target_column_id":"{second_column_id}","suggested_text":"Direct idea","idempotency_key":"event-2"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/retros/{retro_id}"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(board["deck"].as_array().unwrap().len(), 0);
+        assert_eq!(board["columns"][0]["cards"][0]["body_text"], "Deck idea");
+        assert_eq!(board["columns"][1]["cards"][0]["body_text"], "Direct idea");
     }
 }

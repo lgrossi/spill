@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
@@ -76,6 +77,7 @@ impl RetroRepository {
             voting: VotingInfo::default(),
             clusters: Vec::new(),
             actions: Vec::new(),
+            deck: Vec::new(),
         })
     }
 
@@ -86,6 +88,7 @@ impl RetroRepository {
         let columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let actions = self.fetch_actions(id).await?;
+        let deck = Vec::new();
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
@@ -95,6 +98,7 @@ impl RetroRepository {
             voting,
             clusters,
             actions,
+            deck,
         }))
     }
 
@@ -112,6 +116,7 @@ impl RetroRepository {
         let clusters = self.fetch_clusters(id).await?;
         let cards = self.fetch_cards_for_user(id, subject).await?;
         let actions = self.fetch_actions(id).await?;
+        let deck = self.fetch_deck(id, subject).await?;
         for column in &mut columns {
             column.cards = cards
                 .iter()
@@ -128,6 +133,7 @@ impl RetroRepository {
             voting,
             clusters,
             actions,
+            deck,
         }))
     }
 
@@ -227,6 +233,119 @@ impl RetroRepository {
         .bind(input.gif_alt_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .fetch_one(&self.pool)
         .await
+    }
+
+    pub async fn ingest_item(
+        &self,
+        input: IngestItemInput,
+    ) -> Result<IngestedItemRecord, sqlx::Error> {
+        let participant_id = self
+            .ensure_participant(input.retro_id, &input.subject, &input.display_name)
+            .await?;
+
+        if let Some(idempotency_key) = input.idempotency_key.as_deref() {
+            if let Some(existing) = self
+                .fetch_ingested_by_idempotency(participant_id, &input.source, idempotency_key)
+                .await?
+            {
+                return Ok(existing);
+            }
+        }
+
+        let accepted_card_id = if input.placement == "retro_draft" {
+            let column_id = input.target_column_id.ok_or(sqlx::Error::RowNotFound)?;
+            let card = self
+                .create_draft_card(DraftCardInput {
+                    retro_id: input.retro_id,
+                    column_id,
+                    author_subject: input.subject.clone(),
+                    author_display_name: input.display_name.clone(),
+                    body_text: input.suggested_text.clone(),
+                    gif_url: input.gif_url.clone(),
+                    gif_alt_text: None,
+                })
+                .await?;
+            Some(card.id)
+        } else {
+            None
+        };
+        let status = if accepted_card_id.is_some() {
+            "accepted"
+        } else {
+            "pending"
+        };
+
+        let row = sqlx::query_as::<_, IngestedItemRow>(
+            "INSERT INTO ingested_items (
+                recipient_participant_id, retro_id, source, placement, target_column_id,
+                suggested_text, gif_url, raw_payload, status, accepted_card_id, idempotency_key, source_metadata
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             RETURNING id, recipient_participant_id, retro_id, source, placement, target_column_id,
+                suggested_text, gif_url, raw_payload, status, accepted_card_id, idempotency_key, source_metadata",
+        )
+        .bind(participant_id)
+        .bind(input.retro_id)
+        .bind(&input.source)
+        .bind(&input.placement)
+        .bind(input.target_column_id)
+        .bind(input.suggested_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(input.gif_url.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(Json(input.raw_payload))
+        .bind(status)
+        .bind(accepted_card_id)
+        .bind(input.idempotency_key.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(Json(input.source_metadata))
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.into())
+    }
+
+    pub async fn accept_deck_item(
+        &self,
+        input: AcceptDeckItemInput,
+    ) -> Result<Option<CardRecord>, sqlx::Error> {
+        let participant_id = self
+            .ensure_participant(input.retro_id, &input.subject, &input.display_name)
+            .await?;
+        let row = sqlx::query_as::<_, IngestedItemRow>(
+            "SELECT id, recipient_participant_id, retro_id, source, placement, target_column_id,
+                suggested_text, gif_url, raw_payload, status, accepted_card_id, idempotency_key, source_metadata
+             FROM ingested_items
+             WHERE id = $1 AND recipient_participant_id = $2 AND retro_id = $3
+               AND placement = 'user_deck' AND status = 'pending'",
+        )
+        .bind(input.item_id)
+        .bind(participant_id)
+        .bind(input.retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(item) = row.map(IngestedItemRecord::from) else {
+            return Ok(None);
+        };
+
+        let card = self
+            .create_draft_card(DraftCardInput {
+                retro_id: input.retro_id,
+                column_id: input.column_id,
+                author_subject: input.subject,
+                author_display_name: input.display_name,
+                body_text: item.suggested_text,
+                gif_url: item.gif_url,
+                gif_alt_text: None,
+            })
+            .await?;
+
+        sqlx::query(
+            "UPDATE ingested_items SET status = 'accepted', accepted_card_id = $2 WHERE id = $1",
+        )
+        .bind(input.item_id)
+        .bind(card.id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Some(card))
     }
 
     pub async fn update_draft_card(
@@ -710,6 +829,48 @@ impl RetroRepository {
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
+
+    async fn fetch_deck(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+    ) -> Result<Vec<IngestedItemRecord>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, IngestedItemRow>(
+            "SELECT i.id, i.recipient_participant_id, i.retro_id, i.source, i.placement, i.target_column_id,
+                i.suggested_text, i.gif_url, i.raw_payload, i.status, i.accepted_card_id, i.idempotency_key, i.source_metadata
+             FROM ingested_items i
+             JOIN participants p ON p.id = i.recipient_participant_id
+             WHERE i.retro_id = $1 AND p.external_subject = $2 AND i.placement = 'user_deck' AND i.status = 'pending'
+             ORDER BY i.created_at DESC",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    async fn fetch_ingested_by_idempotency(
+        &self,
+        participant_id: Uuid,
+        source: &str,
+        idempotency_key: &str,
+    ) -> Result<Option<IngestedItemRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, IngestedItemRow>(
+            "SELECT id, recipient_participant_id, retro_id, source, placement, target_column_id,
+                suggested_text, gif_url, raw_payload, status, accepted_card_id, idempotency_key, source_metadata
+             FROM ingested_items
+             WHERE recipient_participant_id = $1 AND source = $2 AND idempotency_key = $3",
+        )
+        .bind(participant_id)
+        .bind(source)
+        .bind(idempotency_key.trim())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
@@ -729,6 +890,7 @@ pub struct RetroBoard {
     pub voting: VotingInfo,
     pub clusters: Vec<ClusterRecord>,
     pub actions: Vec<ActionItemRecord>,
+    pub deck: Vec<IngestedItemRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -873,6 +1035,60 @@ impl From<ActionItemRow> for ActionItemRecord {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct IngestedItemRecord {
+    pub id: Uuid,
+    pub recipient_participant_id: Uuid,
+    pub retro_id: Option<Uuid>,
+    pub source: String,
+    pub placement: String,
+    pub target_column_id: Option<Uuid>,
+    pub suggested_text: Option<String>,
+    pub gif_url: Option<String>,
+    pub raw_payload: Value,
+    pub status: String,
+    pub accepted_card_id: Option<Uuid>,
+    pub idempotency_key: Option<String>,
+    pub source_metadata: Value,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct IngestedItemRow {
+    id: Uuid,
+    recipient_participant_id: Uuid,
+    retro_id: Option<Uuid>,
+    source: String,
+    placement: String,
+    target_column_id: Option<Uuid>,
+    suggested_text: Option<String>,
+    gif_url: Option<String>,
+    raw_payload: Json<Value>,
+    status: String,
+    accepted_card_id: Option<Uuid>,
+    idempotency_key: Option<String>,
+    source_metadata: Json<Value>,
+}
+
+impl From<IngestedItemRow> for IngestedItemRecord {
+    fn from(row: IngestedItemRow) -> Self {
+        Self {
+            id: row.id,
+            recipient_participant_id: row.recipient_participant_id,
+            retro_id: row.retro_id,
+            source: row.source,
+            placement: row.placement,
+            target_column_id: row.target_column_id,
+            suggested_text: row.suggested_text,
+            gif_url: row.gif_url,
+            raw_payload: row.raw_payload.0,
+            status: row.status,
+            accepted_card_id: row.accepted_card_id,
+            idempotency_key: row.idempotency_key,
+            source_metadata: row.source_metadata.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RetroSummary {
     pub id: Uuid,
     pub title: String,
@@ -939,6 +1155,30 @@ pub struct DraftCardInput {
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IngestItemInput {
+    pub retro_id: Uuid,
+    pub subject: String,
+    pub display_name: String,
+    pub source: String,
+    pub placement: String,
+    pub target_column_id: Option<Uuid>,
+    pub suggested_text: Option<String>,
+    pub gif_url: Option<String>,
+    pub idempotency_key: Option<String>,
+    pub raw_payload: Value,
+    pub source_metadata: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct AcceptDeckItemInput {
+    pub retro_id: Uuid,
+    pub item_id: Uuid,
+    pub column_id: Uuid,
+    pub subject: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1596,5 +1836,94 @@ mod tests {
                 .recurring_tags
                 .contains(&"topvoted".to_owned())
         );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn ingestion_supports_idempotent_deck_and_direct_draft_modes(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Ingest retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+
+        let deck_item = repo
+            .ingest_item(IngestItemInput {
+                retro_id: created.retro.id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+                source: "pi".to_owned(),
+                placement: "user_deck".to_owned(),
+                target_column_id: None,
+                suggested_text: Some("Pi suggested mood".to_owned()),
+                gif_url: None,
+                idempotency_key: Some("same-event".to_owned()),
+                raw_payload: serde_json::json!({"body":"Pi suggested mood"}),
+                source_metadata: serde_json::json!({"tool":"pi"}),
+            })
+            .await
+            .unwrap();
+        let duplicate = repo
+            .ingest_item(IngestItemInput {
+                retro_id: created.retro.id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+                source: "pi".to_owned(),
+                placement: "user_deck".to_owned(),
+                target_column_id: None,
+                suggested_text: Some("ignored duplicate body".to_owned()),
+                gif_url: None,
+                idempotency_key: Some("same-event".to_owned()),
+                raw_payload: serde_json::json!({}),
+                source_metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(deck_item.id, duplicate.id);
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.deck.len(), 1);
+
+        let accepted = repo
+            .accept_deck_item(AcceptDeckItemInput {
+                retro_id: created.retro.id,
+                item_id: deck_item.id,
+                column_id: created.columns[0].id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(accepted.body_text.as_deref(), Some("Pi suggested mood"));
+
+        let direct = repo
+            .ingest_item(IngestItemInput {
+                retro_id: created.retro.id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+                source: "claude_code".to_owned(),
+                placement: "retro_draft".to_owned(),
+                target_column_id: Some(created.columns[1].id),
+                suggested_text: Some("Direct private draft".to_owned()),
+                gif_url: None,
+                idempotency_key: Some("direct-event".to_owned()),
+                raw_payload: serde_json::json!({}),
+                source_metadata: serde_json::json!({"mode":"direct"}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(direct.status, "accepted");
+        assert!(direct.accepted_card_id.is_some());
     }
 }
