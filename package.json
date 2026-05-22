@@ -1,0 +1,17 @@
+{
+  "name": "spillio",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "pnpm --parallel dev",
+    "dev:web": "pnpm --filter @spillio/web dev",
+    "dev:api": "cargo run -p spillio-api -- serve",
+    "build": "pnpm --filter @spillio/web build && cargo build --workspace",
+    "check": "pnpm check:web && pnpm check:api",
+    "check:web": "pnpm --filter @spillio/web typecheck",
+    "check:api": "cargo test --workspace",
+    "test": "pnpm check",
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "cargo run -p spillio-api -- migrate"
+  }
+}
