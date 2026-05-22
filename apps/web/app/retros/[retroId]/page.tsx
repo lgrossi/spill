@@ -28,7 +28,7 @@ export default async function RetroBoardPage({
   searchParams,
 }: {
   params: Promise<{ retroId: string }>;
-  searchParams: Promise<{ gif?: string; gifColumn?: string; gifResults?: string; gifDegraded?: string }>;
+  searchParams: Promise<{ addColumn?: string; gif?: string; gifColumn?: string; gifPage?: string; gifResults?: string; gifDegraded?: string }>;
 }) {
   const { retroId } = await params;
   const gifSearch = await searchParams;
@@ -40,11 +40,12 @@ export default async function RetroBoardPage({
 
   const gifResults = parseGifResults(gifSearch.gifResults);
   const gifColumnId = gifSearch.gifColumn;
+  const activeColumnId = gifColumnId ?? gifSearch.addColumn;
+  const gifPage = Math.max(0, Number(gifSearch.gifPage ?? 0) || 0);
   const gifDegraded = gifSearch.gifDegraded === "1";
   const boardPhase = phaseLabel(board.retro.phase);
   const showToolRail =
     (board.retro.phase === "writing" && board.deck.length > 0) ||
-    board.retro.phase === "action_discussion" ||
     board.retro.phase === "completed" ||
     board.meeting_notes.length > 0 ||
     board.ai_artifacts.length > 0;
@@ -97,6 +98,9 @@ export default async function RetroBoardPage({
 
           <div className={`columns board-columns ${board.columns.length === 5 ? "five" : ""}`}>
             {board.columns.map((column) => {
+              const columnActions = isActionsColumn(column) ? board.actions : [];
+              const columnCount = column.cards.length + columnActions.length;
+              const isActiveColumn = activeColumnId === column.id;
               return (
                 <section className="column" key={column.id}>
                   <div className="column-head">
@@ -104,7 +108,7 @@ export default async function RetroBoardPage({
                       <h3>{column.title}</h3>
                       <small>{board.retro.phase === "writing" ? "Private drafts" : "Shared cards"}</small>
                     </div>
-                    <span className="chip">{column.cards.length}</span>
+                    <span className="chip">{columnCount}</span>
                   </div>
 
                   <div className="card-stack">
@@ -143,27 +147,37 @@ export default async function RetroBoardPage({
                         )}
                       </article>
                     ))}
+                    {columnActions.map((action) => (
+                      <ActionBoardCard action={action} key={action.id} retroId={board.retro.id} />
+                    ))}
                   </div>
 
+                  {board.retro.phase === "writing" ? (
+                    isActiveColumn ? (
+                      <InlineComposer
+                        columnId={column.id}
+                        columnTitle={column.title}
+                        degraded={gifDegraded && gifColumnId === column.id}
+                        gifPage={gifPage}
+                        gifQuery={gifColumnId === column.id ? gifSearch.gif ?? "" : ""}
+                        gifResults={gifColumnId === column.id ? gifResults : []}
+                        retroId={board.retro.id}
+                      />
+                    ) : (
+                      <Link className="add-card-row" href={`/retros/${board.retro.id}?addColumn=${column.id}`}>
+                        +
+                      </Link>
+                    )
+                  ) : null}
                 </section>
               );
             })}
           </div>
-          {board.retro.phase === "writing" ? (
-            <BoardComposer
-              board={board}
-              degraded={gifDegraded}
-              gifColumnId={gifColumnId}
-              gifQuery={gifSearch.gif ?? ""}
-              gifResults={gifResults}
-            />
-          ) : null}
         </article>
 
         {showToolRail ? (
           <aside className="board-tools" aria-label="Board tools">
             {board.retro.phase === "writing" && board.deck.length > 0 ? <DeckTool board={board} /> : null}
-            {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? <ActionTool board={board} /> : null}
             {board.retro.phase === "completed" ? <DeliveryTool board={board} /> : null}
             {board.meeting_notes.length > 0 ? <NotesTool board={board} /> : null}
             {board.ai_artifacts.length > 0 ? <AiTool board={board} /> : null}
@@ -246,46 +260,29 @@ function PhaseControls({ board }: { board: RetroBoard }) {
   );
 }
 
-function BoardComposer({
-  board,
+function InlineComposer({
+  columnId,
+  columnTitle,
   degraded,
-  gifColumnId,
+  gifPage,
   gifQuery,
   gifResults,
+  retroId,
 }: {
-  board: RetroBoard;
+  columnId: string;
+  columnTitle: string;
   degraded: boolean;
-  gifColumnId?: string;
+  gifPage: number;
   gifQuery: string;
   gifResults: GifResult[];
+  retroId: string;
 }) {
-  const selectedColumnId = gifColumnId && board.columns.some((column) => column.id === gifColumnId) ? gifColumnId : board.columns[0]?.id;
-
   return (
-    <div className="floating-composer" aria-label="My card hand">
-      <form className="gif-search-form" action={searchGifsAction} autoComplete="off">
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <select name="column_id" defaultValue={selectedColumnId} aria-label="Target column">
-          {board.columns.map((column) => (
-            <option key={column.id} value={column.id}>
-              {column.title}
-            </option>
-          ))}
-        </select>
-        <input name="gif_query" defaultValue={gifQuery} placeholder="GIF search" autoComplete="off" aria-label="GIF search" />
-        <button type="submit">Search GIF</button>
-      </form>
-      {degraded ? <p className="muted compact-copy">GIF search failed. Text cards still work.</p> : null}
-      <form className="draft-form deck-form" action={createDraftCardAction}>
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <select name="column_id" defaultValue={selectedColumnId} aria-label="Add to column">
-          {board.columns.map((column) => (
-            <option key={column.id} value={column.id}>
-              {column.title}
-            </option>
-          ))}
-        </select>
-        <textarea name="body_text" rows={1} placeholder="Write a card..." />
+    <div className="inline-composer" aria-label={`Add ${columnTitle} card`}>
+      <form className="draft-form quick-card-form" action={createDraftCardAction}>
+        <input name="retro_id" type="hidden" value={retroId} />
+        <input name="column_id" type="hidden" value={columnId} />
+        <textarea name="body_text" rows={1} placeholder={`Add ${columnTitle} card`} />
         {gifResults.length > 0 ? (
           <div className="gif-grid">
             {gifResults.map((gif) => (
@@ -298,10 +295,68 @@ function BoardComposer({
           </div>
         ) : null}
         <button className="primary" type="submit">
-          Play card
+          Add
         </button>
       </form>
+      <form className="gif-search-form inline-gif-search" action={searchGifsAction} autoComplete="off">
+        <input name="retro_id" type="hidden" value={retroId} />
+        <input name="column_id" type="hidden" value={columnId} />
+        <input name="gif_page" type="hidden" value="0" />
+        <input name="gif_query" defaultValue={gifQuery} placeholder="GIF search" autoComplete="off" aria-label="GIF search" />
+        <button type="submit">Search GIF</button>
+      </form>
+      {degraded ? <p className="muted compact-copy">GIF search failed. Text cards still work.</p> : null}
+      {gifQuery ? (
+        <div className="gif-pager">
+          <form action={searchGifsAction}>
+            <input name="retro_id" type="hidden" value={retroId} />
+            <input name="column_id" type="hidden" value={columnId} />
+            <input name="gif_query" type="hidden" value={gifQuery} />
+            <input name="gif_page" type="hidden" value={Math.max(0, gifPage - 1)} />
+            <button type="submit" disabled={gifPage === 0}>
+              Prev
+            </button>
+          </form>
+          <span className="muted">GIF page {gifPage + 1}</span>
+          <form action={searchGifsAction}>
+            <input name="retro_id" type="hidden" value={retroId} />
+            <input name="column_id" type="hidden" value={columnId} />
+            <input name="gif_query" type="hidden" value={gifQuery} />
+            <input name="gif_page" type="hidden" value={gifPage + 1} />
+            <button type="submit">Next</button>
+          </form>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function ActionBoardCard({ action, retroId }: { action: RetroBoard["actions"][number]; retroId: string }) {
+  return (
+    <article className={`card action-board-card ${action.status}`}>
+      <form className="action-card-form" action={updateActionItemAction}>
+        <input name="retro_id" type="hidden" value={retroId} />
+        <input name="action_id" type="hidden" value={action.id} />
+        <input name="title" defaultValue={action.title} aria-label="Action title" />
+        <textarea name="details" rows={2} defaultValue={action.details ?? ""} aria-label="Action details" />
+        <div className="vote-row">
+          <span className="chip">{action.status}</span>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+      <div className="vote-row">
+        <form action={confirmActionItemAction}>
+          <input name="retro_id" type="hidden" value={retroId} />
+          <input name="action_id" type="hidden" value={action.id} />
+          <button className="primary" type="submit">Confirm</button>
+        </form>
+        <form action={rejectActionItemAction}>
+          <input name="retro_id" type="hidden" value={retroId} />
+          <input name="action_id" type="hidden" value={action.id} />
+          <button type="submit">Reject</button>
+        </form>
+      </div>
+    </article>
   );
 }
 
@@ -324,38 +379,6 @@ function DeckTool({ board }: { board: RetroBoard }) {
             </select>
             <button type="submit">Accept</button>
           </form>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function ActionTool({ board }: { board: RetroBoard }) {
-  return (
-    <section className="tool-card">
-      <h3>{board.retro.phase === "completed" ? "Action follow-through" : "Top actions"}</h3>
-      {board.actions.map((action) => (
-        <article className={`tool-item ${action.status}`} key={action.id}>
-          <form className="compact-form" action={updateActionItemAction}>
-            <input name="retro_id" type="hidden" value={board.retro.id} />
-            <input name="action_id" type="hidden" value={action.id} />
-            <input name="title" defaultValue={action.title} aria-label="Action title" />
-            <textarea name="details" rows={2} defaultValue={action.details ?? ""} aria-label="Action details" />
-            <button type="submit">Save</button>
-          </form>
-          <div className="vote-row">
-            <span className="chip">{action.status}</span>
-            <form action={confirmActionItemAction}>
-              <input name="retro_id" type="hidden" value={board.retro.id} />
-              <input name="action_id" type="hidden" value={action.id} />
-              <button className="primary" type="submit">Confirm</button>
-            </form>
-            <form action={rejectActionItemAction}>
-              <input name="retro_id" type="hidden" value={board.retro.id} />
-              <input name="action_id" type="hidden" value={action.id} />
-              <button type="submit">Reject</button>
-            </form>
-          </div>
         </article>
       ))}
     </section>
@@ -480,4 +503,8 @@ function parseGifResults(value?: string): GifResult[] {
 
 function phaseLabel(phase: RetroBoard["retro"]["phase"]) {
   return phase.replaceAll("_", " ");
+}
+
+function isActionsColumn(column: RetroBoard["columns"][number]) {
+  return column.column_key === "actions" || column.title.toLowerCase().includes("action");
 }

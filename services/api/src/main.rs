@@ -262,6 +262,8 @@ struct CreateDeliveryRequest {
 #[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
+    #[serde(default)]
+    page: usize,
 }
 
 #[derive(Serialize)]
@@ -981,7 +983,7 @@ async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, ret
 async fn search_gifs(Query(query): Query<GifSearchQuery>) -> Json<GifSearchResponse> {
     let provider = FakeGifProvider;
     match provider
-        .search(query.q.as_deref().unwrap_or_default())
+        .search(query.q.as_deref().unwrap_or_default(), query.page)
         .await
     {
         Ok(results) => Json(GifSearchResponse {
@@ -1121,7 +1123,7 @@ fn optional_non_empty(value: Option<String>) -> Option<String> {
 struct FakeGifProvider;
 
 impl FakeGifProvider {
-    async fn search(&self, query: &str) -> Result<Vec<GifResult>, ()> {
+    async fn search(&self, query: &str, page: usize) -> Result<Vec<GifResult>, ()> {
         let query = query.trim();
         if query.eq_ignore_ascii_case("fail") {
             return Err(());
@@ -1152,17 +1154,27 @@ impl FakeGifProvider {
             "26u4cqiYI30juCOGY",
             "13HgwGsXF0aiGY",
             "3oEjI6SIIHBdRxXI40",
+            "3o7abKhOpu0NwenH3O",
+            "26ufdipQqU2lhNA4g",
+            "26BRv0ThflsHCqDrG",
+            "3oriO0OEd9QIDdllqo",
+            "xT0xeJpnrWC4XWblEk",
+            "3oz8xIsloV7zOmt81G",
+            "l0HlBO7eyXzSZkJri",
+            "l4FGuhL4U2WyjdkaY",
+            "5VKbvrjxpVJCM",
+            "12XDYvMJNcmLgQ",
         ];
+        let start = (query.bytes().fold(page * 4, |sum, byte| sum + byte as usize)) % gif_ids.len();
 
-        Ok(gif_ids
-            .iter()
-            .take(4)
+        Ok((0..4)
+            .map(|offset| gif_ids[(start + offset) % gif_ids.len()])
             .enumerate()
             .map(|(index, gif_id)| GifResult {
-                id: format!("{slug}-{}", index + 1),
+                id: format!("{slug}-{page}-{}", index + 1),
                 url: format!("https://media.giphy.com/media/{gif_id}/giphy.gif"),
                 preview_url: format!("https://media.giphy.com/media/{gif_id}/200.gif"),
-                alt_text: format!("{query} GIF {}", index + 1),
+                alt_text: format!("{query} GIF {}", page * 4 + index + 1),
             })
             .collect())
     }
@@ -1629,6 +1641,39 @@ mod tests {
                 .unwrap();
         assert_eq!(search["degraded"], false);
         assert_eq!(search["results"].as_array().unwrap().len(), 4);
+        assert!(search["results"][0]["id"].as_str().unwrap().starts_with("high-five-0-"));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/gifs/search?q=high%20five&page=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let page_two: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert!(page_two["results"][0]["id"].as_str().unwrap().starts_with("high-five-1-"));
+        assert_ne!(page_two["results"][0]["url"], search["results"][0]["url"]);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/gifs/search?q=confused&page=0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let other_query: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert!(other_query["results"][0]["id"].as_str().unwrap().starts_with("confused-0-"));
+        assert_ne!(other_query["results"][0]["url"], search["results"][0]["url"]);
 
         let response = app
             .clone()

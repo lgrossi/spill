@@ -188,8 +188,8 @@ export async function createDraftCard(retroId: string, columnId: string, bodyTex
   });
 }
 
-export async function searchGifs(query: string): Promise<GifSearchResponse> {
-  return apiFetch(`/api/gifs/search?q=${encodeURIComponent(query)}`, {
+export async function searchGifs(query: string, page = 0): Promise<GifSearchResponse> {
+  return apiFetch(`/api/gifs/search?q=${encodeURIComponent(query)}&page=${page}`, {
     cache: "no-store",
   });
 }
