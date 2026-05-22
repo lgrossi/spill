@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, createMeetingNoteAction, markReadyAction, rejectActionItemAction, retryAiJobAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDeliveryAction, createDraftCardAction, createMeetingNoteAction, markReadyAction, rejectActionItemAction, retryAiJobAction, retryDeliveryAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -120,6 +120,47 @@ export default async function RetroBoardPage({
               </form>
             ) : null}
             {board.retro.phase === "completed" ? <Link className="button" href="/history">Back to history</Link> : null}
+            {board.retro.phase === "completed" ? (
+              <section className="scene action-panel">
+                <div className="scene-head">
+                  <p className="eyebrow">Delivery</p>
+                  <h3>Copy/export follow-through</h3>
+                  <p>Export a completed summary or create an external action-link placeholder. Failed delivery can be retried.</p>
+                </div>
+                <form className="vote-row" action={createDeliveryAction}>
+                  <input name="retro_id" type="hidden" value={board.retro.id} />
+                  <label>
+                    Delivery
+                    <select name="kind" defaultValue="summary_export">
+                      <option value="summary_export">Summary export</option>
+                      <option value="external_action_link">External action link placeholder</option>
+                    </select>
+                  </label>
+                  <label>
+                    <input name="fail" type="checkbox" /> Simulate failure
+                  </label>
+                  <button className="primary" type="submit">Create delivery</button>
+                </form>
+                {board.deliveries.map((delivery) => (
+                  <article className={`card action-card ${delivery.status}`} key={delivery.id}>
+                    <div className="chips">
+                      <span className="chip">{delivery.kind.replaceAll("_", " ")}</span>
+                      <span className="chip">{delivery.status}</span>
+                      <span className="chip">Retries: {delivery.retry_count}</span>
+                    </div>
+                    {delivery.error_message ? <p className="muted">{delivery.error_message}</p> : null}
+                    {delivery.output ? <pre>{JSON.stringify(delivery.output, null, 2)}</pre> : null}
+                    {delivery.status === "failed" ? (
+                      <form action={retryDeliveryAction}>
+                        <input name="retro_id" type="hidden" value={board.retro.id} />
+                        <input name="delivery_id" type="hidden" value={delivery.id} />
+                        <button type="submit">Retry delivery</button>
+                      </form>
+                    ) : null}
+                  </article>
+                ))}
+              </section>
+            ) : null}
             {board.retro.phase === "writing" && board.deck.length > 0 ? (
               <section className="scene action-panel">
                 <div className="scene-head">

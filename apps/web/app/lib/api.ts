@@ -88,6 +88,7 @@ export type RetroBoard = {
   deck: IngestedItem[];
   ai_artifacts: AiArtifact[];
   meeting_notes: MeetingNote[];
+  deliveries: Delivery[];
 };
 
 export type RetroActionItem = {
@@ -129,6 +130,16 @@ export type MeetingNote = {
   retro_id: string;
   title: string;
   body_text: string;
+};
+
+export type Delivery = {
+  id: string;
+  retro_id: string;
+  kind: "summary_export" | "external_action_link";
+  status: "pending" | "succeeded" | "failed";
+  output: unknown | null;
+  error_message: string | null;
+  retry_count: number;
 };
 
 export type CreateRetroPayload =
@@ -287,6 +298,22 @@ export async function createMeetingNote(retroId: string, title: string, bodyText
     method: "POST",
     body: JSON.stringify({ title: title || null, body_text: bodyText }),
     headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function createDelivery(retroId: string, kind: Delivery["kind"], fail = false): Promise<Delivery> {
+  return apiFetch(`/api/retros/${retroId}/deliveries`, {
+    method: "POST",
+    body: JSON.stringify({ kind, fail }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function retryDelivery(retroId: string, deliveryId: string): Promise<Delivery> {
+  return apiFetch(`/api/retros/${retroId}/deliveries/${deliveryId}/retry`, {
+    method: "POST",
     cache: "no-store",
   });
 }

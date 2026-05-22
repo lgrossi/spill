@@ -253,6 +253,13 @@ struct CreateMeetingNoteRequest {
 }
 
 #[derive(Deserialize)]
+struct CreateDeliveryRequest {
+    kind: String,
+    #[serde(default)]
+    fail: bool,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -404,6 +411,11 @@ fn api_router() -> Router<AppState> {
         .route(
             "/retros/{retro_id}/meeting-notes",
             post(create_meeting_note),
+        )
+        .route("/retros/{retro_id}/deliveries", post(create_delivery))
+        .route(
+            "/retros/{retro_id}/deliveries/{delivery_id}/retry",
+            post(retry_delivery),
         )
         .fallback(api_not_found)
 }
@@ -618,6 +630,48 @@ async fn create_meeting_note(
         .map_err(|error| ApiError::internal(format!("failed to create meeting note: {error}")))?;
     event_hub.publish(BoardEvent::CardChanged { retro_id });
     Ok((StatusCode::CREATED, Json(note)))
+}
+
+async fn create_delivery(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<CreateDeliveryRequest>,
+) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    validate_delivery_kind(&request.kind)?;
+    let output = match request.kind.as_str() {
+        "summary_export" => repository
+            .export_summary_payload(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to export summary: {error}")))?,
+        "external_action_link" => serde_json::json!({
+            "placeholder_url": "https://example.invalid/spillio/action-placeholder",
+            "message": "External action delivery integration placeholder"
+        }),
+        _ => unreachable!(),
+    };
+    let delivery = repository
+        .create_delivery(retro_id, &request.kind, output, request.fail)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to create delivery: {error}")))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(delivery))
+}
+
+async fn retry_delivery(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, delivery_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let delivery = repository
+        .retry_delivery(retro_id, delivery_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to retry delivery: {error}")))?
+        .ok_or_else(|| ApiError::not_found("delivery not found"))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(delivery))
 }
 
 async fn run_fake_ai_job(
@@ -1005,6 +1059,12 @@ fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {
             "kind must be gif_suggestions, clustering, action_suggestions, summary, mood, or tagging",
         )
     })
+}
+
+fn validate_delivery_kind(kind: &str) -> Result<(), ApiError> {
+    matches!(kind, "summary_export" | "external_action_link")
+        .then_some(())
+        .ok_or_else(|| ApiError::bad_request("kind must be summary_export or external_action_link"))
 }
 
 async fn ai_input_with_requested_failure(
@@ -2083,5 +2143,83 @@ mod tests {
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(board["meeting_notes"].as_array().unwrap().len(), 1);
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Delivery API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/deliveries"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"kind":"summary_export","fail":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let failed: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(failed["status"], "failed");
+        assert_eq!(failed["output"]["title"], "Delivery API retro");
+        let delivery_id = failed["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/retros/{retro_id}/deliveries/{delivery_id}/retry"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let retried: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(retried["status"], "succeeded");
+        assert_eq!(retried["retry_count"], 1);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/retros/{retro_id}"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(board["deliveries"].as_array().unwrap().len(), 1);
     }
 }

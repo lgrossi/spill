@@ -80,6 +80,7 @@ impl RetroRepository {
             deck: Vec::new(),
             ai_artifacts: Vec::new(),
             meeting_notes: Vec::new(),
+            deliveries: Vec::new(),
         })
     }
 
@@ -93,6 +94,7 @@ impl RetroRepository {
         let deck = Vec::new();
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         let meeting_notes = self.fetch_meeting_notes(id).await?;
+        let deliveries = self.fetch_deliveries(id).await?;
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
@@ -105,6 +107,7 @@ impl RetroRepository {
             deck,
             ai_artifacts,
             meeting_notes,
+            deliveries,
         }))
     }
 
@@ -125,6 +128,7 @@ impl RetroRepository {
         let deck = self.fetch_deck(id, subject).await?;
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         let meeting_notes = self.fetch_meeting_notes(id).await?;
+        let deliveries = self.fetch_deliveries(id).await?;
         for column in &mut columns {
             column.cards = cards
                 .iter()
@@ -144,6 +148,7 @@ impl RetroRepository {
             deck,
             ai_artifacts,
             meeting_notes,
+            deliveries,
         }))
     }
 
@@ -799,6 +804,81 @@ impl RetroRepository {
         Ok(row.map(Into::into))
     }
 
+    pub async fn create_delivery(
+        &self,
+        retro_id: Uuid,
+        kind: &str,
+        output: Value,
+        fail: bool,
+    ) -> Result<DeliveryRecord, sqlx::Error> {
+        let status = if fail { "failed" } else { "succeeded" };
+        let error_message = if fail {
+            Some("fake delivery failure")
+        } else {
+            None
+        };
+        let row = sqlx::query_as::<_, DeliveryRow>(
+            "INSERT INTO deliveries (retro_id, kind, status, output, error_message)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, retro_id, kind, status, output, error_message, retry_count",
+        )
+        .bind(retro_id)
+        .bind(kind)
+        .bind(status)
+        .bind(Json(output))
+        .bind(error_message)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.into())
+    }
+
+    pub async fn retry_delivery(
+        &self,
+        retro_id: Uuid,
+        delivery_id: Uuid,
+    ) -> Result<Option<DeliveryRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, DeliveryRow>(
+            "UPDATE deliveries
+             SET status = 'succeeded', error_message = NULL, retry_count = retry_count + 1, updated_at = NOW()
+             WHERE id = $1 AND retro_id = $2
+             RETURNING id, retro_id, kind, status, output, error_message, retry_count",
+        )
+        .bind(delivery_id)
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
+    pub async fn export_summary_payload(&self, retro_id: Uuid) -> Result<Value, sqlx::Error> {
+        let Some(board) = self.fetch_board(retro_id).await? else {
+            return Err(sqlx::Error::RowNotFound);
+        };
+        let confirmed_actions = board
+            .actions
+            .iter()
+            .filter(|action| action.status != "rejected")
+            .map(|action| {
+                serde_json::json!({
+                    "title": action.title,
+                    "details": action.details,
+                    "status": action.status,
+                    "external_action_link": "https://example.invalid/spillio/action-placeholder"
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(serde_json::json!({
+            "title": board.retro.title,
+            "phase": board.retro.phase,
+            "copy_markdown": format!("# {}\n\nActions: {}", board.retro.title, confirmed_actions.len()),
+            "confirmed_actions": confirmed_actions,
+            "meeting_notes_count": board.meeting_notes.len(),
+            "ai_summary": board.ai_artifacts.iter().find(|artifact| artifact.kind == "summary").and_then(|artifact| artifact.output.clone()),
+        }))
+    }
+
     pub async fn update_action(
         &self,
         input: UpdateActionInput,
@@ -1027,6 +1107,20 @@ impl RetroRepository {
         .await
     }
 
+    async fn fetch_deliveries(&self, retro_id: Uuid) -> Result<Vec<DeliveryRecord>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, DeliveryRow>(
+            "SELECT id, retro_id, kind, status, output, error_message, retry_count
+             FROM deliveries
+             WHERE retro_id = $1
+             ORDER BY updated_at DESC, created_at DESC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
     async fn fetch_ingested_by_idempotency(
         &self,
         participant_id: Uuid,
@@ -1069,6 +1163,7 @@ pub struct RetroBoard {
     pub deck: Vec<IngestedItemRecord>,
     pub ai_artifacts: Vec<AiArtifactRecord>,
     pub meeting_notes: Vec<MeetingNoteRecord>,
+    pub deliveries: Vec<DeliveryRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1312,6 +1407,42 @@ pub struct MeetingNoteRecord {
     pub author_participant_id: Uuid,
     pub title: String,
     pub body_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeliveryRecord {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub kind: String,
+    pub status: String,
+    pub output: Option<Value>,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct DeliveryRow {
+    id: Uuid,
+    retro_id: Uuid,
+    kind: String,
+    status: String,
+    output: Option<Json<Value>>,
+    error_message: Option<String>,
+    retry_count: i32,
+}
+
+impl From<DeliveryRow> for DeliveryRecord {
+    fn from(row: DeliveryRow) -> Self {
+        Self {
+            id: row.id,
+            retro_id: row.retro_id,
+            kind: row.kind,
+            status: row.status,
+            output: row.output.map(|output| output.0),
+            error_message: row.error_message,
+            retry_count: row.retry_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2280,5 +2411,50 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(board.meeting_notes.len(), 1);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn deliveries_export_summary_and_retry_failures(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Delivery retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 1,
+            })
+            .await
+            .unwrap();
+
+        let payload = repo.export_summary_payload(created.retro.id).await.unwrap();
+        assert_eq!(payload["title"], "Delivery retro");
+        assert_eq!(payload["copy_markdown"], "# Delivery retro\n\nActions: 0");
+
+        let failed = repo
+            .create_delivery(created.retro.id, "summary_export", payload, true)
+            .await
+            .unwrap();
+        assert_eq!(failed.status, "failed");
+        assert_eq!(
+            failed.error_message.as_deref(),
+            Some("fake delivery failure")
+        );
+
+        let retried = repo
+            .retry_delivery(created.retro.id, failed.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retried.status, "succeeded");
+        assert_eq!(retried.retry_count, 1);
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.deliveries.len(), 1);
     }
 }

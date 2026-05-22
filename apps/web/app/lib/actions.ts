@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createMeetingNote, createRetro, markReady, rejectActionItem, retryAiJob, revealRetro, searchGifs, startActionDiscussion, startAiJob, startVoting, type AiArtifact, type CreateRetroPayload, updateActionItem } from "./api";
+import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDelivery, createDraftCard, createMeetingNote, createRetro, markReady, rejectActionItem, retryAiJob, retryDelivery, revealRetro, searchGifs, startActionDiscussion, startAiJob, startVoting, type AiArtifact, type CreateRetroPayload, type Delivery, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -175,5 +175,22 @@ export async function createMeetingNoteAction(formData: FormData) {
   const bodyText = String(formData.get("body_text") ?? "").trim();
 
   await createMeetingNote(retroId, title, bodyText);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function createDeliveryAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const kind = String(formData.get("kind") ?? "") as Delivery["kind"];
+  const fail = formData.get("fail") === "on";
+
+  await createDelivery(retroId, kind, fail);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function retryDeliveryAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const deliveryId = String(formData.get("delivery_id") ?? "");
+
+  await retryDelivery(retroId, deliveryId);
   revalidatePath(`/retros/${retroId}`);
 }
