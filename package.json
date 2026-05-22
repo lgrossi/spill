@@ -9,7 +9,7 @@
     "build": "pnpm --filter @spillio/web build && cargo build --workspace",
     "check": "pnpm check:web && pnpm check:api",
     "check:web": "pnpm --filter @spillio/web typecheck",
-    "check:api": "cargo test --workspace",
+    "check:api": "DATABASE_URL=postgres://spillio:spillio@localhost:5432/spillio cargo test --workspace",
     "test": "pnpm check",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "cargo run -p spillio-api -- migrate"
