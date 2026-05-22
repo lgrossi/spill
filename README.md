@@ -32,6 +32,12 @@ pnpm check
 pnpm build
 ```
 
+## Production-ish local run
+
+```bash
+docker compose --profile app up --build
+```
+
 ## Project docs
 
 - `docs/product-overview.md`
@@ -40,4 +46,5 @@ pnpm build
 - `docs/tech-stack-design.md`
 - `docs/implementation-plan.md`
 - `docs/companions.md`
+- `docs/deployment.md`
 - `mock/index.html`
