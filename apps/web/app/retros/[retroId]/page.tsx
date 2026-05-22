@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, retryAiJobAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -153,6 +153,49 @@ export default async function RetroBoardPage({
                 ))}
               </section>
             ) : null}
+            <section className="scene action-panel">
+              <div className="scene-head">
+                <p className="eyebrow">Optional AI</p>
+                <h3>Human-reviewable board jobs</h3>
+                <p>Fake-provider jobs persist status, retry failures, and expose outputs for review before any human uses them.</p>
+              </div>
+              <form className="vote-row" action={startAiJobAction}>
+                <input name="retro_id" type="hidden" value={board.retro.id} />
+                <label>
+                  Job
+                  <select name="kind" defaultValue="summary">
+                    <option value="gif_suggestions">GIF suggestions</option>
+                    <option value="clustering">Clustering</option>
+                    <option value="action_suggestions">Action proposals</option>
+                    <option value="summary">Summary</option>
+                    <option value="mood">Team mood</option>
+                    <option value="tagging">Tagging</option>
+                  </select>
+                </label>
+                <label>
+                  <input name="fail" type="checkbox" /> Simulate failure
+                </label>
+                <button className="primary" type="submit">Run AI job</button>
+              </form>
+              {board.ai_artifacts.map((artifact) => (
+                <article className={`card action-card ${artifact.status}`} key={artifact.id}>
+                  <div className="chips">
+                    <span className="chip">{artifact.kind.replaceAll("_", " ")}</span>
+                    <span className="chip">{artifact.status}</span>
+                    <span className="chip">Retries: {artifact.retry_count}</span>
+                  </div>
+                  {artifact.error_message ? <p className="muted">{artifact.error_message}</p> : null}
+                  {artifact.output ? <pre>{JSON.stringify(artifact.output, null, 2)}</pre> : null}
+                  {artifact.status === "failed" ? (
+                    <form action={retryAiJobAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <input name="artifact_id" type="hidden" value={artifact.id} />
+                      <button type="submit">Retry</button>
+                    </form>
+                  ) : null}
+                </article>
+              ))}
+            </section>
             {board.retro.phase === "action_discussion" || board.retro.phase === "completed" ? (
               <section className="scene action-panel">
                 <div className="scene-head">

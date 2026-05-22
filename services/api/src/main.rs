@@ -240,6 +240,13 @@ struct AcceptDeckItemRequest {
 }
 
 #[derive(Deserialize)]
+struct StartAiJobRequest {
+    kind: String,
+    #[serde(default)]
+    fail: bool,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -382,6 +389,11 @@ fn api_router() -> Router<AppState> {
         .route(
             "/retros/{retro_id}/deck/{item_id}/accept",
             post(accept_deck_item),
+        )
+        .route("/retros/{retro_id}/ai-jobs", post(start_ai_job))
+        .route(
+            "/retros/{retro_id}/ai-jobs/{artifact_id}/retry",
+            post(retry_ai_job),
         )
         .fallback(api_not_found)
 }
@@ -535,6 +547,70 @@ async fn accept_deck_item(
         .ok_or_else(|| ApiError::not_found("deck item not found"))?;
     event_hub.publish(BoardEvent::CardChanged { retro_id });
     Ok(Json(card))
+}
+
+async fn start_ai_job(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<StartAiJobRequest>,
+) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    validate_ai_kind(&request.kind)?;
+    let artifact = repository
+        .create_ai_artifact(
+            retro_id,
+            &request.kind,
+            serde_json::json!({"provider":"fake","requested_failure":request.fail}),
+        )
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
+    let artifact = run_fake_ai_job(&repository, artifact, request.fail).await?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(artifact))
+}
+
+async fn retry_ai_job(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, artifact_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let artifact = repository
+        .retry_ai_artifact(retro_id, artifact_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to retry AI job: {error}")))?
+        .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
+    let artifact = run_fake_ai_job(&repository, artifact, false).await?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(artifact))
+}
+
+async fn run_fake_ai_job(
+    repository: &RetroRepository,
+    artifact: retro_db::AiArtifactRecord,
+    fail: bool,
+) -> Result<retro_db::AiArtifactRecord, ApiError> {
+    let artifact = repository
+        .mark_ai_running(artifact.id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to mark AI job running: {error}")))?
+        .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
+
+    if fail {
+        return repository
+            .fail_ai_artifact(artifact.id, "fake AI provider failure")
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to mark AI job failed: {error}")))?
+            .ok_or_else(|| ApiError::not_found("AI artifact not found"));
+    }
+
+    let output = fake_ai_output(&artifact.kind);
+    repository
+        .complete_ai_artifact(artifact.id, output)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to complete AI job: {error}")))?
+        .ok_or_else(|| ApiError::not_found("AI artifact not found"))
 }
 
 async fn update_draft_card(
@@ -882,6 +958,50 @@ fn validate_placement(request: &IngestItemRequest) -> Result<(), ApiError> {
     }
 
     Ok(())
+}
+
+fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {
+    matches!(
+        kind,
+        "gif_suggestions" | "clustering" | "action_suggestions" | "summary" | "mood" | "tagging"
+    )
+    .then_some(())
+    .ok_or_else(|| {
+        ApiError::bad_request(
+            "kind must be gif_suggestions, clustering, action_suggestions, summary, mood, or tagging",
+        )
+    })
+}
+
+fn fake_ai_output(kind: &str) -> serde_json::Value {
+    match kind {
+        "gif_suggestions" => serde_json::json!({
+            "review_required": true,
+            "suggestions": [{"query": "ship it", "reason": "celebrate a positive moment"}]
+        }),
+        "clustering" => serde_json::json!({
+            "review_required": true,
+            "clusters": [{"title": "Release flow", "tags": ["release", "flow"]}]
+        }),
+        "action_suggestions" => serde_json::json!({
+            "review_required": true,
+            "actions": [{"title": "Assign one owner for follow-up", "confidence": "fake"}]
+        }),
+        "summary" => serde_json::json!({
+            "review_required": true,
+            "summary": "Fake provider summary ready for human review."
+        }),
+        "mood" => serde_json::json!({
+            "review_required": true,
+            "mood": "mixed",
+            "signals": ["optimistic", "blocked"]
+        }),
+        "tagging" => serde_json::json!({
+            "review_required": true,
+            "tags": ["process", "ownership", "follow-up"]
+        }),
+        _ => serde_json::json!({"review_required": true}),
+    }
 }
 
 fn optional_non_empty(value: Option<String>) -> Option<String> {
@@ -1722,5 +1842,101 @@ mod tests {
         assert_eq!(board["deck"].as_array().unwrap().len(), 0);
         assert_eq!(board["columns"][0]["cards"][0]["body_text"], "Deck idea");
         assert_eq!(board["columns"][1]["cards"][0]["body_text"], "Direct idea");
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"AI API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"kind":"summary"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let summary: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(summary["status"], "succeeded");
+        assert_eq!(summary["output"]["review_required"], true);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"kind":"mood","fail":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let failed: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(failed["status"], "failed");
+        let artifact_id = failed["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/retros/{retro_id}/ai-jobs/{artifact_id}/retry"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let retried: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(retried["status"], "succeeded");
+        assert_eq!(retried["retry_count"], 1);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/retros/{retro_id}"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(board["ai_artifacts"].as_array().unwrap().len(), 2);
     }
 }

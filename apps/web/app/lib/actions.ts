@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
+import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, retryAiJob, revealRetro, searchGifs, startActionDiscussion, startAiJob, startVoting, type AiArtifact, type CreateRetroPayload, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -149,5 +149,22 @@ export async function acceptDeckItemAction(formData: FormData) {
   const columnId = String(formData.get("column_id") ?? "");
 
   await acceptDeckItem(retroId, itemId, columnId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function startAiJobAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const kind = String(formData.get("kind") ?? "") as AiArtifact["kind"];
+  const fail = formData.get("fail") === "on";
+
+  await startAiJob(retroId, kind, fail);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function retryAiJobAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const artifactId = String(formData.get("artifact_id") ?? "");
+
+  await retryAiJob(retroId, artifactId);
   revalidatePath(`/retros/${retroId}`);
 }

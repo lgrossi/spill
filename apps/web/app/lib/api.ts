@@ -86,6 +86,7 @@ export type RetroBoard = {
   }[];
   actions: RetroActionItem[];
   deck: IngestedItem[];
+  ai_artifacts: AiArtifact[];
 };
 
 export type RetroActionItem = {
@@ -109,6 +110,17 @@ export type IngestedItem = {
   suggested_text: string | null;
   gif_url: string | null;
   status: "pending" | "accepted" | "dismissed";
+};
+
+export type AiArtifact = {
+  id: string;
+  retro_id: string;
+  kind: "gif_suggestions" | "clustering" | "action_suggestions" | "summary" | "mood" | "tagging";
+  status: "pending" | "running" | "succeeded" | "failed";
+  input: unknown;
+  output: unknown | null;
+  error_message: string | null;
+  retry_count: number;
 };
 
 export type CreateRetroPayload =
@@ -242,6 +254,22 @@ export async function acceptDeckItem(retroId: string, itemId: string, columnId: 
     method: "POST",
     body: JSON.stringify({ column_id: columnId }),
     headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function startAiJob(retroId: string, kind: AiArtifact["kind"], fail = false): Promise<AiArtifact> {
+  return apiFetch(`/api/retros/${retroId}/ai-jobs`, {
+    method: "POST",
+    body: JSON.stringify({ kind, fail }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function retryAiJob(retroId: string, artifactId: string): Promise<AiArtifact> {
+  return apiFetch(`/api/retros/${retroId}/ai-jobs/${artifactId}/retry`, {
+    method: "POST",
     cache: "no-store",
   });
 }

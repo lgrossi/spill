@@ -78,6 +78,7 @@ impl RetroRepository {
             clusters: Vec::new(),
             actions: Vec::new(),
             deck: Vec::new(),
+            ai_artifacts: Vec::new(),
         })
     }
 
@@ -89,6 +90,7 @@ impl RetroRepository {
         let clusters = self.fetch_clusters(id).await?;
         let actions = self.fetch_actions(id).await?;
         let deck = Vec::new();
+        let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
@@ -99,6 +101,7 @@ impl RetroRepository {
             clusters,
             actions,
             deck,
+            ai_artifacts,
         }))
     }
 
@@ -117,6 +120,7 @@ impl RetroRepository {
         let cards = self.fetch_cards_for_user(id, subject).await?;
         let actions = self.fetch_actions(id).await?;
         let deck = self.fetch_deck(id, subject).await?;
+        let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         for column in &mut columns {
             column.cards = cards
                 .iter()
@@ -134,6 +138,7 @@ impl RetroRepository {
             clusters,
             actions,
             deck,
+            ai_artifacts,
         }))
     }
 
@@ -655,6 +660,100 @@ impl RetroRepository {
         Ok(retro)
     }
 
+    pub async fn create_ai_artifact(
+        &self,
+        retro_id: Uuid,
+        kind: &str,
+        input: Value,
+    ) -> Result<AiArtifactRecord, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "INSERT INTO ai_artifacts (retro_id, kind, status, input)
+             VALUES ($1, $2, 'pending', $3)
+             RETURNING id, retro_id, kind, status, input, output, error_message, retry_count",
+        )
+        .bind(retro_id)
+        .bind(kind)
+        .bind(Json(input))
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.into())
+    }
+
+    pub async fn mark_ai_running(
+        &self,
+        artifact_id: Uuid,
+    ) -> Result<Option<AiArtifactRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "UPDATE ai_artifacts
+             SET status = 'running', error_message = NULL, updated_at = NOW()
+             WHERE id = $1
+             RETURNING id, retro_id, kind, status, input, output, error_message, retry_count",
+        )
+        .bind(artifact_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
+    pub async fn retry_ai_artifact(
+        &self,
+        retro_id: Uuid,
+        artifact_id: Uuid,
+    ) -> Result<Option<AiArtifactRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "UPDATE ai_artifacts
+             SET status = 'running', error_message = NULL, retry_count = retry_count + 1, updated_at = NOW()
+             WHERE id = $1 AND retro_id = $2
+             RETURNING id, retro_id, kind, status, input, output, error_message, retry_count",
+        )
+        .bind(artifact_id)
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
+    pub async fn complete_ai_artifact(
+        &self,
+        artifact_id: Uuid,
+        output: Value,
+    ) -> Result<Option<AiArtifactRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "UPDATE ai_artifacts
+             SET status = 'succeeded', output = $2, error_message = NULL, updated_at = NOW()
+             WHERE id = $1
+             RETURNING id, retro_id, kind, status, input, output, error_message, retry_count",
+        )
+        .bind(artifact_id)
+        .bind(Json(output))
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
+    pub async fn fail_ai_artifact(
+        &self,
+        artifact_id: Uuid,
+        error_message: &str,
+    ) -> Result<Option<AiArtifactRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "UPDATE ai_artifacts
+             SET status = 'failed', error_message = $2, updated_at = NOW()
+             WHERE id = $1
+             RETURNING id, retro_id, kind, status, input, output, error_message, retry_count",
+        )
+        .bind(artifact_id)
+        .bind(error_message)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
     pub async fn update_action(
         &self,
         input: UpdateActionInput,
@@ -851,6 +950,23 @@ impl RetroRepository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    async fn fetch_ai_artifacts(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<AiArtifactRecord>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, AiArtifactRow>(
+            "SELECT id, retro_id, kind, status, input, output, error_message, retry_count
+             FROM ai_artifacts
+             WHERE retro_id = $1
+             ORDER BY updated_at DESC, created_at DESC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
     async fn fetch_ingested_by_idempotency(
         &self,
         participant_id: Uuid,
@@ -891,6 +1007,7 @@ pub struct RetroBoard {
     pub clusters: Vec<ClusterRecord>,
     pub actions: Vec<ActionItemRecord>,
     pub deck: Vec<IngestedItemRecord>,
+    pub ai_artifacts: Vec<AiArtifactRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1084,6 +1201,45 @@ impl From<IngestedItemRow> for IngestedItemRecord {
             accepted_card_id: row.accepted_card_id,
             idempotency_key: row.idempotency_key,
             source_metadata: row.source_metadata.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiArtifactRecord {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub kind: String,
+    pub status: String,
+    pub input: Value,
+    pub output: Option<Value>,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct AiArtifactRow {
+    id: Uuid,
+    retro_id: Uuid,
+    kind: String,
+    status: String,
+    input: Json<Value>,
+    output: Option<Json<Value>>,
+    error_message: Option<String>,
+    retry_count: i32,
+}
+
+impl From<AiArtifactRow> for AiArtifactRecord {
+    fn from(row: AiArtifactRow) -> Self {
+        Self {
+            id: row.id,
+            retro_id: row.retro_id,
+            kind: row.kind,
+            status: row.status,
+            input: row.input.0,
+            output: row.output.map(|output| output.0),
+            error_message: row.error_message,
+            retry_count: row.retry_count,
         }
     }
 }
@@ -1925,5 +2081,74 @@ mod tests {
             .unwrap();
         assert_eq!(direct.status, "accepted");
         assert!(direct.accepted_card_id.is_some());
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn ai_artifacts_track_success_failure_and_retry(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "AI retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+
+        let artifact = repo
+            .create_ai_artifact(
+                created.retro.id,
+                "summary",
+                serde_json::json!({"provider":"fake"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(artifact.status, "pending");
+
+        let running = repo.mark_ai_running(artifact.id).await.unwrap().unwrap();
+        assert_eq!(running.status, "running");
+
+        let failed = repo
+            .fail_ai_artifact(artifact.id, "fake provider failure")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(failed.status, "failed");
+        assert_eq!(
+            failed.error_message.as_deref(),
+            Some("fake provider failure")
+        );
+
+        let retrying = repo
+            .retry_ai_artifact(created.retro.id, artifact.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retrying.status, "running");
+        assert_eq!(retrying.retry_count, 1);
+
+        let completed = repo
+            .complete_ai_artifact(
+                artifact.id,
+                serde_json::json!({"summary":"Reviewable output"}),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, "succeeded");
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.ai_artifacts.len(), 1);
+        assert_eq!(
+            board.ai_artifacts[0].output.as_ref().unwrap()["summary"],
+            "Reviewable output"
+        );
     }
 }
