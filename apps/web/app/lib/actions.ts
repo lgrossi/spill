@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, retryAiJob, revealRetro, searchGifs, startActionDiscussion, startAiJob, startVoting, type AiArtifact, type CreateRetroPayload, updateActionItem } from "./api";
+import { acceptDeckItem, castVote, clusterBoard, completeRetro, confirmActionItem, createDraftCard, createMeetingNote, createRetro, markReady, rejectActionItem, retryAiJob, revealRetro, searchGifs, startActionDiscussion, startAiJob, startVoting, type AiArtifact, type CreateRetroPayload, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -166,5 +166,14 @@ export async function retryAiJobAction(formData: FormData) {
   const artifactId = String(formData.get("artifact_id") ?? "");
 
   await retryAiJob(retroId, artifactId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function createMeetingNoteAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const title = String(formData.get("title") ?? "").trim();
+  const bodyText = String(formData.get("body_text") ?? "").trim();
+
+  await createMeetingNote(retroId, title, bodyText);
   revalidatePath(`/retros/${retroId}`);
 }

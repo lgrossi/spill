@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, retryAiJobAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
+import { acceptDeckItemAction, castVoteAction, clusterBoardAction, completeRetroAction, confirmActionItemAction, createDraftCardAction, createMeetingNoteAction, markReadyAction, rejectActionItemAction, retryAiJobAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startAiJobAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -153,6 +153,31 @@ export default async function RetroBoardPage({
                 ))}
               </section>
             ) : null}
+            <section className="scene action-panel">
+              <div className="scene-head">
+                <p className="eyebrow">Meeting notes</p>
+                <h3>Optional summary/mood context</h3>
+                <p>Paste notes when useful. Retros and completion still work without notes.</p>
+              </div>
+              <form className="draft-form" action={createMeetingNoteAction}>
+                <input name="retro_id" type="hidden" value={board.retro.id} />
+                <label>
+                  Title
+                  <input name="title" defaultValue="Meeting notes" />
+                </label>
+                <label>
+                  Notes
+                  <textarea name="body_text" rows={4} placeholder="Paste meeting notes or upload text contents here" />
+                </label>
+                <button className="primary" type="submit">Attach notes</button>
+              </form>
+              {board.meeting_notes.map((note) => (
+                <article className="card action-card" key={note.id}>
+                  <h4>{note.title}</h4>
+                  <p>{note.body_text}</p>
+                </article>
+              ))}
+            </section>
             <section className="scene action-panel">
               <div className="scene-head">
                 <p className="eyebrow">Optional AI</p>

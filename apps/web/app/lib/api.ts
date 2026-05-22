@@ -87,6 +87,7 @@ export type RetroBoard = {
   actions: RetroActionItem[];
   deck: IngestedItem[];
   ai_artifacts: AiArtifact[];
+  meeting_notes: MeetingNote[];
 };
 
 export type RetroActionItem = {
@@ -121,6 +122,13 @@ export type AiArtifact = {
   output: unknown | null;
   error_message: string | null;
   retry_count: number;
+};
+
+export type MeetingNote = {
+  id: string;
+  retro_id: string;
+  title: string;
+  body_text: string;
 };
 
 export type CreateRetroPayload =
@@ -270,6 +278,15 @@ export async function startAiJob(retroId: string, kind: AiArtifact["kind"], fail
 export async function retryAiJob(retroId: string, artifactId: string): Promise<AiArtifact> {
   return apiFetch(`/api/retros/${retroId}/ai-jobs/${artifactId}/retry`, {
     method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function createMeetingNote(retroId: string, title: string, bodyText: string): Promise<MeetingNote> {
+  return apiFetch(`/api/retros/${retroId}/meeting-notes`, {
+    method: "POST",
+    body: JSON.stringify({ title: title || null, body_text: bodyText }),
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
 }

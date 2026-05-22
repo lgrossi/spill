@@ -17,9 +17,9 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use retro_db::{
-    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterError, CreateRetroInput,
-    DraftCardInput, IngestItemInput, RetroOverview, RetroRepository, RetroTemplate,
-    UpdateActionInput, VotingError,
+    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterError, CreateMeetingNoteInput,
+    CreateRetroInput, DraftCardInput, IngestItemInput, RetroOverview, RetroRepository,
+    RetroTemplate, UpdateActionInput, VotingError,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -247,6 +247,12 @@ struct StartAiJobRequest {
 }
 
 #[derive(Deserialize)]
+struct CreateMeetingNoteRequest {
+    title: Option<String>,
+    body_text: String,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -394,6 +400,10 @@ fn api_router() -> Router<AppState> {
         .route(
             "/retros/{retro_id}/ai-jobs/{artifact_id}/retry",
             post(retry_ai_job),
+        )
+        .route(
+            "/retros/{retro_id}/meeting-notes",
+            post(create_meeting_note),
         )
         .fallback(api_not_found)
 }
@@ -561,7 +571,8 @@ async fn start_ai_job(
         .create_ai_artifact(
             retro_id,
             &request.kind,
-            serde_json::json!({"provider":"fake","requested_failure":request.fail}),
+            ai_input_with_requested_failure(&repository, retro_id, &request.kind, request.fail)
+                .await?,
         )
         .await
         .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
@@ -584,6 +595,29 @@ async fn retry_ai_job(
     let artifact = run_fake_ai_job(&repository, artifact, false).await?;
     event_hub.publish(BoardEvent::CardChanged { retro_id });
     Ok(Json(artifact))
+}
+
+async fn create_meeting_note(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<CreateMeetingNoteRequest>,
+) -> Result<(StatusCode, Json<retro_db::MeetingNoteRecord>), ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let note = repository
+        .create_meeting_note(CreateMeetingNoteInput {
+            retro_id,
+            author_subject: user.subject,
+            author_display_name: user.display_name,
+            title: optional_non_empty(request.title).unwrap_or_else(|| "Meeting notes".to_owned()),
+            body_text: require_non_empty("body_text", request.body_text)?,
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to create meeting note: {error}")))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok((StatusCode::CREATED, Json(note)))
 }
 
 async fn run_fake_ai_job(
@@ -971,6 +1005,20 @@ fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {
             "kind must be gif_suggestions, clustering, action_suggestions, summary, mood, or tagging",
         )
     })
+}
+
+async fn ai_input_with_requested_failure(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    kind: &str,
+    fail: bool,
+) -> Result<serde_json::Value, ApiError> {
+    let mut input = repository
+        .ai_input_with_note_context(retro_id, kind)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to build AI input: {error}")))?;
+    input["requested_failure"] = serde_json::json!(fail);
+    Ok(input)
 }
 
 fn fake_ai_output(kind: &str) -> serde_json::Value {
@@ -1938,5 +1986,102 @@ mod tests {
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(board["ai_artifacts"].as_array().unwrap().len(), 2);
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_completion(
+        pool: sqlx::PgPool,
+    ) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Notes API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"kind":"summary"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let no_notes_ai: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(no_notes_ai["input"]["meeting_notes_included"], false);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/meeting-notes"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"Retro notes","body_text":"Release ownership was unclear."}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"kind":"mood"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let mood_ai: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(mood_ai["input"]["meeting_notes_included"], true);
+        assert_eq!(
+            mood_ai["input"]["meeting_notes"][0]["body_text"],
+            "Release ownership was unclear."
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/retros/{retro_id}"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let board: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(board["meeting_notes"].as_array().unwrap().len(), 1);
     }
 }

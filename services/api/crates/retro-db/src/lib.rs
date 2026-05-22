@@ -79,6 +79,7 @@ impl RetroRepository {
             actions: Vec::new(),
             deck: Vec::new(),
             ai_artifacts: Vec::new(),
+            meeting_notes: Vec::new(),
         })
     }
 
@@ -91,6 +92,7 @@ impl RetroRepository {
         let actions = self.fetch_actions(id).await?;
         let deck = Vec::new();
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
+        let meeting_notes = self.fetch_meeting_notes(id).await?;
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
@@ -102,6 +104,7 @@ impl RetroRepository {
             actions,
             deck,
             ai_artifacts,
+            meeting_notes,
         }))
     }
 
@@ -121,6 +124,7 @@ impl RetroRepository {
         let actions = self.fetch_actions(id).await?;
         let deck = self.fetch_deck(id, subject).await?;
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
+        let meeting_notes = self.fetch_meeting_notes(id).await?;
         for column in &mut columns {
             column.cards = cards
                 .iter()
@@ -139,6 +143,7 @@ impl RetroRepository {
             actions,
             deck,
             ai_artifacts,
+            meeting_notes,
         }))
     }
 
@@ -680,6 +685,46 @@ impl RetroRepository {
         Ok(row.into())
     }
 
+    pub async fn create_meeting_note(
+        &self,
+        input: CreateMeetingNoteInput,
+    ) -> Result<MeetingNoteRecord, sqlx::Error> {
+        let participant_id = self
+            .ensure_participant(
+                input.retro_id,
+                &input.author_subject,
+                &input.author_display_name,
+            )
+            .await?;
+        let row = sqlx::query_as::<_, MeetingNoteRecord>(
+            "INSERT INTO meeting_notes (retro_id, author_participant_id, title, body_text)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, retro_id, author_participant_id, title, body_text",
+        )
+        .bind(input.retro_id)
+        .bind(participant_id)
+        .bind(input.title.trim())
+        .bind(input.body_text.trim())
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn ai_input_with_note_context(
+        &self,
+        retro_id: Uuid,
+        kind: &str,
+    ) -> Result<Value, sqlx::Error> {
+        let notes = self.fetch_meeting_notes(retro_id).await?;
+        Ok(serde_json::json!({
+            "provider": "fake",
+            "kind": kind,
+            "meeting_notes_included": matches!(kind, "summary" | "mood") && !notes.is_empty(),
+            "meeting_notes": if matches!(kind, "summary" | "mood") { notes } else { Vec::new() },
+        }))
+    }
+
     pub async fn mark_ai_running(
         &self,
         artifact_id: Uuid,
@@ -967,6 +1012,21 @@ impl RetroRepository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    async fn fetch_meeting_notes(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<MeetingNoteRecord>, sqlx::Error> {
+        sqlx::query_as::<_, MeetingNoteRecord>(
+            "SELECT id, retro_id, author_participant_id, title, body_text
+             FROM meeting_notes
+             WHERE retro_id = $1
+             ORDER BY created_at DESC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     async fn fetch_ingested_by_idempotency(
         &self,
         participant_id: Uuid,
@@ -1008,6 +1068,7 @@ pub struct RetroBoard {
     pub actions: Vec<ActionItemRecord>,
     pub deck: Vec<IngestedItemRecord>,
     pub ai_artifacts: Vec<AiArtifactRecord>,
+    pub meeting_notes: Vec<MeetingNoteRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1244,6 +1305,15 @@ impl From<AiArtifactRow> for AiArtifactRecord {
     }
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct MeetingNoteRecord {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub author_participant_id: Uuid,
+    pub title: String,
+    pub body_text: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RetroSummary {
     pub id: Uuid,
@@ -1326,6 +1396,15 @@ pub struct IngestItemInput {
     pub idempotency_key: Option<String>,
     pub raw_payload: Value,
     pub source_metadata: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateMeetingNoteInput {
+    pub retro_id: Uuid,
+    pub author_subject: String,
+    pub author_display_name: String,
+    pub title: String,
+    pub body_text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -2150,5 +2229,56 @@ mod tests {
             board.ai_artifacts[0].output.as_ref().unwrap()["summary"],
             "Reviewable output"
         );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn meeting_notes_attach_to_retro_and_feed_summary_mood_context(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Notes retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+
+        let empty_context = repo
+            .ai_input_with_note_context(created.retro.id, "summary")
+            .await
+            .unwrap();
+        assert_eq!(empty_context["meeting_notes_included"], false);
+
+        let note = repo
+            .create_meeting_note(CreateMeetingNoteInput {
+                retro_id: created.retro.id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                title: "Planning notes".to_owned(),
+                body_text: "We need clearer release ownership.".to_owned(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(note.title, "Planning notes");
+
+        let context = repo
+            .ai_input_with_note_context(created.retro.id, "mood")
+            .await
+            .unwrap();
+        assert_eq!(context["meeting_notes_included"], true);
+        assert_eq!(
+            context["meeting_notes"][0]["body_text"],
+            "We need clearer release ownership."
+        );
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.meeting_notes.len(), 1);
     }
 }
