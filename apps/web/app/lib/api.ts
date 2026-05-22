@@ -39,6 +39,9 @@ export type RetroCard = {
   hidden: boolean;
   vote_count: number;
   current_user_vote_count: number;
+  cluster_id: string | null;
+  cluster_title: string | null;
+  cluster_category: string | null;
 };
 
 export type GifResult = {
@@ -72,6 +75,13 @@ export type RetroBoard = {
     votes_used: number;
     votes_remaining: number;
   };
+  clusters: {
+    id: string;
+    retro_id: string;
+    title: string | null;
+    category: string | null;
+    tags: string[];
+  }[];
 };
 
 export type CreateRetroPayload =
@@ -152,6 +162,13 @@ export async function castVote(retroId: string, cardId: string, count = 1): Prom
     method: "POST",
     body: JSON.stringify({ card_id: cardId, count }),
     headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function clusterBoard(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/cluster`, {
+    method: "POST",
     cache: "no-store",
   });
 }

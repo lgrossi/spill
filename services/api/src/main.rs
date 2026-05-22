@@ -17,8 +17,8 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use retro_db::{
-    CastVoteInput, CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository, RetroTemplate,
-    VotingError,
+    CastVoteInput, ClusterError, CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository,
+    RetroTemplate, VotingError,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -334,6 +334,7 @@ fn api_router() -> Router<AppState> {
         .route("/retros/{retro_id}/reveal", post(reveal_board))
         .route("/retros/{retro_id}/voting/start", post(start_voting))
         .route("/retros/{retro_id}/votes", post(cast_vote))
+        .route("/retros/{retro_id}/cluster", post(cluster_board))
         .fallback(api_not_found)
 }
 
@@ -566,6 +567,27 @@ async fn cast_vote(
     Ok(Json(info))
 }
 
+async fn cluster_board(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .cluster_board(retro_id)
+        .await
+        .map_err(cluster_error)?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
 async fn board_events(
     State(event_hub): State<BoardEventHub>,
     Path(retro_id): Path<Uuid>,
@@ -745,6 +767,13 @@ fn voting_error(error: VotingError) -> ApiError {
     match error {
         VotingError::Sqlx(error) => ApiError::internal(format!("voting failed: {error}")),
         VotingError::Invalid(message) => ApiError::bad_request(message),
+    }
+}
+
+fn cluster_error(error: ClusterError) -> ApiError {
+    match error {
+        ClusterError::Sqlx(error) => ApiError::internal(format!("clustering failed: {error}")),
+        ClusterError::Invalid(message) => ApiError::bad_request(message),
     }
 }
 

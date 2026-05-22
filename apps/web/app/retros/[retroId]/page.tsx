@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { castVoteAction, createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction, startVotingAction } from "../../lib/actions";
+import { castVoteAction, clusterBoardAction, createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction, startVotingAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -84,10 +84,16 @@ export default async function RetroBoardPage({
                   </>
                 ) : null}
                 {board.retro.phase === "discussion" ? (
-                  <form action={startVotingAction}>
-                    <input name="retro_id" type="hidden" value={board.retro.id} />
-                    <button className="primary" type="submit">Start voting</button>
-                  </form>
+                  <>
+                    <form action={clusterBoardAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <button type="submit" disabled={board.clusters.length > 0}>Cluster-fy once</button>
+                    </form>
+                    <form action={startVotingAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <button className="primary" type="submit">Start voting</button>
+                    </form>
+                  </>
                 ) : null}
                 {board.retro.phase === "voting" ? (
                   <form action={markReadyAction}>
@@ -120,6 +126,9 @@ export default async function RetroBoardPage({
                         <>
                           {card.body_text ? <p>{card.body_text}</p> : null}
                           {card.gif_url ? <div className="gif">{card.gif_alt_text ?? "Attached GIF"}</div> : null}
+                          {card.cluster_title ? (
+                            <p className="merged">{card.cluster_title} · {card.cluster_category}</p>
+                          ) : null}
                           {board.retro.phase === "voting" ? (
                             <div className="vote-row">
                               <span className="vote">{card.vote_count} votes</span>
