@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    env,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -264,6 +265,7 @@ struct GifSearchQuery {
     q: Option<String>,
     #[serde(default)]
     page: usize,
+    kind: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -278,6 +280,8 @@ struct GifResult {
     url: String,
     preview_url: String,
     alt_text: String,
+    media_type: String,
+    kind: String,
 }
 
 #[derive(Serialize)]
@@ -981,9 +985,13 @@ async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, ret
 }
 
 async fn search_gifs(Query(query): Query<GifSearchQuery>) -> Json<GifSearchResponse> {
-    let provider = FakeGifProvider;
+    let provider = GifProvider;
     match provider
-        .search(query.q.as_deref().unwrap_or_default(), query.page)
+        .search(
+            query.q.as_deref().unwrap_or_default(),
+            query.page,
+            MediaSearchKind::from_query(query.kind.as_deref()),
+        )
         .await
     {
         Ok(results) => Json(GifSearchResponse {
@@ -1120,10 +1128,15 @@ fn optional_non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-struct FakeGifProvider;
+struct GifProvider;
 
-impl FakeGifProvider {
-    async fn search(&self, query: &str, page: usize) -> Result<Vec<GifResult>, ()> {
+impl GifProvider {
+    async fn search(
+        &self,
+        query: &str,
+        page: usize,
+        kind: MediaSearchKind,
+    ) -> Result<Vec<GifResult>, ()> {
         let query = query.trim();
         if query.eq_ignore_ascii_case("fail") {
             return Err(());
@@ -1132,6 +1145,217 @@ impl FakeGifProvider {
             return Ok(Vec::new());
         }
 
+        match search_klipy(query, page, kind).await {
+            Ok(results) if !results.is_empty() => return Ok(results),
+            Ok(_) | Err(()) => {}
+        }
+
+        Ok(fake_gif_results(query, page, kind))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MediaSearchKind {
+    All,
+    Gif,
+    Sticker,
+    Clip,
+}
+
+impl MediaSearchKind {
+    fn from_query(value: Option<&str>) -> Self {
+        match value {
+            Some("gif") => Self::Gif,
+            Some("sticker") => Self::Sticker,
+            Some("clip") => Self::Clip,
+            _ => Self::All,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Gif => "gif",
+            Self::Sticker => "sticker",
+            Self::Clip => "clip",
+        }
+    }
+}
+
+async fn search_klipy(
+    query: &str,
+    page: usize,
+    kind: MediaSearchKind,
+) -> Result<Vec<GifResult>, ()> {
+    match kind {
+        MediaSearchKind::Gif => search_klipy_typed(query, page, "gifs", kind).await,
+        MediaSearchKind::Sticker => search_klipy_typed(query, page, "stickers", kind).await,
+        MediaSearchKind::All | MediaSearchKind::Clip => search_klipy_unified(query, page, kind).await,
+    }
+}
+
+async fn search_klipy_unified(
+    query: &str,
+    page: usize,
+    kind: MediaSearchKind,
+) -> Result<Vec<GifResult>, ()> {
+    let api_key = env::var("SPILLIO_KLIPY_API_KEY").map_err(|_| ())?;
+    let client = reqwest::Client::new();
+    let mut pos: Option<String> = None;
+    let mut response = None;
+
+    for _ in 0..=page {
+        let mut request = client.get("https://api.klipy.com/v2/search").query(&[
+            ("q", query.to_owned()),
+            ("key", api_key.clone()),
+            ("limit", "8".to_owned()),
+        ]);
+        if let Some(pos) = &pos {
+            request = request.query(&[("pos", pos)]);
+        }
+        let search = request
+            .send()
+            .await
+            .map_err(|_| ())?;
+        if !search.status().is_success() {
+            return Err(());
+        }
+        let search = search.json::<KlipySearchResponse>().await.map_err(|_| ())?;
+        pos = search.next.clone();
+        response = Some(search);
+    }
+
+    Ok(response
+        .ok_or(())?
+        .results
+        .into_iter()
+        .filter_map(|result| {
+            let formats = &result.media_formats;
+            let video = select_klipy_media(formats, &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"]);
+            let image = select_klipy_media(formats, &["gif", "mediumgif", "tinygif", "nanogif", "webp"]);
+            let media = video.or(image)?;
+            let preview = select_klipy_media(formats, &["gifpreview", "nanogif", "tinygif"])
+                .map(|media| media.url.clone())
+                .unwrap_or_else(|| media.url.clone());
+            Some(GifResult {
+                id: format!("klipy-{}", result.id),
+                url: media.url.clone(),
+                preview_url: preview,
+                alt_text: if result.title.trim().is_empty() {
+                    format!("{query} GIF")
+                } else {
+                    result.title
+                },
+                media_type: if video.is_some() { "video" } else { "image" }.to_owned(),
+                kind: kind.as_str().to_owned(),
+            })
+        })
+        .collect())
+}
+
+async fn search_klipy_typed(
+    query: &str,
+    page: usize,
+    endpoint: &str,
+    kind: MediaSearchKind,
+) -> Result<Vec<GifResult>, ()> {
+    let api_key = env::var("SPILLIO_KLIPY_API_KEY").map_err(|_| ())?;
+    let response = reqwest::Client::new()
+        .get(format!("https://api.klipy.com/v2/{endpoint}/search"))
+        .query(&[
+            ("q", query.to_owned()),
+            ("key", api_key),
+            ("limit", "8".to_owned()),
+            ("offset", (page * 8).to_string()),
+        ])
+        .send()
+        .await
+        .map_err(|_| ())?;
+    if !response.status().is_success() {
+        return Err(());
+    }
+    let response = response.json::<KlipyTypedSearchResponse>().await.map_err(|_| ())?;
+    Ok(response
+        .data
+        .into_iter()
+        .filter_map(|result| {
+            let original = result.images.original?;
+            let url = original.fallback_url.clone();
+            Some(GifResult {
+                id: format!("klipy-{}", result.id),
+                url: url.clone(),
+                preview_url: original.webp.or(original.mp4).unwrap_or(url),
+                alt_text: if result.title.trim().is_empty() {
+                    format!("{query} {}", kind.as_str())
+                } else {
+                    result.title
+                },
+                media_type: "image".to_owned(),
+                kind: kind.as_str().to_owned(),
+            })
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+struct KlipySearchResponse {
+    #[serde(default)]
+    results: Vec<KlipyResult>,
+    next: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct KlipyResult {
+    id: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    media_formats: HashMap<String, KlipyMedia>,
+}
+
+#[derive(Deserialize)]
+struct KlipyMedia {
+    url: String,
+}
+
+#[derive(Deserialize)]
+struct KlipyTypedSearchResponse {
+    #[serde(default)]
+    data: Vec<KlipyTypedResult>,
+}
+
+#[derive(Deserialize)]
+struct KlipyTypedResult {
+    id: String,
+    #[serde(default)]
+    title: String,
+    images: KlipyImages,
+}
+
+#[derive(Deserialize)]
+struct KlipyImages {
+    original: Option<KlipyOriginalImage>,
+}
+
+#[derive(Deserialize)]
+struct KlipyOriginalImage {
+    #[serde(rename = "url")]
+    fallback_url: String,
+    webp: Option<String>,
+    mp4: Option<String>,
+}
+
+fn select_klipy_media<'a>(
+    formats: &'a HashMap<String, KlipyMedia>,
+    preferred_formats: &[&str],
+) -> Option<&'a KlipyMedia> {
+    preferred_formats
+        .iter()
+        .find_map(|format| formats.get(*format))
+        .or_else(|| formats.values().next())
+}
+
+fn fake_gif_results(query: &str, page: usize, kind: MediaSearchKind) -> Vec<GifResult> {
         let slug = query
             .chars()
             .filter_map(|character| {
@@ -1167,7 +1391,7 @@ impl FakeGifProvider {
         ];
         let start = (query.bytes().fold(page * 4, |sum, byte| sum + byte as usize)) % gif_ids.len();
 
-        Ok((0..4)
+        (0..8)
             .map(|offset| gif_ids[(start + offset) % gif_ids.len()])
             .enumerate()
             .map(|(index, gif_id)| GifResult {
@@ -1175,9 +1399,10 @@ impl FakeGifProvider {
                 url: format!("https://media.giphy.com/media/{gif_id}/giphy.gif"),
                 preview_url: format!("https://media.giphy.com/media/{gif_id}/200.gif"),
                 alt_text: format!("{query} GIF {}", page * 4 + index + 1),
+                media_type: "image".to_owned(),
+                kind: kind.as_str().to_owned(),
             })
-            .collect())
-    }
+            .collect()
 }
 
 async fn api_not_found() -> ApiError {
@@ -1640,8 +1865,12 @@ mod tests {
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(search["degraded"], false);
-        assert_eq!(search["results"].as_array().unwrap().len(), 4);
-        assert!(search["results"][0]["id"].as_str().unwrap().starts_with("high-five-0-"));
+        assert_eq!(search["results"].as_array().unwrap().len(), 8);
+        assert!(matches!(
+            search["results"][0]["media_type"].as_str(),
+            Some("image" | "video")
+        ));
+        assert!(search["results"][0]["url"].as_str().unwrap().starts_with("http"));
 
         let response = app
             .clone()
@@ -1656,7 +1885,6 @@ mod tests {
         let page_two: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert!(page_two["results"][0]["id"].as_str().unwrap().starts_with("high-five-1-"));
         assert_ne!(page_two["results"][0]["url"], search["results"][0]["url"]);
 
         let response = app
@@ -1672,7 +1900,6 @@ mod tests {
         let other_query: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert!(other_query["results"][0]["id"].as_str().unwrap().starts_with("confused-0-"));
         assert_ne!(other_query["results"][0]["url"], search["results"][0]["url"]);
 
         let response = app

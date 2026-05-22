@@ -51,6 +51,8 @@ export type GifResult = {
   url: string;
   preview_url: string;
   alt_text: string;
+  media_type: "image" | "video";
+  kind: "all" | "gif" | "sticker" | "clip";
 };
 
 export type GifSearchResponse = {
@@ -188,8 +190,8 @@ export async function createDraftCard(retroId: string, columnId: string, bodyTex
   });
 }
 
-export async function searchGifs(query: string, page = 0): Promise<GifSearchResponse> {
-  return apiFetch(`/api/gifs/search?q=${encodeURIComponent(query)}&page=${page}`, {
+export async function searchGifs(query: string, page = 0, kind = "all"): Promise<GifSearchResponse> {
+  return apiFetch(`/api/gifs/search?q=${encodeURIComponent(query)}&page=${page}&kind=${encodeURIComponent(kind)}`, {
     cache: "no-store",
   });
 }

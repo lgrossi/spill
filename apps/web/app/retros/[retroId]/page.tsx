@@ -22,13 +22,14 @@ import {
   updateActionItemAction,
 } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
+import { BoardMedia } from "./media-card";
 
 export default async function RetroBoardPage({
   params,
   searchParams,
 }: {
   params: Promise<{ retroId: string }>;
-  searchParams: Promise<{ addColumn?: string; gif?: string; gifColumn?: string; gifPage?: string; gifResults?: string; gifDegraded?: string }>;
+  searchParams: Promise<{ addColumn?: string; gif?: string; gifColumn?: string; gifPage?: string; gifResults?: string; gifDegraded?: string; mediaKind?: string }>;
 }) {
   const { retroId } = await params;
   const gifSearch = await searchParams;
@@ -121,9 +122,7 @@ export default async function RetroBoardPage({
                           </>
                         ) : (
                           <>
-                            {card.gif_url ? (
-                              <img className="gif-image" src={card.gif_url} alt={card.gif_alt_text ?? "Attached GIF"} loading="lazy" />
-                            ) : null}
+                            {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
                             {card.body_text ? <p>{card.body_text}</p> : null}
                             {card.cluster_title ? (
                               <p className="merged">
@@ -161,6 +160,7 @@ export default async function RetroBoardPage({
                         gifPage={gifPage}
                         gifQuery={gifColumnId === column.id ? gifSearch.gif ?? "" : ""}
                         gifResults={gifColumnId === column.id ? gifResults : []}
+                        mediaKind={gifSearch.mediaKind ?? "all"}
                         retroId={board.retro.id}
                       />
                     ) : (
@@ -267,6 +267,7 @@ function InlineComposer({
   gifPage,
   gifQuery,
   gifResults,
+  mediaKind,
   retroId,
 }: {
   columnId: string;
@@ -275,6 +276,7 @@ function InlineComposer({
   gifPage: number;
   gifQuery: string;
   gifResults: GifResult[];
+  mediaKind: string;
   retroId: string;
 }) {
   return (
@@ -302,8 +304,14 @@ function InlineComposer({
         <input name="retro_id" type="hidden" value={retroId} />
         <input name="column_id" type="hidden" value={columnId} />
         <input name="gif_page" type="hidden" value="0" />
-        <input name="gif_query" defaultValue={gifQuery} placeholder="GIF search" autoComplete="off" aria-label="GIF search" />
-        <button type="submit">Search GIF</button>
+        <select name="media_kind" defaultValue={mediaKind} aria-label="Media type">
+          <option value="all">All</option>
+          <option value="gif">GIFs</option>
+          <option value="sticker">Stickers</option>
+          <option value="clip">Clips</option>
+        </select>
+        <input name="gif_query" defaultValue={gifQuery} placeholder="Search media" autoComplete="off" aria-label="Media search" />
+        <button type="submit">Search</button>
       </form>
       {degraded ? <p className="muted compact-copy">GIF search failed. Text cards still work.</p> : null}
       {gifQuery ? (
@@ -312,18 +320,9 @@ function InlineComposer({
             <input name="retro_id" type="hidden" value={retroId} />
             <input name="column_id" type="hidden" value={columnId} />
             <input name="gif_query" type="hidden" value={gifQuery} />
-            <input name="gif_page" type="hidden" value={Math.max(0, gifPage - 1)} />
-            <button type="submit" disabled={gifPage === 0}>
-              Prev
-            </button>
-          </form>
-          <span className="muted">GIF page {gifPage + 1}</span>
-          <form action={searchGifsAction}>
-            <input name="retro_id" type="hidden" value={retroId} />
-            <input name="column_id" type="hidden" value={columnId} />
-            <input name="gif_query" type="hidden" value={gifQuery} />
             <input name="gif_page" type="hidden" value={gifPage + 1} />
-            <button type="submit">Next</button>
+            <input name="media_kind" type="hidden" value={mediaKind} />
+          <button type="submit">More media</button>
           </form>
         </div>
       ) : null}

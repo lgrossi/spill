@@ -14,6 +14,7 @@ API:
 
 - `DATABASE_URL`
 - `SPILLIO_API_ADDR` (default in Docker: `0.0.0.0:4000`)
+- `SPILLIO_KLIPY_API_KEY` for real Klipy media search. Without it the API falls back to local fixture media.
 - `RUST_LOG` (recommended: `info`)
 
 Web:
