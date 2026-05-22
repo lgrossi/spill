@@ -160,7 +160,7 @@ export default async function RetroBoardPage({
                         gifPage={gifPage}
                         gifQuery={gifColumnId === column.id ? gifSearch.gif ?? "" : ""}
                         gifResults={gifColumnId === column.id ? gifResults : []}
-                        mediaKind={gifSearch.mediaKind ?? "all"}
+                        mediaKind={gifSearch.mediaKind ?? "gif"}
                         retroId={board.retro.id}
                       />
                     ) : (
@@ -279,6 +279,9 @@ function InlineComposer({
   mediaKind: string;
   retroId: string;
 }) {
+  const selectedKind = mediaKind === "sticker" ? "sticker" : "gif";
+  const serializedResults = JSON.stringify(gifResults);
+
   return (
     <div className="inline-composer" aria-label={`Add ${columnTitle} card`}>
       <form className="draft-form quick-card-form" action={createDraftCardAction}>
@@ -286,9 +289,9 @@ function InlineComposer({
         <input name="column_id" type="hidden" value={columnId} />
         <textarea name="body_text" rows={1} placeholder={`Add ${columnTitle} card`} />
         {gifResults.length > 0 ? (
-          <div className="gif-grid">
+          <div className="media-result-strip">
             {gifResults.map((gif) => (
-              <label className="gif-option" key={gif.id}>
+              <label className="media-result" key={`${gif.id}-${gif.url}`}>
                 <input name="gif_choice" type="radio" value={JSON.stringify({ url: gif.url, altText: gif.alt_text })} />
                 <img className="gif-thumb" src={gif.preview_url || gif.url} alt="" loading="lazy" />
                 <span>{gif.alt_text}</span>
@@ -300,31 +303,34 @@ function InlineComposer({
           Add
         </button>
       </form>
-      <form className="gif-search-form inline-gif-search" action={searchGifsAction} autoComplete="off">
+      <form className="gif-search-form inline-gif-search media-search-row" action={searchGifsAction} autoComplete="off">
         <input name="retro_id" type="hidden" value={retroId} />
         <input name="column_id" type="hidden" value={columnId} />
         <input name="gif_page" type="hidden" value="0" />
-        <select name="media_kind" defaultValue={mediaKind} aria-label="Media type">
-          <option value="all">All</option>
-          <option value="gif">GIFs</option>
-          <option value="sticker">Stickers</option>
-          <option value="clip">Clips</option>
-        </select>
-        <input name="gif_query" defaultValue={gifQuery} placeholder="Search media" autoComplete="off" aria-label="Media search" />
-        <button type="submit">Search</button>
-      </form>
-      {degraded ? <p className="muted compact-copy">GIF search failed. Text cards still work.</p> : null}
-      {gifQuery ? (
-        <div className="gif-pager">
-          <form action={searchGifsAction}>
-            <input name="retro_id" type="hidden" value={retroId} />
-            <input name="column_id" type="hidden" value={columnId} />
-            <input name="gif_query" type="hidden" value={gifQuery} />
-            <input name="gif_page" type="hidden" value={gifPage + 1} />
-            <input name="media_kind" type="hidden" value={mediaKind} />
-          <button type="submit">More media</button>
-          </form>
+        <div className="media-kind-toggle" aria-label="Media type">
+          <button aria-pressed={selectedKind === "gif"} name="media_kind" type="submit" value="gif">
+            GIFs
+          </button>
+          <button aria-pressed={selectedKind === "sticker"} name="media_kind" type="submit" value="sticker">
+            Stickers
+          </button>
         </div>
+        <input name="gif_query" defaultValue={gifQuery} placeholder="Search media" autoComplete="off" aria-label="Media search" />
+        <button name="media_kind" type="submit" value={selectedKind}>
+          Search
+        </button>
+      </form>
+      {degraded ? <p className="muted compact-copy">Media search failed. Text cards still work.</p> : null}
+      {gifQuery && gifResults.length > 0 ? (
+        <form className="gif-pager" action={searchGifsAction}>
+          <input name="retro_id" type="hidden" value={retroId} />
+          <input name="column_id" type="hidden" value={columnId} />
+          <input name="gif_query" type="hidden" value={gifQuery} />
+          <input name="gif_page" type="hidden" value={gifPage + 1} />
+          <input name="media_kind" type="hidden" value={selectedKind} />
+          <input name="gif_existing_results" type="hidden" value={serializedResults} />
+          <button className="media-result media-more" type="submit">More</button>
+        </form>
       ) : null}
     </div>
   );

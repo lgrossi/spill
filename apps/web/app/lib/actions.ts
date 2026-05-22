@@ -50,8 +50,10 @@ export async function searchGifsAction(formData: FormData) {
   const page = Math.max(0, Number(formData.get("gif_page") ?? 0) || 0);
   const kind = String(formData.get("media_kind") ?? "all");
   const results = query ? await searchGifs(query, page, kind) : { results: [], degraded: false };
+  const existingResults = page > 0 ? parseGifResults(String(formData.get("gif_existing_results") ?? "")) : [];
+  const mergedResults = [...existingResults, ...results.results];
 
-  redirect(`/retros/${retroId}?addColumn=${encodeURIComponent(columnId)}&gif=${encodeURIComponent(query)}&gifColumn=${encodeURIComponent(columnId)}&gifPage=${page}&mediaKind=${encodeURIComponent(kind)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(results.results))}`);
+  redirect(`/retros/${retroId}?addColumn=${encodeURIComponent(columnId)}&gif=${encodeURIComponent(query)}&gifColumn=${encodeURIComponent(columnId)}&gifPage=${page}&mediaKind=${encodeURIComponent(kind)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(mergedResults))}`);
 }
 
 function parseGifChoice(value: string): { url: string; altText: string } | null {
@@ -67,6 +69,18 @@ function parseGifChoice(value: string): { url: string; altText: string } | null 
     return null;
   }
   return null;
+}
+
+function parseGifResults(value: string) {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function markReadyAction(formData: FormData) {

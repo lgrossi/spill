@@ -1231,9 +1231,13 @@ async fn search_klipy_unified(
         .into_iter()
         .filter_map(|result| {
             let formats = &result.media_formats;
-            let video = select_klipy_media(formats, &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"]);
             let image = select_klipy_media(formats, &["gif", "mediumgif", "tinygif", "nanogif", "webp"]);
-            let media = video.or(image)?;
+            let video = select_klipy_media(formats, &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"]);
+            let media = if kind == MediaSearchKind::Clip {
+                video.or(image)
+            } else {
+                image.or(video)
+            }?;
             let preview = select_klipy_media(formats, &["gifpreview", "nanogif", "tinygif"])
                 .map(|media| media.url.clone())
                 .unwrap_or_else(|| media.url.clone());
@@ -1246,7 +1250,12 @@ async fn search_klipy_unified(
                 } else {
                     result.title
                 },
-                media_type: if video.is_some() { "video" } else { "image" }.to_owned(),
+                media_type: if kind == MediaSearchKind::Clip && video.is_some() {
+                    "video"
+                } else {
+                    "image"
+                }
+                .to_owned(),
                 kind: kind.as_str().to_owned(),
             })
         })
