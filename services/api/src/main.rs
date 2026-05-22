@@ -17,8 +17,8 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use retro_db::{
-    CastVoteInput, ClusterError, CreateRetroInput, DraftCardInput, RetroOverview, RetroRepository,
-    RetroTemplate, VotingError,
+    ActionError, CastVoteInput, ClusterError, CreateRetroInput, DraftCardInput, RetroOverview,
+    RetroRepository, RetroTemplate, UpdateActionInput, VotingError,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -214,6 +214,12 @@ struct CastVoteRequest {
 }
 
 #[derive(Deserialize)]
+struct UpdateActionRequest {
+    title: String,
+    details: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct GifSearchQuery {
     q: Option<String>,
 }
@@ -335,6 +341,22 @@ fn api_router() -> Router<AppState> {
         .route("/retros/{retro_id}/voting/start", post(start_voting))
         .route("/retros/{retro_id}/votes", post(cast_vote))
         .route("/retros/{retro_id}/cluster", post(cluster_board))
+        .route(
+            "/retros/{retro_id}/actions/start",
+            post(start_action_discussion),
+        )
+        .route(
+            "/retros/{retro_id}/actions/{action_id}",
+            patch(update_action),
+        )
+        .route(
+            "/retros/{retro_id}/actions/{action_id}/confirm",
+            post(confirm_action),
+        )
+        .route(
+            "/retros/{retro_id}/actions/{action_id}/reject",
+            post(reject_action),
+        )
         .fallback(api_not_found)
 }
 
@@ -588,6 +610,81 @@ async fn cluster_board(
         .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
+async fn start_action_discussion(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .start_action_discussion(retro_id)
+        .await
+        .map_err(action_error)?;
+    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn update_action(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<UpdateActionRequest>,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let action = repository
+        .update_action(UpdateActionInput {
+            retro_id,
+            action_id,
+            title: require_non_empty("title", request.title)?,
+            details: request.details,
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to update action: {error}")))?
+        .ok_or_else(|| ApiError::not_found("action not found"))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(action))
+}
+
+async fn confirm_action(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    set_action_status(repository, event_hub, retro_id, action_id, "confirmed").await
+}
+
+async fn reject_action(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    set_action_status(repository, event_hub, retro_id, action_id, "rejected").await
+}
+
+async fn set_action_status(
+    repository: Option<RetroRepository>,
+    event_hub: BoardEventHub,
+    retro_id: Uuid,
+    action_id: Uuid,
+    status: &'static str,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let action = repository
+        .set_action_status(retro_id, action_id, status)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to update action status: {error}")))?
+        .ok_or_else(|| ApiError::not_found("action not found"))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(action))
+}
+
 async fn board_events(
     State(event_hub): State<BoardEventHub>,
     Path(retro_id): Path<Uuid>,
@@ -774,6 +871,14 @@ fn cluster_error(error: ClusterError) -> ApiError {
     match error {
         ClusterError::Sqlx(error) => ApiError::internal(format!("clustering failed: {error}")),
         ClusterError::Invalid(message) => ApiError::bad_request(message),
+    }
+}
+
+fn action_error(error: ActionError) -> ApiError {
+    match error {
+        ActionError::Sqlx(error) => {
+            ApiError::internal(format!("action discussion failed: {error}"))
+        }
     }
 }
 

@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { castVote, clusterBoard, createDraftCard, createRetro, markReady, revealRetro, searchGifs, startVoting, type CreateRetroPayload } from "./api";
+import { castVote, clusterBoard, confirmActionItem, createDraftCard, createRetro, markReady, rejectActionItem, revealRetro, searchGifs, startActionDiscussion, startVoting, type CreateRetroPayload, updateActionItem } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -99,5 +99,38 @@ export async function clusterBoardAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await clusterBoard(retroId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function startActionDiscussionAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+
+  await startActionDiscussion(retroId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function updateActionItemAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const actionId = String(formData.get("action_id") ?? "");
+  const title = String(formData.get("title") ?? "").trim();
+  const details = String(formData.get("details") ?? "").trim();
+
+  await updateActionItem(retroId, actionId, title, details);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function confirmActionItemAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const actionId = String(formData.get("action_id") ?? "");
+
+  await confirmActionItem(retroId, actionId);
+  revalidatePath(`/retros/${retroId}`);
+}
+
+export async function rejectActionItemAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const actionId = String(formData.get("action_id") ?? "");
+
+  await rejectActionItem(retroId, actionId);
   revalidatePath(`/retros/${retroId}`);
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRetro, type GifResult } from "../../lib/api";
-import { castVoteAction, clusterBoardAction, createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction, startVotingAction } from "../../lib/actions";
+import { castVoteAction, clusterBoardAction, confirmActionItemAction, createDraftCardAction, markReadyAction, rejectActionItemAction, revealRetroAction, searchGifsAction, startActionDiscussionAction, startVotingAction, updateActionItemAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
 export default async function RetroBoardPage({
@@ -96,15 +96,62 @@ export default async function RetroBoardPage({
                   </>
                 ) : null}
                 {board.retro.phase === "voting" ? (
-                  <form action={markReadyAction}>
-                    <input name="retro_id" type="hidden" value={board.retro.id} />
-                    <button className="primary" type="submit">
-                      {board.ready.current_user_ready ? "Voting ready" : "Mark voting ready"}
-                    </button>
-                  </form>
+                  <>
+                    <form action={markReadyAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <button className="primary" type="submit">
+                        {board.ready.current_user_ready ? "Voting ready" : "Mark voting ready"}
+                      </button>
+                    </form>
+                    <form action={startActionDiscussionAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <button type="submit">Discuss top actions</button>
+                    </form>
+                  </>
                 ) : null}
               </div>
             </div>
+            {board.retro.phase === "action_discussion" ? (
+              <section className="scene action-panel">
+                <div className="scene-head">
+                  <p className="eyebrow">Action agenda</p>
+                  <h3>Top voted action cards</h3>
+                  <p>Default top {board.retro.action_discussion_limit}; ties follow oldest-card order.</p>
+                </div>
+                {board.actions.map((action) => (
+                  <article className={`card action-card ${action.status}`} key={action.id}>
+                    <form className="draft-form" action={updateActionItemAction}>
+                      <input name="retro_id" type="hidden" value={board.retro.id} />
+                      <input name="action_id" type="hidden" value={action.id} />
+                      <label>
+                        Action
+                        <input name="title" defaultValue={action.title} />
+                      </label>
+                      <label>
+                        Details
+                        <textarea name="details" rows={2} defaultValue={action.details ?? ""} />
+                      </label>
+                      <div className="vote-row">
+                        <span className="chip">{action.status}</span>
+                        <button type="submit">Save edit</button>
+                      </div>
+                    </form>
+                    <div className="vote-row">
+                      <form action={confirmActionItemAction}>
+                        <input name="retro_id" type="hidden" value={board.retro.id} />
+                        <input name="action_id" type="hidden" value={action.id} />
+                        <button className="primary" type="submit">Confirm</button>
+                      </form>
+                      <form action={rejectActionItemAction}>
+                        <input name="retro_id" type="hidden" value={board.retro.id} />
+                        <input name="action_id" type="hidden" value={action.id} />
+                        <button type="submit">Reject</button>
+                      </form>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            ) : null}
             <div className={`columns ${board.columns.length === 5 ? "five" : ""}`}>
               {board.columns.map((column) => (
                 <section className="column" key={column.id}>

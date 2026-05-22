@@ -82,6 +82,18 @@ export type RetroBoard = {
     category: string | null;
     tags: string[];
   }[];
+  actions: RetroActionItem[];
+};
+
+export type RetroActionItem = {
+  id: string;
+  retro_id: string;
+  source_card_id: string | null;
+  source_cluster_id: string | null;
+  title: string;
+  details: string | null;
+  status: "proposed" | "confirmed" | "rejected";
+  position: number;
 };
 
 export type CreateRetroPayload =
@@ -168,6 +180,36 @@ export async function castVote(retroId: string, cardId: string, count = 1): Prom
 
 export async function clusterBoard(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/cluster`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function startActionDiscussion(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/actions/start`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function updateActionItem(retroId: string, actionId: string, title: string, details: string): Promise<RetroActionItem> {
+  return apiFetch(`/api/retros/${retroId}/actions/${actionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title, details: details || null }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function confirmActionItem(retroId: string, actionId: string): Promise<RetroActionItem> {
+  return apiFetch(`/api/retros/${retroId}/actions/${actionId}/confirm`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function rejectActionItem(retroId: string, actionId: string): Promise<RetroActionItem> {
+  return apiFetch(`/api/retros/${retroId}/actions/${actionId}/reject`, {
     method: "POST",
     cache: "no-store",
   });

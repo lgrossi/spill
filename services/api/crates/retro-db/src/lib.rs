@@ -75,6 +75,7 @@ impl RetroRepository {
             ready: ReadyInfo::default(),
             voting: VotingInfo::default(),
             clusters: Vec::new(),
+            actions: Vec::new(),
         })
     }
 
@@ -84,6 +85,7 @@ impl RetroRepository {
         };
         let columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
+        let actions = self.fetch_actions(id).await?;
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
@@ -92,6 +94,7 @@ impl RetroRepository {
             ready,
             voting,
             clusters,
+            actions,
         }))
     }
 
@@ -108,6 +111,7 @@ impl RetroRepository {
         let mut columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let cards = self.fetch_cards_for_user(id, subject).await?;
+        let actions = self.fetch_actions(id).await?;
         for column in &mut columns {
             column.cards = cards
                 .iter()
@@ -123,6 +127,7 @@ impl RetroRepository {
             ready,
             voting,
             clusters,
+            actions,
         }))
     }
 
@@ -463,6 +468,90 @@ impl RetroRepository {
         Ok(clusters)
     }
 
+    pub async fn start_action_discussion(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<ActionItemRecord>, ActionError> {
+        let mut tx = self.pool.begin().await?;
+        let retro = sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET phase = 'action_discussion'
+             WHERE id = $1 AND phase = 'voting'
+             RETURNING id, title, phase, vote_limit, action_discussion_limit",
+        )
+        .bind(retro_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let candidates = sqlx::query_as::<_, ActionCandidate>(
+            "SELECT c.id, COALESCE(c.body_text, c.gif_alt_text, 'Untitled card') AS title, COALESCE(SUM(v.count), 0)::BIGINT AS vote_count
+             FROM cards c
+             LEFT JOIN votes v ON v.target_card_id = c.id
+             WHERE c.retro_id = $1 AND c.state = 'revealed'
+             GROUP BY c.id
+             ORDER BY vote_count DESC, c.created_at ASC
+             LIMIT $2",
+        )
+        .bind(retro_id)
+        .bind(retro.action_discussion_limit as i64)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (position, candidate) in candidates.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO action_items (retro_id, source_card_id, title, details, status, position)
+                 VALUES ($1, $2, $3, $4, 'proposed', $5)",
+            )
+            .bind(retro_id)
+            .bind(candidate.id)
+            .bind(format!("Follow up: {}", candidate.title))
+            .bind(format!("Based on {votes} vote(s).", votes = candidate.vote_count))
+            .bind(position as i32)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(self.fetch_actions(retro_id).await?)
+    }
+
+    pub async fn update_action(
+        &self,
+        input: UpdateActionInput,
+    ) -> Result<Option<ActionItemRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ActionItemRecord>(
+            "UPDATE action_items
+             SET title = $3, details = $4
+             WHERE id = $1 AND retro_id = $2
+             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position",
+        )
+        .bind(input.action_id)
+        .bind(input.retro_id)
+        .bind(input.title.trim())
+        .bind(input.details.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn set_action_status(
+        &self,
+        retro_id: Uuid,
+        action_id: Uuid,
+        status: &str,
+    ) -> Result<Option<ActionItemRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ActionItemRecord>(
+            "UPDATE action_items
+             SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN NOW() ELSE confirmed_at END
+             WHERE id = $1 AND retro_id = $2
+             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position",
+        )
+        .bind(action_id)
+        .bind(retro_id)
+        .bind(status)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     async fn ensure_participant(
         &self,
         retro_id: Uuid,
@@ -582,6 +671,18 @@ impl RetroRepository {
         .fetch_one(&self.pool)
         .await
     }
+
+    async fn fetch_actions(&self, retro_id: Uuid) -> Result<Vec<ActionItemRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ActionItemRecord>(
+            "SELECT id, retro_id, source_card_id, source_cluster_id, title, details, status, position
+             FROM action_items
+             WHERE retro_id = $1
+             ORDER BY position, created_at",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
@@ -600,6 +701,7 @@ pub struct RetroBoard {
     pub ready: ReadyInfo,
     pub voting: VotingInfo,
     pub clusters: Vec<ClusterRecord>,
+    pub actions: Vec<ActionItemRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -702,6 +804,18 @@ pub struct VotingInfo {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct ActionItemRecord {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub source_card_id: Option<Uuid>,
+    pub source_cluster_id: Option<Uuid>,
+    pub title: String,
+    pub details: Option<String>,
+    pub status: String,
+    pub position: i32,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
 pub struct RetroSummary {
     pub id: Uuid,
     pub title: String,
@@ -748,6 +862,25 @@ pub struct CastVoteInput {
     pub count: i32,
 }
 
+#[derive(Debug, Clone)]
+pub struct UpdateActionInput {
+    pub retro_id: Uuid,
+    pub action_id: Uuid,
+    pub title: String,
+    pub details: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum ActionError {
+    Sqlx(sqlx::Error),
+}
+
+impl From<sqlx::Error> for ActionError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Sqlx(error)
+    }
+}
+
 #[derive(Debug)]
 pub enum VotingError {
     Sqlx(sqlx::Error),
@@ -784,6 +917,13 @@ struct ClusteringRetro {
 struct ClusterCandidate {
     id: Uuid,
     text: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ActionCandidate {
+    id: Uuid,
+    title: String,
+    vote_count: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -1244,5 +1384,93 @@ mod tests {
 
         let second = repo.cluster_board(created.retro.id).await;
         assert!(matches!(second, Err(ClusterError::Invalid(_))));
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn action_discussion_creates_editable_top_voted_actions(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Actions retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 2,
+            })
+            .await
+            .unwrap();
+
+        let mut cards = Vec::new();
+        for text in ["Most important", "Second important", "No votes"] {
+            cards.push(
+                repo.create_draft_card(DraftCardInput {
+                    retro_id: created.retro.id,
+                    column_id: created.columns[0].id,
+                    author_subject: "ava".to_owned(),
+                    author_display_name: "Ava".to_owned(),
+                    body_text: Some(text.to_owned()),
+                    gif_url: None,
+                    gif_alt_text: None,
+                })
+                .await
+                .unwrap(),
+            );
+        }
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        repo.cast_vote(CastVoteInput {
+            retro_id: created.retro.id,
+            card_id: cards[0].id,
+            subject: "lee".to_owned(),
+            display_name: "Lee".to_owned(),
+            count: 2,
+        })
+        .await
+        .unwrap();
+        repo.cast_vote(CastVoteInput {
+            retro_id: created.retro.id,
+            card_id: cards[1].id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+            count: 1,
+        })
+        .await
+        .unwrap();
+
+        let actions = repo
+            .start_action_discussion(created.retro.id)
+            .await
+            .unwrap();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].source_card_id, Some(cards[0].id));
+        assert_eq!(actions[1].source_card_id, Some(cards[1].id));
+
+        let edited = repo
+            .update_action(UpdateActionInput {
+                retro_id: created.retro.id,
+                action_id: actions[0].id,
+                title: "Assign alert owner".to_owned(),
+                details: Some("Ava by Friday".to_owned()),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(edited.title, "Assign alert owner");
+
+        let confirmed = repo
+            .set_action_status(created.retro.id, actions[0].id, "confirmed")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(confirmed.status, "confirmed");
+
+        let rejected = repo
+            .set_action_status(created.retro.id, actions[1].id, "rejected")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(rejected.status, "rejected");
     }
 }
