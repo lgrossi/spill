@@ -32,9 +32,23 @@ export type RetroCard = {
   retro_id: string;
   column_id: string;
   body_text: string | null;
+  gif_url: string | null;
+  gif_alt_text: string | null;
   state: "draft" | "revealed";
   position: number;
   hidden: boolean;
+};
+
+export type GifResult = {
+  id: string;
+  url: string;
+  preview_url: string;
+  alt_text: string;
+};
+
+export type GifSearchResponse = {
+  results: GifResult[];
+  degraded: boolean;
 };
 
 export type RetroBoard = {
@@ -85,11 +99,22 @@ export async function getRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, { cache: "no-store" });
 }
 
-export async function createDraftCard(retroId: string, columnId: string, bodyText: string): Promise<RetroCard> {
+export async function createDraftCard(retroId: string, columnId: string, bodyText: string, gifUrl?: string, gifAltText?: string): Promise<RetroCard> {
   return apiFetch(`/api/retros/${retroId}/cards`, {
     method: "POST",
-    body: JSON.stringify({ column_id: columnId, body_text: bodyText }),
+    body: JSON.stringify({
+      column_id: columnId,
+      body_text: bodyText || null,
+      gif_url: gifUrl || null,
+      gif_alt_text: gifAltText || null,
+    }),
     headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function searchGifs(query: string): Promise<GifSearchResponse> {
+  return apiFetch(`/api/gifs/search?q=${encodeURIComponent(query)}`, {
     cache: "no-store",
   });
 }

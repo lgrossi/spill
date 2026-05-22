@@ -1,16 +1,26 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRetro } from "../../lib/api";
-import { createDraftCardAction, markReadyAction, revealRetroAction } from "../../lib/actions";
+import { getRetro, type GifResult } from "../../lib/api";
+import { createDraftCardAction, markReadyAction, revealRetroAction, searchGifsAction } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 
-export default async function RetroBoardPage({ params }: { params: Promise<{ retroId: string }> }) {
+export default async function RetroBoardPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ retroId: string }>;
+  searchParams: Promise<{ gif?: string; gifResults?: string; gifDegraded?: string }>;
+}) {
   const { retroId } = await params;
+  const gifSearch = await searchParams;
   const board = await loadBoard(retroId);
 
   if (!board) {
     notFound();
   }
+
+  const gifResults = parseGifResults(gifSearch.gifResults);
+  const gifDegraded = gifSearch.gifDegraded === "1";
 
   return (
     <main>
@@ -92,17 +102,41 @@ export default async function RetroBoardPage({ params }: { params: Promise<{ ret
                           <span className="skeleton short" />
                         </>
                       ) : (
-                        <p>{card.body_text}</p>
+                        <>
+                          {card.body_text ? <p>{card.body_text}</p> : null}
+                          {card.gif_url ? <div className="gif">{card.gif_alt_text ?? "Attached GIF"}</div> : null}
+                        </>
                       )}
                     </article>
                   ))}
                   {board.retro.phase === "writing" ? (
-                    <form className="draft-form" action={createDraftCardAction}>
-                      <input name="retro_id" type="hidden" value={board.retro.id} />
-                      <input name="column_id" type="hidden" value={column.id} />
-                      <textarea name="body_text" rows={3} required placeholder={`Add private ${column.title} draft`} />
-                      <button type="submit">Add draft</button>
-                    </form>
+                    <div className="draft-form">
+                      <form action={searchGifsAction}>
+                        <input name="retro_id" type="hidden" value={board.retro.id} />
+                        <label>
+                          GIF search
+                          <input name="gif_query" defaultValue={gifSearch.gif ?? ""} placeholder="high five, ship it, confused" />
+                        </label>
+                        <button type="submit">Search GIFs</button>
+                      </form>
+                      {gifDegraded ? <p className="muted">GIF search is degraded. You can still add a text-only card.</p> : null}
+                      <form className="draft-form" action={createDraftCardAction}>
+                        <input name="retro_id" type="hidden" value={board.retro.id} />
+                        <input name="column_id" type="hidden" value={column.id} />
+                        <textarea name="body_text" rows={3} placeholder={`Add private ${column.title} draft`} />
+                        {gifResults.length > 0 ? (
+                          <div className="gif-grid">
+                            {gifResults.map((gif) => (
+                              <label className="gif-option" key={gif.id}>
+                                <input name="gif_choice" type="radio" value={JSON.stringify({ url: gif.url, altText: gif.alt_text })} />
+                                <span>{gif.alt_text}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                        <button type="submit">Add draft</button>
+                      </form>
+                    </div>
                   ) : null}
                 </section>
               ))}
@@ -119,5 +153,17 @@ async function loadBoard(retroId: string) {
     return await getRetro(retroId);
   } catch {
     return null;
+  }
+}
+
+function parseGifResults(value?: string): GifResult[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }

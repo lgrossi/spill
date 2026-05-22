@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createDraftCard, createRetro, markReady, revealRetro, type CreateRetroPayload } from "./api";
+import { createDraftCard, createRetro, markReady, revealRetro, searchGifs, type CreateRetroPayload } from "./api";
 
 export async function createRetroAction(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -37,9 +37,33 @@ export async function createDraftCardAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
   const columnId = String(formData.get("column_id") ?? "");
   const bodyText = String(formData.get("body_text") ?? "").trim();
+  const gifChoice = parseGifChoice(String(formData.get("gif_choice") ?? ""));
 
-  await createDraftCard(retroId, columnId, bodyText);
+  await createDraftCard(retroId, columnId, bodyText, gifChoice?.url, gifChoice?.altText);
   revalidatePath(`/retros/${retroId}`);
+}
+
+export async function searchGifsAction(formData: FormData) {
+  const retroId = String(formData.get("retro_id") ?? "");
+  const query = String(formData.get("gif_query") ?? "").trim();
+  const results = query ? await searchGifs(query) : { results: [], degraded: false };
+
+  redirect(`/retros/${retroId}?gif=${encodeURIComponent(query)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(results.results))}`);
+}
+
+function parseGifChoice(value: string): { url: string; altText: string } | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed?.url === "string" && typeof parsed?.altText === "string") {
+      return parsed;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export async function markReadyAction(formData: FormData) {

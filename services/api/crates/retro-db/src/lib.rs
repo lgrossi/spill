@@ -170,12 +170,14 @@ impl RetroRepository {
             .await?;
 
         sqlx::query_as::<_, CardRecord>(
-            "INSERT INTO cards (retro_id, column_id, author_participant_id, body_text, state, position)
+            "INSERT INTO cards (retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position)
              VALUES (
                 $1,
                 $2,
                 $3,
                 $4,
+                $5,
+                $6,
                 'draft',
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
              )
@@ -184,7 +186,9 @@ impl RetroRepository {
         .bind(input.retro_id)
         .bind(input.column_id)
         .bind(participant_id)
-        .bind(input.body_text.trim())
+        .bind(input.body_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(input.gif_url.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(input.gif_alt_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .fetch_one(&self.pool)
         .await
     }
@@ -193,11 +197,13 @@ impl RetroRepository {
         &self,
         card_id: Uuid,
         subject: &str,
-        body_text: &str,
+        body_text: Option<&str>,
+        gif_url: Option<&str>,
+        gif_alt_text: Option<&str>,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
-             SET body_text = $3, updated_at = NOW()
+             SET body_text = $3, gif_url = $4, gif_alt_text = $5, updated_at = NOW()
              FROM participants p
              WHERE c.id = $1
                AND c.author_participant_id = p.id
@@ -207,7 +213,9 @@ impl RetroRepository {
         )
         .bind(card_id)
         .bind(subject)
-        .bind(body_text.trim())
+        .bind(body_text.map(str::trim).filter(|value| !value.is_empty()))
+        .bind(gif_url.map(str::trim).filter(|value| !value.is_empty()))
+        .bind(gif_alt_text.map(str::trim).filter(|value| !value.is_empty()))
         .fetch_optional(&self.pool)
         .await
     }
@@ -312,8 +320,14 @@ impl RetroRepository {
                     WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
                     ELSE c.body_text
                 END AS body_text,
-                c.gif_url,
-                c.gif_alt_text,
+                CASE
+                    WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
+                    ELSE c.gif_url
+                END AS gif_url,
+                CASE
+                    WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
+                    ELSE c.gif_alt_text
+                END AS gif_alt_text,
                 c.state,
                 c.position,
                 (r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2) AS hidden
@@ -452,7 +466,9 @@ pub struct DraftCardInput {
     pub column_id: Uuid,
     pub author_subject: String,
     pub author_display_name: String,
-    pub body_text: String,
+    pub body_text: Option<String>,
+    pub gif_url: Option<String>,
+    pub gif_alt_text: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -603,7 +619,9 @@ mod tests {
             column_id,
             author_subject: "ava".to_owned(),
             author_display_name: "Ava".to_owned(),
-            body_text: "Ava can read this".to_owned(),
+            body_text: Some("Ava can read this".to_owned()),
+            gif_url: None,
+            gif_alt_text: None,
         })
         .await
         .unwrap();
@@ -612,7 +630,9 @@ mod tests {
             column_id,
             author_subject: "lee".to_owned(),
             author_display_name: "Lee".to_owned(),
-            body_text: "Lee private draft".to_owned(),
+            body_text: Some("Lee private draft".to_owned()),
+            gif_url: None,
+            gif_alt_text: None,
         })
         .await
         .unwrap();
@@ -642,6 +662,86 @@ mod tests {
             lee_board.columns[0].cards[1].body_text.as_deref(),
             Some("Lee private draft")
         );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn gif_cards_can_be_attached_replaced_removed_and_hidden(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "GIF retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+        let column_id = created.columns[0].id;
+
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: None,
+                gif_url: Some("https://media.example/high-five.gif".to_owned()),
+                gif_alt_text: Some("high five".to_owned()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            card.gif_url.as_deref(),
+            Some("https://media.example/high-five.gif")
+        );
+
+        let replaced = repo
+            .update_draft_card(
+                card.id,
+                "ava",
+                Some("now with words"),
+                Some("https://media.example/thumbs-up.gif"),
+                Some("thumbs up"),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replaced.body_text.as_deref(), Some("now with words"));
+        assert_eq!(
+            replaced.gif_url.as_deref(),
+            Some("https://media.example/thumbs-up.gif")
+        );
+
+        let removed = repo
+            .update_draft_card(card.id, "ava", Some("text only now"), None, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(removed.body_text.as_deref(), Some("text only now"));
+        assert_eq!(removed.gif_url, None);
+
+        repo.create_draft_card(DraftCardInput {
+            retro_id: created.retro.id,
+            column_id,
+            author_subject: "lee".to_owned(),
+            author_display_name: "Lee".to_owned(),
+            body_text: None,
+            gif_url: Some("https://media.example/private.gif".to_owned()),
+            gif_alt_text: Some("private".to_owned()),
+        })
+        .await
+        .unwrap();
+
+        let ava_board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ava_board.columns[0].cards[1].gif_url, None);
+        assert!(ava_board.columns[0].cards[1].hidden);
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]

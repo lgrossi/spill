@@ -8,7 +8,7 @@ use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{
-        FromRef, Path, State,
+        FromRef, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode},
@@ -191,12 +191,35 @@ struct CreateRetroRequest {
 #[derive(Deserialize)]
 struct CreateDraftCardRequest {
     column_id: Uuid,
-    body_text: String,
+    body_text: Option<String>,
+    gif_url: Option<String>,
+    gif_alt_text: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct UpdateDraftCardRequest {
-    body_text: String,
+    body_text: Option<String>,
+    gif_url: Option<String>,
+    gif_alt_text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GifSearchQuery {
+    q: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GifSearchResponse {
+    results: Vec<GifResult>,
+    degraded: bool,
+}
+
+#[derive(Serialize)]
+struct GifResult {
+    id: String,
+    url: String,
+    preview_url: String,
+    alt_text: String,
 }
 
 #[derive(Serialize)]
@@ -288,6 +311,7 @@ fn app_with_state(state: AppState) -> Router {
 fn api_router() -> Router<AppState> {
     Router::new()
         .route("/session", get(session))
+        .route("/gifs/search", get(search_gifs))
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro))
         .route("/retros/{retro_id}/events", get(board_events))
@@ -378,13 +402,16 @@ async fn create_draft_card(
 ) -> Result<(StatusCode, Json<retro_db::CardRecord>), ApiError> {
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
+    let card_body = card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
     let card = repository
         .create_draft_card(DraftCardInput {
             retro_id,
             column_id: request.column_id,
             author_subject: user.subject,
             author_display_name: user.display_name,
-            body_text: require_non_empty("body_text", request.body_text)?,
+            body_text: card_body.body_text,
+            gif_url: card_body.gif_url,
+            gif_alt_text: card_body.gif_alt_text,
         })
         .await
         .map_err(|error| ApiError::internal(format!("failed to create draft card: {error}")))?;
@@ -403,11 +430,14 @@ async fn update_draft_card(
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
+    let card_body = card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
     repository
         .update_draft_card(
             card_id,
             &user.subject,
-            &require_non_empty("body_text", request.body_text)?,
+            card_body.body_text.as_deref(),
+            card_body.gif_url.as_deref(),
+            card_body.gif_alt_text.as_deref(),
         )
         .await
         .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
@@ -503,6 +533,93 @@ async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, ret
         if socket.send(Message::Text(payload.into())).await.is_err() {
             break;
         }
+    }
+}
+
+async fn search_gifs(Query(query): Query<GifSearchQuery>) -> Json<GifSearchResponse> {
+    let provider = FakeGifProvider;
+    match provider
+        .search(query.q.as_deref().unwrap_or_default())
+        .await
+    {
+        Ok(results) => Json(GifSearchResponse {
+            results,
+            degraded: false,
+        }),
+        Err(()) => Json(GifSearchResponse {
+            results: Vec::new(),
+            degraded: true,
+        }),
+    }
+}
+
+struct CardBodyPayload {
+    body_text: Option<String>,
+    gif_url: Option<String>,
+    gif_alt_text: Option<String>,
+}
+
+fn card_body_payload(
+    body_text: Option<String>,
+    gif_url: Option<String>,
+    gif_alt_text: Option<String>,
+) -> Result<CardBodyPayload, ApiError> {
+    let body_text = optional_non_empty(body_text);
+    let gif_url = optional_non_empty(gif_url);
+    let gif_alt_text = optional_non_empty(gif_alt_text);
+
+    if body_text.is_none() && gif_url.is_none() {
+        return Err(ApiError::bad_request("card requires text or gif"));
+    }
+
+    Ok(CardBodyPayload {
+        body_text,
+        gif_url,
+        gif_alt_text,
+    })
+}
+
+fn optional_non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+struct FakeGifProvider;
+
+impl FakeGifProvider {
+    async fn search(&self, query: &str) -> Result<Vec<GifResult>, ()> {
+        let query = query.trim();
+        if query.eq_ignore_ascii_case("fail") {
+            return Err(());
+        }
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let slug = query
+            .chars()
+            .filter_map(|character| {
+                if character.is_ascii_alphanumeric() {
+                    Some(character.to_ascii_lowercase())
+                } else if character.is_whitespace() || character == '-' || character == '_' {
+                    Some('-')
+                } else {
+                    None
+                }
+            })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_owned();
+
+        Ok((1..=4)
+            .map(|index| GifResult {
+                id: format!("{slug}-{index}"),
+                url: format!("https://media.spillitout.local/{slug}-{index}.gif"),
+                preview_url: format!("https://media.spillitout.local/{slug}-{index}.webp"),
+                alt_text: format!("{query} GIF {index}"),
+            })
+            .collect())
     }
 }
 
@@ -918,6 +1035,90 @@ mod tests {
         assert_eq!(
             revealed["columns"][0]["cards"][1]["body_text"],
             "Lee private draft"
+        );
+    }
+
+    #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+    async fn gif_endpoints_search_attach_and_degrade_gracefully(pool: sqlx::PgPool) {
+        let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/gifs/search?q=high%20five")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let search: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(search["degraded"], false);
+        assert_eq!(search["results"].as_array().unwrap().len(), 4);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/gifs/search?q=fail")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let failed_search: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(failed_search["degraded"], true);
+        assert_eq!(failed_search["results"].as_array().unwrap().len(), 0);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_USER_NAME, "Ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"title":"GIF API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let retro_id = created["retro"]["id"].as_str().unwrap();
+        let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/cards"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"column_id":"{column_id}","gif_url":"https://media.spillitout.local/high-five-1.gif","gif_alt_text":"high five"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let gif_card: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(
+            gif_card["gif_url"],
+            "https://media.spillitout.local/high-five-1.gif"
         );
     }
 }

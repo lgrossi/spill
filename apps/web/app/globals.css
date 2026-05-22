@@ -48,6 +48,8 @@ input,select,textarea { width:100%; margin-top:.35rem; border:1px solid rgba(255
 .skeleton { display:block; height:.75rem; border-radius:999px; background:linear-gradient(90deg,#d9cbb8,#f1e7d9); }
 .short { width:72%; }
 .gif { min-height:76px; display:flex; align-items:flex-end; border-radius:20px; padding:.7rem; color:#3d45a6; background:linear-gradient(135deg,rgba(79,103,255,.18),rgba(255,130,178,.22)),repeating-linear-gradient(45deg,rgba(255,255,255,.45) 0 8px,transparent 8px 16px); }
+.gif-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
+.gif-option { display:grid; gap:.35rem; padding:.55rem; border-radius:16px; background:rgba(255,249,238,.88); color:#2b2119; }
 .merged { padding-top:.5rem; border-top:1px dashed #aebaff; }
 .action { background:linear-gradient(180deg,#f0fbf5,#fffdf7); }
 .summary { background:#fff6db; }
