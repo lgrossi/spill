@@ -1,0 +1,1712 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SpillItOut board-first mock</title>
+    <style>
+      :root {
+        --bg: #15131f;
+        --bg2: #241c2f;
+        --ink: #fff3df;
+        --soft: #c7b7a3;
+        --paper: #fff5df;
+        --paper2: #342a38;
+        --line: rgba(255, 224, 178, 0.18);
+        --line2: rgba(255, 224, 178, 0.28);
+        --blue: #4f67ff;
+        --blue2: #e7ebff;
+        --green: #178765;
+        --green2: #e5f6ee;
+        --yellow: #ad6d10;
+        --yellow2: #fff0cf;
+        --red: #b54356;
+        --red2: #ffe6ec;
+        --pink: #ffe2ef;
+        --mint: #dff7ea;
+        --sky: #dff3ff;
+        --feel: #9ec2ff;
+        --feel-bg: rgba(60, 96, 168, 0.44);
+        --good-col: #91e5b4;
+        --good-bg: rgba(37, 126, 85, 0.42);
+        --bad: #ffbd79;
+        --bad-bg: rgba(181, 99, 39, 0.46);
+        --action: #d1b3ff;
+        --action-bg: rgba(111, 68, 173, 0.48);
+        --idea: #f1cf6a;
+        --idea-bg: rgba(173, 126, 34, 0.42);
+        --shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        --radius: 34px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 16% -8%, rgba(255, 126, 181, 0.22) 0, transparent 30%),
+          radial-gradient(circle at 100% 8%, rgba(92, 149, 255, 0.22) 0, transparent 26%),
+          radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 22px),
+          linear-gradient(180deg, var(--bg), var(--bg2));
+        color: var(--ink);
+        font-family: ui-rounded, "Nunito", "Avenir Next Rounded", "Trebuchet MS", system-ui, sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        background: rgba(21, 19, 31, 0.78);
+        border-bottom: 1px solid rgba(255, 224, 178, 0.14);
+        backdrop-filter: blur(16px);
+      }
+
+      h1,
+      h2,
+      h3,
+      h4,
+      p {
+        margin-top: 0;
+      }
+
+      .topbar h1 {
+        margin-bottom: 0.25rem;
+        font-size: 1.25rem;
+        letter-spacing: -0.02em;
+      }
+
+      .topbar p,
+      .muted {
+        color: var(--soft);
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 250px minmax(0, 1fr);
+        gap: 1.25rem;
+        max-width: 1580px;
+        margin: 0 auto;
+        padding: 1.25rem;
+      }
+
+      .rail {
+        position: sticky;
+        top: 5.25rem;
+        align-self: start;
+        display: grid;
+        gap: 1rem;
+      }
+
+      .rail-card,
+      .scene,
+      .panel,
+      .board {
+        background: rgba(42, 33, 50, 0.7);
+        border: 1px solid rgba(255, 224, 178, 0.14);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+
+      .scene,
+      .board {
+        box-shadow: 0 22px 60px rgba(0, 0, 0, 0.25);
+      }
+
+      .rail-card,
+      .scene,
+      .panel {
+        padding: 1rem;
+      }
+
+      .panel {
+        position: relative;
+        border: 0;
+        border-radius: 30px 36px 28px 34px;
+        background:
+          radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.08), transparent 34%),
+          rgba(46, 38, 54, 0.72);
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24);
+        transform: rotate(-0.15deg);
+      }
+
+      .panel:nth-of-type(2n) {
+        transform: rotate(0.18deg);
+      }
+
+      .panel:nth-of-type(3n) {
+        transform: rotate(-0.28deg);
+      }
+
+      .panel::before {
+        content: "";
+        position: absolute;
+        top: -9px;
+        left: 28px;
+        width: 54px;
+        height: 18px;
+        border-radius: 6px;
+        background: rgba(255, 195, 109, 0.46);
+        transform: rotate(-3deg);
+      }
+
+      .outline {
+        display: grid;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .outline a {
+        display: block;
+        padding: 0.62rem 0.8rem;
+        border-radius: 999px;
+        color: var(--soft);
+        text-decoration: none;
+      }
+
+      .outline a:hover,
+      .outline a.active {
+        background: rgba(255, 255, 255, 0.1);
+        color: #3146c8;
+      }
+
+      .content {
+        display: grid;
+        gap: 1.25rem;
+      }
+
+      .scene {
+        scroll-margin-top: 6rem;
+      }
+
+      .scene-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.1rem;
+      }
+
+      .scene-head p {
+        max-width: 72ch;
+        color: var(--soft);
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4 {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .chip-row,
+      .actions,
+      .list-row,
+      .column-head,
+      .board-head,
+      .phase-strip {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+      }
+
+      .chip-row,
+      .actions {
+        flex-wrap: wrap;
+      }
+
+      .board-head,
+      .phase-strip,
+      .list-row,
+      .column-head {
+        justify-content: space-between;
+      }
+
+      .chip,
+      .button,
+      .vote,
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 224, 178, 0.18);
+        background: rgba(255, 245, 223, 0.1);
+        padding: 0.42rem 0.7rem;
+        font-size: 0.8rem;
+        line-height: 1;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .button {
+        min-height: 2.35rem;
+        cursor: default;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+      }
+
+      .button.pending-action {
+        border-color: #f0ce8d;
+        background: var(--yellow2);
+        color: var(--yellow);
+      }
+
+      .button.primary,
+      .chip.blue {
+        background: var(--blue);
+        border-color: var(--blue);
+        color: #fff;
+      }
+
+      .chip.soft-blue,
+      .vote {
+        background: var(--blue2);
+        border-color: #cdd5ff;
+        color: #334bd3;
+      }
+
+      .chip.green {
+        background: var(--green2);
+        border-color: #bee9d6;
+        color: var(--green);
+      }
+
+      .chip.yellow {
+        background: var(--yellow2);
+        border-color: #f0ce8d;
+        color: var(--yellow);
+      }
+
+      .chip.red {
+        background: var(--red2);
+        border-color: #f0bcc7;
+        color: var(--red);
+      }
+
+      .list {
+        display: grid;
+        gap: 0.75rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .list-item,
+      .empty,
+      .setting-card {
+        border: 0;
+        border-radius: 22px 26px 20px 24px;
+        background: rgba(58, 47, 63, 0.78);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+        padding: 1rem;
+      }
+
+      .empty {
+        display: grid;
+        place-items: center;
+        min-height: 230px;
+        text-align: center;
+        background:
+          radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.08), transparent 42%),
+          rgba(58, 47, 63, 0.62);
+      }
+
+      .board {
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(255, 126, 181, 0.18), transparent 26%),
+          radial-gradient(circle at 88% 0%, rgba(92, 149, 255, 0.18), transparent 24%),
+          rgba(31, 25, 40, 0.52);
+        border: 0;
+        box-shadow: none;
+      }
+
+      .board-head {
+        align-items: flex-start;
+        margin: 1rem 1rem 0;
+        padding: 1rem 1.1rem;
+        border: 1px solid rgba(255, 224, 178, 0.14);
+        border-bottom: 1px solid rgba(255, 224, 178, 0.14);
+        border-radius: 30px;
+        background: rgba(44, 36, 53, 0.7);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+      }
+
+      .board-title h3 {
+        margin: 0.55rem 0 0.2rem;
+        font-size: 1.15rem;
+      }
+
+      .board-title p {
+        margin: 0;
+        color: var(--soft);
+      }
+
+      .board-body {
+        display: grid;
+        gap: 1.15rem;
+        padding: 1.15rem;
+      }
+
+      .phase-strip {
+        align-items: flex-start;
+        border: 1px dashed rgba(255, 224, 178, 0.2);
+        border-radius: 28px;
+        background: rgba(47, 38, 56, 0.6);
+        padding: 0.95rem 1rem;
+      }
+
+      .progress {
+        width: min(320px, 100%);
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+
+      .progress span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #ff82b2, var(--blue));
+      }
+
+      .columns {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1.25rem;
+        align-items: start;
+      }
+
+      .columns.five {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+
+      .column {
+        position: relative;
+        display: grid;
+        align-content: start;
+        gap: 0.95rem;
+        min-height: 390px;
+        padding: 1rem 0.55rem 1.2rem;
+        border: 0;
+        border-radius: 30px;
+        background: rgba(255, 253, 247, 0.05);
+        box-shadow: inset 0 0 0 1px rgba(255, 224, 178, 0.08);
+      }
+
+      .columns:not(.five) .column:nth-child(1) {
+        background: linear-gradient(180deg, var(--feel-bg), rgba(60, 96, 168, 0.18));
+      }
+
+      .columns:not(.five) .column:nth-child(2) {
+        background: linear-gradient(180deg, var(--good-bg), rgba(37, 126, 85, 0.16));
+      }
+
+      .columns:not(.five) .column:nth-child(3) {
+        background: linear-gradient(180deg, var(--bad-bg), rgba(181, 99, 39, 0.18));
+      }
+
+      .columns:not(.five) .column:nth-child(4) {
+        background: linear-gradient(180deg, var(--action-bg), rgba(111, 68, 173, 0.18));
+      }
+
+      .columns.five .column:nth-child(1) {
+        background: linear-gradient(180deg, var(--good-bg), rgba(37, 126, 85, 0.16));
+      }
+
+      .columns.five .column:nth-child(2) {
+        background: linear-gradient(180deg, var(--bad-bg), rgba(181, 99, 39, 0.18));
+      }
+
+      .columns.five .column:nth-child(3) {
+        background: linear-gradient(180deg, var(--idea-bg), rgba(173, 126, 34, 0.16));
+      }
+
+      .columns.five .column:nth-child(4) {
+        background: linear-gradient(180deg, var(--feel-bg), rgba(60, 96, 168, 0.18));
+      }
+
+      .columns.five .column:nth-child(5) {
+        background: linear-gradient(180deg, var(--action-bg), rgba(111, 68, 173, 0.18));
+      }
+
+      .column h4 {
+        margin: 0;
+        font-size: 1.02rem;
+        letter-spacing: -0.01em;
+      }
+
+      .column-head {
+        align-items: flex-start;
+        padding: 0.25rem 0.35rem 0.35rem;
+      }
+
+      .columns:not(.five) .column:nth-child(1) h4 {
+        color: var(--feel);
+      }
+
+      .columns:not(.five) .column:nth-child(2) h4,
+      .columns.five .column:nth-child(1) h4 {
+        color: var(--good-col);
+      }
+
+      .columns:not(.five) .column:nth-child(3) h4,
+      .columns.five .column:nth-child(2) h4 {
+        color: var(--bad);
+      }
+
+      .columns:not(.five) .column:nth-child(4) h4,
+      .columns.five .column:nth-child(5) h4 {
+        color: var(--action);
+      }
+
+      .columns.five .column:nth-child(3) h4 {
+        color: var(--idea);
+      }
+
+      .columns.five .column:nth-child(4) h4 {
+        color: var(--feel);
+      }
+
+      .columns:not(.five) .column:nth-child(1) .column-head > .chip,
+      .columns.five .column:nth-child(4) .column-head > .chip {
+        background: var(--feel-bg);
+        border-color: #b9cff8;
+        color: var(--feel);
+      }
+
+      .columns:not(.five) .column:nth-child(2) .column-head > .chip,
+      .columns.five .column:nth-child(1) .column-head > .chip {
+        background: var(--good-bg);
+        border-color: #bfe3ca;
+        color: var(--good-col);
+      }
+
+      .columns:not(.five) .column:nth-child(3) .column-head > .chip,
+      .columns.five .column:nth-child(2) .column-head > .chip {
+        background: var(--bad-bg);
+        border-color: #e9c39b;
+        color: var(--bad);
+      }
+
+      .columns:not(.five) .column:nth-child(4) .column-head > .chip,
+      .columns.five .column:nth-child(5) .column-head > .chip {
+        background: var(--action-bg);
+        border-color: #d2c0f1;
+        color: var(--action);
+      }
+
+      .columns.five .column:nth-child(3) .column-head > .chip {
+        background: var(--idea-bg);
+        border-color: #ead28b;
+        color: var(--idea);
+      }
+
+      .column small {
+        color: var(--soft);
+      }
+
+      .card {
+        position: relative;
+        display: grid;
+        gap: 0.55rem;
+        padding: 1rem 0.95rem 0.9rem;
+        border: 0;
+        border-radius: 18px 24px 20px 22px;
+        background: #fff9d9;
+        box-shadow:
+          0 12px 24px rgba(67, 44, 20, 0.13),
+          inset 0 -8px 14px rgba(245, 205, 116, 0.18);
+        transform: rotate(-1.1deg);
+        color: #2b2119;
+      }
+
+      .card:nth-of-type(2n) {
+        transform: rotate(1.2deg);
+        background: #fff7ee;
+      }
+
+      .card:nth-of-type(3n) {
+        transform: rotate(-0.55deg);
+        background: #f4fbff;
+      }
+
+      .card::after {
+        content: "";
+        position: absolute;
+        inset: -10px auto auto 50%;
+        width: 44px;
+        height: 18px;
+        border-radius: 5px;
+        background: rgba(255, 214, 126, 0.72);
+        opacity: 0.75;
+        transform: translateX(-50%) rotate(2deg);
+      }
+
+      .card.me {
+        background: #fff7cf;
+      }
+
+      .card.hidden {
+        background: #eee1ce;
+      }
+
+      .card.hidden .private-text {
+        color: transparent;
+        text-shadow: 0 0 8px rgba(33, 27, 22, 0.34);
+        user-select: none;
+      }
+
+      .skeleton {
+        display: block;
+        height: 0.75rem;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #d9cbb8, #f1e7d9);
+      }
+
+      .gif {
+        min-height: 82px;
+        display: flex;
+        align-items: flex-end;
+        border-radius: 22px;
+        padding: 0.7rem;
+        background:
+          linear-gradient(135deg, rgba(79, 103, 255, 0.18), rgba(255, 130, 178, 0.22)),
+          repeating-linear-gradient(45deg, rgba(255,255,255,0.45) 0 8px, transparent 8px 16px);
+        color: #3d45a6;
+        font-size: 0.8rem;
+      }
+
+      .floating-deck {
+        display: grid;
+        grid-template-columns: 44px minmax(260px, 1fr) 44px;
+        grid-template-areas:
+          "left hand right"
+          ". arrow .";
+        align-items: center;
+        justify-items: center;
+        gap: 0.4rem;
+        margin: 0.2rem auto 0;
+        padding-top: 0.4rem;
+        width: min(720px, 100%);
+      }
+
+      .deck-hand {
+        grid-area: hand;
+        min-height: 118px;
+        display: flex;
+        align-items: end;
+        justify-content: center;
+        gap: 0;
+        padding: 0.25rem 1rem 0;
+        overflow: hidden;
+      }
+
+      .deck-nav {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 224, 178, 0.16);
+        background: rgba(255, 245, 223, 0.12);
+        color: var(--ink);
+        font-size: 1.4rem;
+      }
+
+      .deck-nav.left {
+        grid-area: left;
+      }
+
+      .deck-nav.right {
+        grid-area: right;
+      }
+
+      .deck-arrow {
+        grid-area: arrow;
+        color: var(--soft);
+        font-size: 1.9rem;
+        line-height: 1;
+      }
+
+      .floating-deck.hidden-state {
+        grid-template-columns: 1fr;
+        grid-template-areas: "arrow";
+        min-height: 54px;
+        padding-top: 0;
+      }
+
+      .floating-deck.hidden-state .deck-arrow {
+        font-size: 2rem;
+      }
+
+      .hand-card {
+        width: 148px;
+        min-height: 106px;
+        display: grid;
+        gap: 0.45rem;
+        padding: 0.8rem;
+        border-radius: 20px;
+        border: 2px solid #f7ddad;
+        background: #fffaf0;
+        color: var(--ink);
+        box-shadow: 0 14px 26px rgba(67, 44, 20, 0.22);
+        transform-origin: bottom center;
+        margin-left: -38px;
+      }
+
+      .hand-card:first-child {
+        margin-left: 0;
+        transform: rotate(-8deg);
+      }
+
+      .hand-card:nth-child(2) {
+        transform: translateY(-8px) rotate(-2deg);
+      }
+
+      .hand-card:nth-child(3) {
+        transform: translateY(-9px) rotate(3deg);
+      }
+
+      .hand-card:nth-child(4) {
+        transform: rotate(9deg);
+      }
+
+      .merged {
+        background: #eef4ff;
+      }
+
+      .merged hr {
+        width: 100%;
+        border: 0;
+        border-top: 1px dashed #aebaff;
+        margin: 0.25rem 0;
+      }
+
+      .vote-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .vote {
+        display: inline-grid;
+        place-items: center;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        font-size: 1.25rem;
+        font-weight: 800;
+        border-radius: 999px;
+      }
+
+      .action-draft {
+        border-color: #bee9d6;
+        background: linear-gradient(180deg, #f0fbf5, #fffdf7);
+      }
+
+      .emoji-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        padding: 0.45rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        width: fit-content;
+      }
+
+      .emoji {
+        display: inline-grid;
+        place-items: center;
+        width: 1.9rem;
+        height: 1.9rem;
+        border-radius: 999px;
+        background: rgba(255, 245, 223, 0.9);
+        border: 1px solid rgba(255, 224, 178, 0.2);
+        font-size: 1.05rem;
+      }
+
+      .summary-card {
+        border-color: #f0ce8d;
+        background: #fff6db;
+      }
+
+      .tag-cloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+      }
+
+      .mini-note {
+        padding: 0.8rem;
+        border: 1px dashed var(--line2);
+        border-radius: 18px;
+        background: rgba(255, 245, 223, 0.08);
+        color: var(--soft);
+      }
+
+      .field {
+        display: grid;
+        gap: 0.35rem;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid rgba(255, 224, 178, 0.2);
+        border-radius: 18px;
+        padding: 0.72rem 0.8rem;
+        background: rgba(255, 249, 238, 0.9);
+        color: #2b2119;
+        font: inherit;
+        box-shadow: inset 0 2px 6px rgba(67, 44, 20, 0.04);
+      }
+
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      @media (max-width: 1180px) {
+        .page,
+        .grid-2,
+        .grid-3,
+        .grid-4,
+        .columns,
+        .columns.five {
+          grid-template-columns: 1fr;
+        }
+
+        .rail {
+          position: static;
+        }
+
+        .scene-head,
+        .board-head,
+        .phase-strip {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>SpillItOut - board-first HTML mock</h1>
+        <p>Rebuilt from review feedback: relaxed retro table, not issue tracking. The board is the UX.</p>
+      </div>
+      <div class="chip-row">
+        <span class="chip blue">GIFs are core</span>
+        <span class="chip soft-blue">Board states, not workflows</span>
+        <span class="chip green">Humans decide</span>
+      </div>
+    </header>
+
+    <div class="page">
+      <aside class="rail">
+        <section class="rail-card">
+          <h2>Review map</h2>
+          <ol class="outline">
+            <li><a href="#dashboard">1. Dashboard</a></li>
+            <li><a href="#create">2. Create retro</a></li>
+            <li><a href="#writing">3. Private writing</a></li>
+            <li><a href="#external-ai">4. External AI ingest</a></li>
+            <li><a href="#deck">5. Bottom deck</a></li>
+            <li><a href="#reveal">6. Reveal / discuss</a></li>
+            <li><a href="#cluster">7. Cluster-fy</a></li>
+            <li><a href="#voting">8. Voting</a></li>
+            <li><a href="#actions">9-10. Actions on board</a></li>
+            <li><a href="#complete">11. Completed board</a></li>
+            <li><a href="#past">12. Reloaded past board</a></li>
+            <li><a href="#history">13. History + tags</a></li>
+            <li><a href="#settings">14. Team settings</a></li>
+          </ol>
+        </section>
+        <section class="rail-card">
+          <h3>Applied feedback</h3>
+          <div class="list">
+            <div class="list-item">No app-native personal AI review panel.</div>
+            <div class="list-item">Voting, clustering, actions, and summary remain board states.</div>
+            <div class="list-item">Emoji + GIF expression is v0 behavior, not polish later.</div>
+            <div class="list-item">Past retro is just the board loaded read-only.</div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="content">
+        <section class="scene" id="dashboard">
+          <div class="scene-head">
+            <div>
+              <h2>1. Retro table</h2>
+              <p>A soft landing for active and past boards. No control-room vibe; just where the team picks up the conversation.</p>
+            </div>
+            <span class="chip soft-blue">Entry point</span>
+          </div>
+
+          <div class="grid-3">
+            <article class="panel">
+              <h3>Nothing spilled yet</h3>
+              <div class="empty">
+                <div>
+                  <h3>No retro boards yet</h3>
+                  <p class="muted">Start with a simple board. You can add GIFs, votes, and actions later.</p>
+                  <div class="actions" style="justify-content:center;">
+                    <span class="button primary">Create first retro</span>
+                    <span class="button">Use standard board</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="list-row">
+                <h3>On the table now</h3>
+                <span class="chip yellow">5/6 ready</span>
+              </div>
+              <ul class="list">
+                <li class="list-item">
+                  <div class="list-row">
+                    <strong>Sprint 42 retro</strong>
+                    <span class="chip soft-blue">Writing</span>
+                  </div>
+                  <p class="muted">Private draft mode. Reveal still locked.</p>
+                  <div class="chip-row">
+                    <span class="chip">3 votes/person</span>
+                    <span class="chip">Top 3 actions</span>
+                    <span class="chip yellow">Pending actions: 2</span>
+                    <span class="chip">Emoji on cards 🎉</span>
+                  </div>
+                </li>
+              </ul>
+            </article>
+
+            <article class="panel">
+              <h3>Earlier spills</h3>
+              <ul class="list">
+                <li class="list-item">
+                  <div class="list-row">
+                    <strong>Sprint 41</strong>
+                    <span class="chip green">Steady</span>
+                  </div>
+                  <p class="muted">Tags: release-coordination, alert-noise</p>
+                </li>
+                <li class="list-item">
+                  <div class="list-row">
+                    <strong>Release 7.3 incident</strong>
+                    <span class="chip yellow">Mixed</span>
+                  </div>
+                  <p class="muted">1 pending action still open.</p>
+                </li>
+              </ul>
+              <label class="field" style="margin-top: 1rem;">
+                <span class="muted">Search past boards, actions, tags</span>
+                <input value="deploy" />
+              </label>
+            </article>
+          </div>
+        </section>
+
+        <section class="scene" id="create">
+          <div class="scene-head">
+            <div>
+              <h2>2. Set the table</h2>
+              <p>Pick the shape and a few ground rules without turning retro setup into form-filling.</p>
+            </div>
+            <span class="chip soft-blue">Template + defaults</span>
+          </div>
+
+          <div class="grid-2">
+            <article class="panel">
+              <h3>Pick the prompts</h3>
+              <div class="list">
+                <div class="setting-card">
+                  <div class="list-row">
+                    <strong>Standard retro</strong>
+                    <span class="chip blue">Selected</span>
+                  </div>
+                  <p class="muted">How do you feel? / What went well? / What went wrong? / Actions</p>
+                  <div class="emoji-strip" aria-label="Emoji supported in v0">
+                    <span class="emoji">😵‍💫</span>
+                    <span class="emoji">🎉</span>
+                    <span class="emoji">🔥</span>
+                    <span class="emoji">💡</span>
+                  </div>
+                </div>
+                <div class="setting-card">
+                  <div class="list-row">
+                    <strong>Custom board</strong>
+                    <span class="chip">Deck friendly</span>
+                  </div>
+                  <p class="muted">Kudos / Friction / Ideas / Questions / Actions, or your team’s own prompts.</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <h3>Light house rules</h3>
+              <div class="grid-3">
+                <label class="field">
+                  <span class="muted">Votes/person</span>
+                  <input value="3" />
+                </label>
+                <label class="field">
+                  <span class="muted">Top action cards</span>
+                  <input value="3" />
+                </label>
+                <label class="field">
+                  <span class="muted">Stack votes?</span>
+                  <select><option>Allowed</option></select>
+                </label>
+              </div>
+              <div class="grid-2" style="margin-top: 1rem;">
+                <div class="setting-card">
+                  <strong>Cluster-fy</strong>
+                  <p class="muted">Manual one-off, or auto once when voting starts. Never loops.</p>
+                </div>
+                <div class="setting-card">
+                  <strong>External ingest</strong>
+                  <p class="muted">Harness-approved cards go to private drafts or to your bottom deck.</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="scene" id="writing">
+          <div class="scene-head">
+            <div>
+              <h2>3. Board - private writing</h2>
+              <p>The retro starts private. Your drafts are readable; everyone else’s cards stay blurred until reveal.</p>
+            </div>
+            <span class="chip blue">Writing</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip blue">Writing</span>
+                  <span class="chip">Sprint 42</span>
+                  <span class="chip red">Reveal locked</span>
+                </div>
+                <h3>Product Platform retro</h3>
+                <p>5 of 6 ready. Sam is still writing, so the board remains private.</p>
+              </div>
+              <div class="actions">
+                <span class="button pending-action">Pending actions: 2</span>
+                <span class="button">Imported drafts: 3</span>
+                <span class="button primary">Mark ready</span>
+              </div>
+            </div>
+
+            <div class="board-body">
+              <div class="phase-strip">
+                <div>
+                  <strong>Ready only exists in async phases</strong>
+                  <p class="muted">Writing uses ready state. Discussing, action discussion, and completed board do not.</p>
+                </div>
+                <div class="progress"><span style="width: 83%;"></span></div>
+              </div>
+
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head">
+                    <div>
+                      <h4>How do you feel?</h4>
+                      <small>Private until reveal</small>
+                    </div>
+                    <span class="chip">2</span>
+                  </div>
+                  <div class="card me">
+                    <strong>Mixed 😵‍💫</strong>
+                    <div>Proud of launch, but hotfix churn made the week heavier.</div>
+                    <div class="actions"><span class="chip">Edit</span><span class="chip soft-blue">Emoji 😄</span><span class="chip soft-blue">GIF</span></div>
+                  </div>
+                  <div class="card hidden">
+                    <strong>Someone else</strong>
+                    <div class="private-text">Feeling better after the refactor...</div>
+                    <span class="skeleton"></span>
+                  </div>
+                </section>
+
+                <section class="column">
+                  <div class="column-head">
+                    <div>
+                      <h4>What went well?</h4>
+                      <small>Your cards + hidden team drafts</small>
+                    </div>
+                    <span class="chip">7</span>
+                  </div>
+                  <div class="card me">
+                    <strong>Launch room pairing 🎉</strong>
+                    <div>Support joined early, so triage moved faster.</div>
+                    <div class="gif">GIF: relaxed mission control high-five</div>
+                    <div class="actions"><span class="chip soft-blue">Swap GIF</span><span class="chip soft-blue">Emoji 🎉</span></div>
+                  </div>
+                  <div class="card hidden">
+                    <strong>Private draft</strong>
+                    <span class="skeleton"></span>
+                    <span class="skeleton" style="width: 70%;"></span>
+                  </div>
+                </section>
+
+                <section class="column">
+                  <div class="column-head">
+                    <div>
+                      <h4>What went wrong?</h4>
+                      <small>Likely vote targets later</small>
+                    </div>
+                    <span class="chip">7</span>
+                  </div>
+                  <div class="card me">
+                    <strong>Too many hotfix branches 🔥</strong>
+                    <div>We split context across three emergency branches and lost review continuity.</div>
+                    <div class="actions"><span class="chip soft-blue">Emoji 🔥</span><span class="chip soft-blue">GIF</span></div>
+                  </div>
+                  <div class="card hidden">
+                    <strong>Private draft</strong>
+                    <span class="skeleton"></span>
+                    <span class="skeleton" style="width: 82%;"></span>
+                  </div>
+                </section>
+
+                <section class="column">
+                  <div class="column-head">
+                    <div>
+                      <h4>Actions</h4>
+                      <small>Can stay empty until voting</small>
+                    </div>
+                    <span class="chip">1</span>
+                  </div>
+                  <div class="card me">
+                    <strong>Maybe</strong>
+                    <div>Try a release lead for launch week.</div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="phase-strip">
+                <div>
+                  <strong>All ready, reveal pending</strong>
+                  <p class="muted">Even at 6/6 ready, cards stay blurred until the facilitator deliberately clicks reveal.</p>
+                </div>
+                <div class="actions">
+                  <span class="chip green">6/6 ready</span>
+                  <span class="button primary">Reveal board</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="external-ai">
+          <div class="scene-head">
+            <div>
+              <h2>4. External personal AI ingest</h2>
+              <p>No in-app personal-AI review flow. Harness/personal AI runs outside SpillItOut. This app only shows approved imported cards after ingestion.</p>
+            </div>
+            <span class="chip green">External helper</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip blue">Writing</span>
+                  <span class="chip green">3 imported cards</span>
+                </div>
+                <h3>Imported cards landed in private draft space</h3>
+                <p>The user approved these outside the app. SpillItOut treats them like normal private cards.</p>
+              </div>
+              <div class="actions">
+                <span class="button">Source: harness connector</span>
+                <span class="button">No public posting</span>
+              </div>
+            </div>
+
+            <div class="board-body">
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip">Imported</span></div>
+                  <div class="card me">
+                    <strong>Imported mood</strong>
+                    <div>Mixed: the release landed, but alerts made it feel spiky.</div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">Imported</span></div>
+                  <div class="card me">
+                    <strong>Support in launch room</strong>
+                    <div>Support joined early and reduced “who owns this?” moments.</div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">Imported</span></div>
+                  <div class="card me">
+                    <strong>Context split</strong>
+                    <div>Work context fragmented after emergency branch two.</div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">Empty ok</span></div>
+                  <div class="mini-note">No AI action is final. Actions come later from voted pain points.</div>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="deck">
+          <div class="scene-head">
+            <div>
+              <h2>5. Custom board with bottom deck</h2>
+              <p>The deck sits at the bottom like a card game hand. It can collapse away, then pop back open when you want to play cards onto the table.</p>
+            </div>
+            <span class="chip blue">Custom board</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip blue">Writing</span>
+                  <span class="chip">Custom template</span>
+                  <span class="chip yellow">3/5 ready</span>
+                </div>
+                <h3>Weekly team pulse</h3>
+                <p>Cards can move from hand to board, between columns, and within a column.</p>
+              </div>
+              <div class="actions">
+                <span class="button primary">Mark ready</span>
+              </div>
+            </div>
+
+            <div class="board-body">
+              <div class="columns five">
+                <section class="column">
+                  <div class="column-head"><h4>Kudos</h4><span class="chip">2</span></div>
+                  <div class="card me"><strong>QA pairing 🎉</strong><div>Demo rehearsal feedback landed early.</div></div>
+                  <div class="card hidden"><strong>Private draft</strong><span class="skeleton"></span></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Friction</h4><span class="chip">3</span></div>
+                  <div class="card me"><strong>Channel sprawl 😬</strong><div>Decisions split across release threads.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Ideas</h4><span class="chip">1</span></div>
+                  <div class="card me"><strong>One launch note</strong><div>Keep one pinned current-plan note.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Questions</h4><span class="chip">1</span></div>
+                  <div class="card me"><strong>Support timing?</strong><div>Should sign-off move before deploy starts?</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">0</span></div>
+                  <div class="mini-note">Actions can wait until votes create priorities.</div>
+                </section>
+              </div>
+              <div class="floating-deck" aria-label="My deck">
+                <span class="deck-nav left">&lt;</span>
+                <div class="deck-hand">
+                  <div class="hand-card"><strong>QA caught empty state 🎯</strong><span class="muted">Kudos?</span></div>
+                  <div class="hand-card"><strong>Slack thread sprawl 🧵</strong><span class="muted">Friction?</span></div>
+                  <div class="hand-card"><strong>Earlier sign-off? 🤔</strong><span class="muted">Question?</span></div>
+                  <div class="hand-card"><strong>Pinned launch note 📌</strong><span class="muted">Idea?</span></div>
+                </div>
+                <span class="deck-nav right">&gt;</span>
+                <span class="deck-arrow">⌄</span>
+              </div>
+              <div class="mini-note">After clicking the down arrow, the hand collapses to just this restore affordance:</div>
+              <div class="floating-deck hidden-state" aria-label="My deck hidden">
+                <span class="deck-arrow">⌃</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="reveal">
+          <div class="scene-head">
+            <div>
+              <h2>6. Reveal and discussion</h2>
+              <p>After reveal, the same board becomes the shared reference. Discussion is live conversation; the UI does not demand extra steps.</p>
+            </div>
+            <span class="chip green">Discussing</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip green">Revealed</span>
+                  <span class="chip">No ready button</span>
+                </div>
+                <h3>Sprint 42 board revealed</h3>
+                <p>Cluster-fy is available as a one-off helper, not a separate phase.</p>
+              </div>
+              <div class="actions">
+                <span class="button">Cluster-fy once</span>
+                <span class="button primary">Start voting</span>
+              </div>
+            </div>
+            <div class="board-body">
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip">6</span></div>
+                  <div class="card"><strong>Mixed 😵‍💫</strong><div>Proud of launch, drained by hotfix churn.</div></div>
+                  <div class="card"><strong>Steady 🛶</strong><div>Prep helped even when things got busy.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">7</span></div>
+                  <div class="card"><strong>Launch pairing 🎉</strong><div>Support and product shared context.</div><div class="gif">GIF: two raccoons in a control room</div></div>
+                  <div class="card"><strong>Demo rehearsal</strong><div>Questions were sharper and shorter.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">7</span></div>
+                  <div class="card"><strong>Hotfix branches</strong><div>Three branches split review context.</div></div>
+                  <div class="card"><strong>Alert noise</strong><div>Deploy alerts buried the current decision thread.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">Notes</span></div>
+                  <div class="card"><strong>Maybe release lead</strong><div>One person narrates the current plan.</div></div>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="cluster">
+          <div class="scene-head">
+            <div>
+              <h2>7. Cluster-fy as board mutation</h2>
+              <p>Clustering simply merges similar cards in place. The merged card keeps original text separated and can be exploded back into separate cards.</p>
+            </div>
+            <span class="chip soft-blue">Clustered once</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip soft-blue">Clustered once at 10:14</span>
+                  <span class="chip">Manual Cluster-fy</span>
+                </div>
+                <h3>Same board, fewer cards</h3>
+                <p>No special clustering view. The board remains editable.</p>
+              </div>
+              <div class="actions">
+                <span class="button">Explode all clusters</span>
+                <span class="button primary">Start voting</span>
+              </div>
+            </div>
+            <div class="board-body">
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip">6</span></div>
+                  <div class="card"><strong>Mixed but steady</strong><div>Launch was stressful but contained.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">5</span></div>
+                  <div class="card merged">
+                    <strong>Cross-team prep worked</strong>
+                    <div>Support joined launch room early.</div>
+                    <hr />
+                    <div>Demo rehearsal made the walkthrough sharper.</div>
+                    <hr />
+                    <div>Billing edge case was caught before escalation.</div>
+                    <div class="actions"><span class="chip">Explode</span><span class="chip">Edit title</span></div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">4</span></div>
+                  <div class="card merged">
+                    <strong>Release coordination got scattered</strong>
+                    <div>Three hotfix branches split review context.</div>
+                    <hr />
+                    <div>Slack threads split the current plan.</div>
+                    <hr />
+                    <div>No single release narrator owned the live plan.</div>
+                    <div class="actions"><span class="chip">Explode</span><span class="chip">Move card</span></div>
+                  </div>
+                  <div class="card">
+                    <strong>Questionable merge candidate</strong>
+                    <div>Release notes were approved late. Team can drag this out if it does not belong.</div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">Still notes</span></div>
+                  <div class="mini-note">Cluster-fy does not invent actions. It only gives the team a starting point.</div>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="voting">
+          <div class="scene-head">
+            <div>
+              <h2>8. Voting on the board</h2>
+              <p>Voting is not a new screen. Cards become votable. Remaining votes and ready progress sit above the board.</p>
+            </div>
+            <span class="chip blue">Voting</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip blue">Voting</span>
+                  <span class="chip">Votes left: 1/3</span>
+                  <span class="chip">Stacking allowed</span>
+                </div>
+                <h3>Pick what deserves action time</h3>
+                <p>Clustering is frozen. Voting is async, so ready is back for this phase only.</p>
+              </div>
+              <span class="button primary">Mark voting ready</span>
+            </div>
+            <div class="board-body">
+              <div class="phase-strip">
+                <div>
+                  <strong>4 of 6 finished voting</strong>
+                  <p class="muted">People finish quietly, then the room sees what rose to the top.</p>
+                </div>
+                <div class="progress"><span style="width: 67%;"></span></div>
+              </div>
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip">No vote needed</span></div>
+                  <div class="card"><strong>Mixed but steady</strong><div>Launch was stressful but contained.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">Optional</span></div>
+                  <div class="card">
+                    <div class="vote-line"><strong>Cross-team prep worked</strong><span class="vote">+</span></div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">Main vote area</span></div>
+                  <div class="card merged">
+                    <div class="vote-line"><strong>Release coordination got scattered</strong><span class="vote">+</span></div>
+                    <div>Hotfix branches, Slack threads, and missing current-plan owner.</div>
+                    <div class="chip-row"><span class="chip">You placed 2</span></div>
+                  </div>
+                  <div class="card">
+                    <div class="vote-line"><strong>Alert noise</strong><span class="vote">+</span></div>
+                    <div>Deploy alerts buried the current decision thread.</div>
+                  </div>
+                  <div class="card">
+                    <div class="vote-line"><strong>Late release-note sign-off</strong><span class="vote">+</span></div>
+                  </div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">Later</span></div>
+                  <div class="mini-note">The highest voted pain cards will move here when action discussion starts.</div>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="actions">
+          <div class="scene-head">
+            <div>
+              <h2>9-10. Actions happen in the Actions column</h2>
+              <p>Top voted cards move into Actions with warm editable drafts. Live discussion happens in the room; the board only needs to make ownership and follow-up feel easy.</p>
+            </div>
+            <span class="chip green">Actions on board</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip green">Discuss actions</span>
+                  <span class="chip">Top 3 moved</span>
+                  <span class="chip">No ready state</span>
+                </div>
+                <h3>Action drafts are just cards</h3>
+                <p>AI proposes. Humans edit, confirm, or leave unresolved.</p>
+              </div>
+              <span class="button primary">Complete retro</span>
+            </div>
+            <div class="board-body">
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip">Revealed</span></div>
+                  <div class="card"><strong>Team mood source</strong><div>Mixed but steady.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">Context</span></div>
+                  <div class="card"><strong>Launch pairing</strong><div>Keep doing this.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">Discussed</span></div>
+                  <div class="card"><strong>Other pain cards remain here</strong><div>Still visible, not discarded.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip blue">Top voted</span></div>
+                  <div class="card action-draft">
+                    <strong>🎯 Release coordination got scattered</strong>
+                    <textarea>Create a launch-week release lead rotation and keep one pinned “current plan” note in Slack.</textarea>
+                    <div class="grid-2">
+                      <input value="Buddy: Ava" />
+                      <input value="Check-in: next retro" />
+                    </div>
+                    <div class="chip-row"><span class="chip green">Agreed</span><span class="chip">Draft shaped by team</span><span class="chip">Kind + doable</span></div>
+                  </div>
+                  <div class="card action-draft">
+                    <strong>🕐 Late release-note sign-off</strong>
+                    <textarea>Move support sign-off to the release checklist step before deploy begins.</textarea>
+                    <div class="grid-2">
+                      <input value="Buddy: Lee" />
+                      <input value="Try by: Friday" />
+                    </div>
+                    <span class="chip green">Agreed</span>
+                  </div>
+                  <div class="card">
+                    <strong>🔕 Alert noise</strong>
+                    <div>No clear action agreed. Keep as recurring unresolved pain instead of pretending.</div>
+                    <span class="chip yellow">Unresolved</span>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="complete">
+          <div class="scene-head">
+            <div>
+              <h2>11. Completed board is the summary</h2>
+              <p>No detached summary page. Completion adds summary cards and delivery chips to the same board.</p>
+            </div>
+            <span class="chip green">Completed</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip green">Completed</span>
+                  <span class="chip">Team mood: Steady</span>
+                  <span class="chip">Tags generated</span>
+                </div>
+                <h3>Sprint 42 board</h3>
+                <p>The digest is a card on the board. Actions are already in the Actions column.</p>
+              </div>
+              <div class="actions">
+                <span class="button">Copy board digest</span>
+                <span class="button primary">Close</span>
+              </div>
+            </div>
+            <div class="board-body">
+              <div class="columns">
+                <section class="column">
+                  <div class="column-head"><h4>How do you feel?</h4><span class="chip green">Steady</span></div>
+                  <div class="card"><strong>Team mood</strong><div>Pressure was real, but shared context kept the team moving.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went well?</h4><span class="chip">Digest source</span></div>
+                  <div class="card"><strong>Cross-team prep</strong><div>Launch pairing and demo rehearsal both paid off.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>What went wrong?</h4><span class="chip">Digest source</span></div>
+                  <div class="card summary-card"><strong>Board digest</strong><div>The team handled launch-week coordination well when context was shared live, but hotfix branching and alert noise made alignment harder.</div></div>
+                </section>
+                <section class="column">
+                  <div class="column-head"><h4>Actions</h4><span class="chip">2 confirmed, 1 unresolved</span></div>
+                  <div class="card action-draft"><strong>Release lead rotation 🎯</strong><div>Buddy: Ava. Check-in next retro.</div></div>
+                  <div class="card action-draft"><strong>Earlier support sign-off 🕐</strong><div>Buddy: Lee. Try by Friday.</div></div>
+                  <div class="card"><strong>Alert noise</strong><div>Unresolved recurring pain.</div></div>
+                </section>
+              </div>
+              <div class="phase-strip">
+                <div>
+                  <strong>Delivery</strong>
+                  <p class="muted">Delivery lives at the bottom after the board summary. Team space defaults control where messages and action cards go.</p>
+                </div>
+                <div class="chip-row">
+                  <span class="chip green">Comms sent: #product-platform</span>
+                  <span class="chip red">Action connector failed: Linear reconnect</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="past">
+          <div class="scene-head">
+            <div>
+              <h2>12. Past retro is a reloaded board</h2>
+              <p>Past detail does not become a report page. It is the same board, read-only, with memory chips.</p>
+            </div>
+            <span class="chip soft-blue">Read-only board</span>
+          </div>
+
+          <article class="board">
+            <div class="board-head">
+              <div class="board-title">
+                <div class="chip-row">
+                  <span class="chip">Sprint 41</span>
+                  <span class="chip green">Completed Apr 29</span>
+                  <span class="chip">Tags: release-coordination, alert-noise</span>
+                </div>
+                <h3>Reloaded past board</h3>
+                <p>Use previous/next board links for memory, not a separate archive format.</p>
+              </div>
+              <div class="actions">
+                <span class="button">Previous board</span>
+                <span class="button">Next board</span>
+              </div>
+            </div>
+            <div class="board-body">
+              <div class="phase-strip">
+                <div>
+                  <strong>Memory links</strong>
+                  <p class="muted">Release coordination appeared in 3 of the last 5 retros.</p>
+                </div>
+                <span class="chip yellow">Pending actions: 1</span>
+              </div>
+              <div class="columns">
+                <section class="column"><div class="column-head"><h4>How do you feel?</h4><span class="chip">Archived</span></div><div class="card"><strong>Mixed</strong><div>Rollback path still felt stressful.</div></div></section>
+                <section class="column"><div class="column-head"><h4>What went well?</h4><span class="chip">Archived</span></div><div class="card"><strong>Customer updates</strong><div>Support had messaging ready early.</div></div></section>
+                <section class="column"><div class="column-head"><h4>What went wrong?</h4><span class="chip">Archived</span></div><div class="card"><strong>Rollback owner unclear</strong><div>Responsibility was implied, not explicit.</div></div></section>
+                <section class="column"><div class="column-head"><h4>Actions</h4><span class="chip">Tracked</span></div><div class="card action-draft"><strong>Assign rollback lead in runbook</strong><div>Buddy: Mina. Done.</div></div><div class="card"><strong>Route deploy noise</strong><div>Still pending.</div></div></section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="scene" id="history">
+          <div class="scene-head">
+            <div>
+              <h2>13. Memory without analytics cosplay</h2>
+              <p>Practical memory: tags, unresolved actions, repeated pain. Enough to notice patterns without feeling watched.</p>
+            </div>
+            <span class="chip soft-blue">Retro memory</span>
+          </div>
+
+          <div class="grid-4">
+            <article class="panel">
+              <h3>Boards</h3>
+              <ul class="list">
+                <li class="list-item"><strong>Sprint 42</strong><span class="muted">Steady - 2 actions</span></li>
+                <li class="list-item"><strong>Sprint 41</strong><span class="muted">Mixed - 1 pending action</span></li>
+                <li class="list-item"><strong>Release 7.3</strong><span class="muted">Off - incident follow-up</span></li>
+              </ul>
+            </article>
+            <article class="panel">
+              <h3>Tags</h3>
+              <div class="tag-cloud">
+                <span class="chip soft-blue">release-coordination x3</span>
+                <span class="chip yellow">alert-noise x2</span>
+                <span class="chip">support-signoff x2</span>
+                <span class="chip">demo-prep x1</span>
+              </div>
+            </article>
+            <article class="panel">
+              <h3>Pending actions</h3>
+              <ul class="list">
+                <li class="list-item"><strong>Route deploy noise</strong><span class="muted">Opens as a pending-actions board chip before the next retro.</span></li>
+                <li class="list-item"><strong>Unify rollback links</strong><span class="muted">Buddy: Mina. Slipped twice.</span></li>
+              </ul>
+            </article>
+            <article class="panel">
+              <h3>Repeated pain</h3>
+              <p class="muted">Context fragmentation during release work is showing up as branch sprawl, thread sprawl, and unclear ownership.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="scene" id="settings">
+          <div class="scene-head">
+            <div>
+              <h2>14. Team defaults</h2>
+              <p>Small defaults for where messages and actions go. GIFs are not a thing to turn off.</p>
+            </div>
+            <span class="chip soft-blue">Defaults</span>
+          </div>
+
+          <div class="grid-3">
+            <article class="panel">
+              <h3>Board defaults</h3>
+              <ul class="list">
+                <li class="list-item"><div class="list-row"><strong>Votes/person</strong><span class="chip">3</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Top action cards</strong><span class="chip">3</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Cluster-fy default</strong><span class="chip">Manual one-off</span></div></li>
+              </ul>
+            </article>
+            <article class="panel">
+              <h3>Connectors by team space</h3>
+              <ul class="list">
+                <li class="list-item"><strong>Comms connector</strong><span class="muted">Product Platform posts digests to #product-platform-retros.</span></li>
+                <li class="list-item"><strong>Action connector</strong><span class="muted">Product Platform creates follow-up action cards in Linear team Platform.</span></li>
+                <li class="list-item"><strong>Per-retro override</strong><span class="muted">A retro can choose a different channel or action destination.</span></li>
+              </ul>
+            </article>
+            <article class="panel">
+              <h3>AI helpers</h3>
+              <ul class="list">
+                <li class="list-item"><div class="list-row"><strong>GIF search + suggestions</strong><span class="chip blue">Don't u dare</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Emoji on cards</strong><span class="chip blue">v0</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Cluster suggestions</strong><span class="chip">On</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Action draft proposals</strong><span class="chip">On</span></div></li>
+                <li class="list-item"><div class="list-row"><strong>Summary + mood proposal</strong><span class="chip">On</span></div></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const links = Array.from(document.querySelectorAll(".outline a"));
+      const sections = links
+        .map((link) => document.querySelector(link.getAttribute("href")))
+        .filter(Boolean);
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            for (const link of links) {
+              link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id);
+            }
+          }
+        },
+        { rootMargin: "-30% 0px -55% 0px", threshold: 0.01 }
+      );
+
+      sections.forEach((section) => observer.observe(section));
+    </script>
+  </body>
+</html>
