@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AppChrome, PhaseBadge, Pill, spillColors } from "../../components/spill-ui";
+import { AppChrome, PhaseBadge, Pill, StatusPill, spillColors } from "../../components/spill-ui";
 import { getRetro, type GifResult, type RetroBoard } from "../../lib/api";
 import {
   acceptDeckItemAction,
@@ -114,6 +114,7 @@ export default async function RetroBoardPage({
 
 function PhaseControls({ board }: { board: RetroBoard }) {
   if (board.retro.phase === "writing") {
+    const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
     return (
       <>
         <Presence ready={board.ready.ready_count} total={board.ready.participant_count} />
@@ -124,7 +125,7 @@ function PhaseControls({ board }: { board: RetroBoard }) {
         </form>
         <form action={revealRetroAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Pill type="submit">reveal →</Pill>
+          <Pill type="submit" disabled={!allReady}>reveal →</Pill>
         </form>
       </>
     );
@@ -150,7 +151,7 @@ function PhaseControls({ board }: { board: RetroBoard }) {
     return (
       <>
         <PhaseBadge phase="voting" color={spillColors.action} />
-        <Pill>{board.voting.votes_remaining} votes left</Pill>
+        <StatusPill>{board.voting.votes_remaining} votes left</StatusPill>
         <form action={startActionDiscussionAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
           <Pill tone="danger" type="submit">actions →</Pill>

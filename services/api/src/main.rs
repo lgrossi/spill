@@ -783,6 +783,14 @@ async fn reveal_board(
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
+    let board = repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    if board.retro.phase == "writing" && board.ready.ready_count < board.ready.participant_count {
+        return Err(ApiError::bad_request("everyone must be ready before reveal"));
+    }
     repository
         .reveal_board(retro_id)
         .await
@@ -1834,6 +1842,34 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/reveal"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ready"))
+                    .header(HEADER_USER_SUBJECT, "lee")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -2017,6 +2053,20 @@ mod tests {
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         let card_id = card["id"].as_str().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/ready"))
+                    .header(HEADER_USER_SUBJECT, "ava")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
 
         for path in ["reveal", "voting/start"] {
             let response = app

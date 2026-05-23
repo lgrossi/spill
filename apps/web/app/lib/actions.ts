@@ -11,7 +11,15 @@ export async function createRetroAction(formData: FormData) {
   const actionDiscussionLimit = Number(formData.get("action_discussion_limit") ?? 3);
 
   const payload: CreateRetroPayload =
-    template === "custom"
+    template === "4ls"
+      ? {
+          title,
+          template: "custom",
+          columns: ["Liked", "Lacked", "Learned", "Longed for", "Actions"],
+          vote_limit: voteLimit,
+          action_discussion_limit: actionDiscussionLimit,
+        }
+      : template === "custom"
       ? {
           title,
           template: "custom",
@@ -40,7 +48,7 @@ export async function createDraftCardAction(formData: FormData) {
   const gifChoice = parseGifChoice(String(formData.get("gif_choice") ?? ""));
 
   await createDraftCard(retroId, columnId, bodyText, gifChoice?.url, gifChoice?.altText);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}?addColumn=${encodeURIComponent(columnId)}`);
 }
 
 export async function searchGifsAction(formData: FormData) {
@@ -90,21 +98,21 @@ export async function markReadyAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await markReady(retroId);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function revealRetroAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await revealRetro(retroId);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function startVotingAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await startVoting(retroId);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function castVoteAction(formData: FormData) {
@@ -112,21 +120,21 @@ export async function castVoteAction(formData: FormData) {
   const cardId = String(formData.get("card_id") ?? "");
 
   await castVote(retroId, cardId, 1);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function clusterBoardAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await clusterBoard(retroId);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function startActionDiscussionAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await startActionDiscussion(retroId);
-  revalidatePath(`/retros/${retroId}`);
+  redirect(`/retros/${retroId}`);
 }
 
 export async function updateActionItemAction(formData: FormData) {
@@ -159,8 +167,8 @@ export async function completeRetroAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
 
   await completeRetro(retroId);
-  revalidatePath(`/retros/${retroId}`);
   revalidatePath("/history");
+  redirect(`/retros/${retroId}`);
 }
 
 export async function acceptDeckItemAction(formData: FormData) {

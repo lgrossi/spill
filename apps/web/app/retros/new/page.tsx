@@ -40,7 +40,7 @@ export default function NewRetroPage() {
                 </span>
               </label>
               <label className={templateCardClass}>
-                <input className="sr-only" name="template" type="radio" value="custom" />
+                <input className="sr-only" name="template" type="radio" value="4ls" />
                 <span className="text-base font-extrabold">4 Ls</span>
                 <span className="mt-2 flex flex-wrap gap-1">
                   {["liked", "lacked", "learned", "longed for"].map((item) => <span className={miniChipClass} key={item}>{item}</span>)}

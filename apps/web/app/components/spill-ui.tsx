@@ -111,6 +111,30 @@ export function Pill({
   );
 }
 
+export function StatusPill({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "danger" | "success" | "action" | "mood";
+}) {
+  const color =
+    tone === "danger"
+      ? "border-spill-wrong bg-spill-wrong text-white"
+      : tone === "success"
+        ? "border-spill-well bg-spill-well text-white"
+        : tone === "action"
+          ? "border-spill-action bg-spill-action text-white"
+          : tone === "mood"
+            ? "border-spill-mood bg-spill-mood text-white"
+            : "border-spill-line bg-transparent text-spill-fg";
+  return (
+    <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium leading-none ${color}`}>
+      {children}
+    </span>
+  );
+}
+
 export function SectionTitle({ children, kicker }: { children: ReactNode; kicker?: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2">
