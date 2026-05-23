@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SpillItOut",
-  description: "Board-first team retros with GIFs, actions, and optional AI.",
+  title: "Spill.",
+  description: "A retro board for teams who like GIFs and do not want to overthink.",
 };
 
 export default function RootLayout({

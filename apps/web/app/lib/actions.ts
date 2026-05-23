@@ -47,13 +47,16 @@ export async function searchGifsAction(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
   const columnId = String(formData.get("column_id") ?? "");
   const query = String(formData.get("gif_query") ?? "").trim();
-  const page = Math.max(0, Number(formData.get("gif_page") ?? 0) || 0);
-  const kind = String(formData.get("media_kind") ?? "all");
+  const gifPages = formData.getAll("gif_page");
+  const mediaKinds = formData.getAll("media_kind");
+  const page = Math.max(0, Number(gifPages.at(-1) ?? 0) || 0);
+  const kind = String(mediaKinds.at(-1) ?? "all");
+  const draftText = String(formData.get("body_text") ?? "");
   const results = query ? await searchGifs(query, page, kind) : { results: [], degraded: false };
   const existingResults = page > 0 ? parseGifResults(String(formData.get("gif_existing_results") ?? "")) : [];
   const mergedResults = [...existingResults, ...results.results];
 
-  redirect(`/retros/${retroId}?addColumn=${encodeURIComponent(columnId)}&gif=${encodeURIComponent(query)}&gifColumn=${encodeURIComponent(columnId)}&gifPage=${page}&mediaKind=${encodeURIComponent(kind)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(mergedResults))}`);
+  redirect(`/retros/${retroId}?addColumn=${encodeURIComponent(columnId)}&gif=${encodeURIComponent(query)}&gifColumn=${encodeURIComponent(columnId)}&gifPage=${page}&mediaKind=${encodeURIComponent(kind)}&draftText=${encodeURIComponent(draftText)}&gifDegraded=${results.degraded ? "1" : "0"}&gifResults=${encodeURIComponent(JSON.stringify(mergedResults))}`);
 }
 
 function parseGifChoice(value: string): { url: string; altText: string } | null {

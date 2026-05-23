@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AppChrome, PhaseBadge, Pill, spillColors } from "../../components/spill-ui";
 import { getRetro, type GifResult, type RetroBoard } from "../../lib/api";
 import {
   acceptDeckItemAction,
@@ -7,19 +8,13 @@ import {
   clusterBoardAction,
   completeRetroAction,
   confirmActionItemAction,
-  createDeliveryAction,
   createDraftCardAction,
-  createMeetingNoteAction,
   markReadyAction,
   rejectActionItemAction,
-  retryAiJobAction,
-  retryDeliveryAction,
   revealRetroAction,
   searchGifsAction,
   startActionDiscussionAction,
-  startAiJobAction,
   startVotingAction,
-  updateActionItemAction,
 } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
 import { BoardMedia } from "./media-card";
@@ -29,7 +24,7 @@ export default async function RetroBoardPage({
   searchParams,
 }: {
   params: Promise<{ retroId: string }>;
-  searchParams: Promise<{ addColumn?: string; gif?: string; gifColumn?: string; gifPage?: string; gifResults?: string; gifDegraded?: string; mediaKind?: string }>;
+  searchParams: Promise<{ addColumn?: string; draftText?: string; gif?: string; gifColumn?: string; gifPage?: string; gifResults?: string; gifDegraded?: string; mediaKind?: string }>;
 }) {
   const { retroId } = await params;
   const gifSearch = await searchParams;
@@ -44,225 +39,197 @@ export default async function RetroBoardPage({
   const activeColumnId = gifColumnId ?? gifSearch.addColumn;
   const gifPage = Math.max(0, Number(gifSearch.gifPage ?? 0) || 0);
   const gifDegraded = gifSearch.gifDegraded === "1";
-  const boardPhase = phaseLabel(board.retro.phase);
-  const showToolRail =
-    (board.retro.phase === "writing" && board.deck.length > 0) ||
-    board.retro.phase === "completed" ||
-    board.meeting_notes.length > 0 ||
-    board.ai_artifacts.length > 0;
 
   return (
-    <main className="board-app">
+    <AppChrome
+      title={board.retro.title}
+      subtitle={`${phaseLabel(board.retro.phase)} · ${board.ready.ready_count} of ${board.ready.participant_count} ready`}
+      actions={<PhaseControls board={board} />}
+    >
       <BoardSync retroId={board.retro.id} />
-      <header className="board-topbar">
-        <div className="board-title">
-          <p className="eyebrow">SpillItOut</p>
-          <h1>{board.retro.title}</h1>
-        </div>
-        <div className="chips board-status">
-          <span className="chip blue">{boardPhase}</span>
-          <span className="chip">
-            Ready {board.ready.ready_count}/{board.ready.participant_count}
-          </span>
-          {board.retro.phase === "voting" ? <span className="chip">Votes left {board.voting.votes_remaining}</span> : null}
-        </div>
-        <nav className="tabs" aria-label="Main navigation">
-          <Link className="button" href="/">
-            Overview
-          </Link>
-          <Link className="button" href="/retros/new">
-            New
-          </Link>
-          <Link className="button" href="/history">
-            History
-          </Link>
-        </nav>
-      </header>
+      <section className="flex min-h-[calc(100dvh-5rem)] flex-col">
+        <div className="grid flex-1 grid-cols-1 gap-4 p-5 lg:grid-cols-4">
+          {board.columns.map((column, index) => {
+            const color = columnColor(column, index);
+            const columnActions = isActionsColumn(column) ? board.actions : [];
+            const columnCount = column.cards.length + columnActions.length;
+            const isActiveColumn = activeColumnId === column.id;
 
-      <section className={`board-shell ${showToolRail ? "with-tools" : ""}`}>
-        <article className="board board-primary" aria-label="Retro board">
-          <div className="board-head">
-            <div>
-              <div className="chips">
-                <span className="chip blue">{board.retro.phase === "writing" ? "Draft board" : "Revealed board"}</span>
-                <span className="chip">{board.retro.vote_limit} votes/person</span>
-              </div>
-              <h2>{board.retro.title}</h2>
-              <p className="muted">
-                {board.retro.phase === "writing"
-                  ? "Private writing: cards stay blurred for everyone else until reveal."
-                  : "Shared board: discuss, vote, and turn the right cards into actions."}
-              </p>
-            </div>
-            <PhaseControls board={board} />
-          </div>
+            return (
+              <section className="grid min-h-[460px] grid-rows-[auto_minmax(0,1fr)_auto] gap-3" key={column.id}>
+                <header className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                  <h2 className="font-bold lowercase">{column.title}</h2>
+                  <span className="ml-auto text-xs text-spill-muted">{columnCount || "—"}</span>
+                </header>
 
-          <div className={`columns board-columns ${board.columns.length === 5 ? "five" : ""}`}>
-            {board.columns.map((column) => {
-              const columnActions = isActionsColumn(column) ? board.actions : [];
-              const columnCount = column.cards.length + columnActions.length;
-              const isActiveColumn = activeColumnId === column.id;
-              return (
-                <section className="column" key={column.id}>
-                  <div className="column-head">
-                    <div>
-                      <h3>{column.title}</h3>
-                      <small>{board.retro.phase === "writing" ? "Private drafts" : "Shared cards"}</small>
+                <div className="space-y-3 overflow-auto pr-1">
+                  {column.cards.map((card) => (
+                    <CardView board={board} card={card} color={color} key={card.id} />
+                  ))}
+                  {columnActions.map((action) => (
+                    <ActionCard action={action} key={action.id} retroId={board.retro.id} />
+                  ))}
+                  {isActionsColumn(column) && board.retro.phase !== "action_discussion" && board.actions.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-spill-line p-8 text-center text-sm text-spill-muted">
+                      {board.retro.phase === "writing" ? "opens after voting" : "fills with top-voted cards"}
                     </div>
-                    <span className="chip">{columnCount}</span>
-                  </div>
-
-                  <div className="card-stack">
-                    {column.cards.map((card) => (
-                      <article className={`card ${card.hidden ? "hidden" : ""}`} key={card.id}>
-                        {card.hidden ? (
-                          <>
-                            <span className="skeleton" />
-                            <span className="skeleton short" />
-                          </>
-                        ) : (
-                          <>
-                            {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
-                            {card.body_text ? <p>{card.body_text}</p> : null}
-                            {card.cluster_title ? (
-                              <p className="merged">
-                                {card.cluster_title} · {card.cluster_category}
-                              </p>
-                            ) : null}
-                            {board.retro.phase === "voting" ? (
-                              <div className="vote-row">
-                                <span className="vote">{card.vote_count} votes</span>
-                                {card.current_user_vote_count > 0 ? <span className="chip">You {card.current_user_vote_count}</span> : null}
-                                <form action={castVoteAction}>
-                                  <input name="retro_id" type="hidden" value={board.retro.id} />
-                                  <input name="card_id" type="hidden" value={card.id} />
-                                  <button type="submit" disabled={board.voting.votes_remaining <= 0}>
-                                    Vote
-                                  </button>
-                                </form>
-                              </div>
-                            ) : null}
-                          </>
-                        )}
-                      </article>
-                    ))}
-                    {columnActions.map((action) => (
-                      <ActionBoardCard action={action} key={action.id} retroId={board.retro.id} />
-                    ))}
-                  </div>
-
-                  {board.retro.phase === "writing" ? (
-                    isActiveColumn ? (
-                      <InlineComposer
-                        columnId={column.id}
-                        columnTitle={column.title}
-                        degraded={gifDegraded && gifColumnId === column.id}
-                        gifPage={gifPage}
-                        gifQuery={gifColumnId === column.id ? gifSearch.gif ?? "" : ""}
-                        gifResults={gifColumnId === column.id ? gifResults : []}
-                        mediaKind={gifSearch.mediaKind ?? "gif"}
-                        retroId={board.retro.id}
-                      />
-                    ) : (
-                      <Link className="add-card-row" href={`/retros/${board.retro.id}?addColumn=${column.id}`}>
-                        +
-                      </Link>
-                    )
                   ) : null}
-                </section>
-              );
-            })}
-          </div>
-        </article>
+                </div>
 
-        {showToolRail ? (
-          <aside className="board-tools" aria-label="Board tools">
-            {board.retro.phase === "writing" && board.deck.length > 0 ? <DeckTool board={board} /> : null}
-            {board.retro.phase === "completed" ? <DeliveryTool board={board} /> : null}
-            {board.meeting_notes.length > 0 ? <NotesTool board={board} /> : null}
-            {board.ai_artifacts.length > 0 ? <AiTool board={board} /> : null}
-          </aside>
-        ) : null}
+                {board.retro.phase === "writing" && !isActionsColumn(column) ? (
+                  isActiveColumn ? (
+                    <InlineComposer
+                      columnId={column.id}
+                      columnTitle={column.title}
+                      color={color}
+                      draftText={gifColumnId === column.id ? gifSearch.draftText ?? "" : ""}
+                      degraded={gifDegraded && gifColumnId === column.id}
+                      gifPage={gifPage}
+                      gifQuery={gifColumnId === column.id ? gifSearch.gif ?? "" : ""}
+                      gifResults={gifColumnId === column.id ? gifResults : []}
+                      mediaKind={gifSearch.mediaKind ?? "gif"}
+                      retroId={board.retro.id}
+                    />
+                  ) : (
+                    <Link
+                      className="grid min-h-10 place-items-center rounded-xl border border-dashed text-sm transition hover:bg-spill-panel"
+                      href={`/retros/${board.retro.id}?addColumn=${column.id}`}
+                      style={{ borderColor: `${color}55`, color }}
+                    >
+                      + add {column.title.toLowerCase()} card
+                    </Link>
+                  )
+                ) : null}
+              </section>
+            );
+          })}
+        </div>
+
+        {board.retro.phase === "writing" && board.deck.length > 0 ? <Deck board={board} /> : null}
       </section>
-    </main>
+    </AppChrome>
   );
 }
 
 function PhaseControls({ board }: { board: RetroBoard }) {
   if (board.retro.phase === "writing") {
     return (
-      <div className="actions">
+      <>
+        <Presence ready={board.ready.ready_count} total={board.ready.participant_count} />
+        <PhaseBadge phase="writing" color={spillColors.mood} />
         <form action={markReadyAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button className="primary" type="submit">
-            {board.ready.current_user_ready ? "Ready marked" : "Mark ready"}
-          </button>
+          <Pill tone="danger" type="submit">{board.ready.current_user_ready ? "pinned" : "pin yours up"}</Pill>
         </form>
         <form action={revealRetroAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button type="submit">Reveal</button>
+          <Pill type="submit">reveal →</Pill>
         </form>
-      </div>
+      </>
     );
   }
 
   if (board.retro.phase === "discussion") {
     return (
-      <div className="actions">
+      <>
+        <PhaseBadge phase="cluster-fy" color={spillColors.action} />
         <form action={clusterBoardAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button type="submit" disabled={board.clusters.length > 0}>
-            Cluster-fy
-          </button>
+          <Pill type="submit" disabled={board.clusters.length > 0}>cluster-fy</Pill>
         </form>
         <form action={startVotingAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button className="primary" type="submit">
-            Start voting
-          </button>
+          <Pill tone="success" type="submit">start voting</Pill>
         </form>
-      </div>
+      </>
     );
   }
 
   if (board.retro.phase === "voting") {
     return (
-      <div className="actions">
-        <form action={markReadyAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button className="primary" type="submit">
-            {board.ready.current_user_ready ? "Voting ready" : "Mark ready"}
-          </button>
-        </form>
+      <>
+        <PhaseBadge phase="voting" color={spillColors.action} />
+        <Pill>{board.voting.votes_remaining} votes left</Pill>
         <form action={startActionDiscussionAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <button type="submit">Actions</button>
+          <Pill tone="danger" type="submit">actions →</Pill>
         </form>
-      </div>
+      </>
     );
   }
 
   if (board.retro.phase === "action_discussion") {
     return (
-      <form action={completeRetroAction}>
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <button className="primary" type="submit">
-          Complete
-        </button>
-      </form>
+      <>
+        <PhaseBadge phase="action" color={spillColors.action} />
+        <Pill>← prev</Pill>
+        <Pill>next →</Pill>
+        <form action={completeRetroAction}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <Pill type="submit">wrap retro</Pill>
+        </form>
+      </>
     );
   }
 
   return (
-    <Link className="button" href="/history">
-      History
-    </Link>
+    <>
+      <PhaseBadge phase="wrapped" color={spillColors.well} />
+      <Pill href="/history">history</Pill>
+    </>
+  );
+}
+
+function Presence({ ready, total }: { ready: number; total: number }) {
+  const people = ["na", "lu", "sa", "kt"].slice(0, Math.max(1, Math.min(4, total || 1)));
+  return (
+    <div className="hidden items-center md:flex">
+      {people.map((person, index) => (
+        <span className="-ml-2 first:ml-0 grid h-7 w-7 place-items-center rounded-full border-2 border-spill-bg bg-spill-soft text-[10px] font-bold" key={person}>
+          {person}
+          <span className={`absolute mt-5 h-2 w-2 rounded-full ${index < ready ? "bg-spill-well" : "bg-spill-mood"}`} />
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CardView({ board, card, color }: { board: RetroBoard; card: RetroBoard["columns"][number]["cards"][number]; color: string }) {
+  if (card.hidden) {
+    return (
+      <article className="rounded-xl border border-dashed p-5 text-center text-sm" style={{ borderColor: `${color}55`, backgroundColor: `${color}18`, color }}>
+        ··· someone's draft ···
+      </article>
+    );
+  }
+
+  return (
+    <article className="rounded-xl p-3 text-white shadow-[0_8px_14px_rgba(42,34,27,0.13)]" style={{ backgroundColor: color }}>
+      {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
+      {card.body_text ? <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-5 first:mt-0">{card.body_text}</p> : null}
+      {card.cluster_title ? <p className="mt-3 border-t border-white/30 pt-2 text-xs uppercase tracking-wider">{card.cluster_title}</p> : null}
+      {board.retro.phase === "voting" ? (
+        <div className="mt-3 flex items-center gap-2">
+          <span className="rounded-full bg-white/20 px-2 py-1 text-xs font-bold">{card.vote_count}v</span>
+          <form action={castVoteAction}>
+            <input name="retro_id" type="hidden" value={board.retro.id} />
+            <input name="card_id" type="hidden" value={card.id} />
+            <button className="rounded-full bg-white px-3 py-1 text-xs font-bold" style={{ color }} type="submit" disabled={board.voting.votes_remaining <= 0}>
+              vote
+            </button>
+          </form>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
 function InlineComposer({
   columnId,
   columnTitle,
+  color,
+  draftText,
   degraded,
   gifPage,
   gifQuery,
@@ -272,6 +239,8 @@ function InlineComposer({
 }: {
   columnId: string;
   columnTitle: string;
+  color: string;
+  draftText: string;
   degraded: boolean;
   gifPage: number;
   gifQuery: string;
@@ -283,206 +252,94 @@ function InlineComposer({
   const serializedResults = JSON.stringify(gifResults);
 
   return (
-    <div className="inline-composer" aria-label={`Add ${columnTitle} card`}>
-      <form className="draft-form quick-card-form" action={createDraftCardAction}>
+    <div className="rounded-xl p-3 text-white" aria-label={`Add ${columnTitle} card`} style={{ backgroundColor: color }}>
+      <form className="grid gap-3" action={createDraftCardAction}>
         <input name="retro_id" type="hidden" value={retroId} />
         <input name="column_id" type="hidden" value={columnId} />
-        <textarea name="body_text" rows={1} placeholder={`Add ${columnTitle} card`} />
+        <textarea className="border-0 bg-transparent p-0 text-sm font-medium text-white placeholder:text-white/75 focus:shadow-none" name="body_text" rows={2} defaultValue={draftText} placeholder={`add ${columnTitle.toLowerCase()} card`} />
         {gifResults.length > 0 ? (
-          <div className="media-result-strip">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {gifResults.map((gif) => (
-              <label className="media-result" key={`${gif.id}-${gif.url}`}>
+              <label className="grid w-24 shrink-0 gap-1 rounded-lg bg-spill-bg p-1 text-[10px] text-spill-fg" key={`${gif.id}-${gif.url}`}>
                 <input name="gif_choice" type="radio" value={JSON.stringify({ url: gif.url, altText: gif.alt_text })} />
-                <img className="gif-thumb" src={gif.preview_url || gif.url} alt="" loading="lazy" />
-                <span>{gif.alt_text}</span>
+                <img className="aspect-[1.2] w-full rounded object-contain" src={gif.preview_url || gif.url} alt="" loading="lazy" />
+                <span className="line-clamp-2">{gif.alt_text}</span>
               </label>
             ))}
           </div>
         ) : null}
-        <button className="primary" type="submit">
-          Add
-        </button>
-      </form>
-      <form className="gif-search-form inline-gif-search media-search-row" action={searchGifsAction} autoComplete="off">
-        <input name="retro_id" type="hidden" value={retroId} />
-        <input name="column_id" type="hidden" value={columnId} />
-        <input name="gif_page" type="hidden" value="0" />
-        <div className="media-kind-toggle" aria-label="Media type">
-          <button aria-pressed={selectedKind === "gif"} name="media_kind" type="submit" value="gif">
-            GIFs
-          </button>
-          <button aria-pressed={selectedKind === "sticker"} name="media_kind" type="submit" value="sticker">
-            Stickers
-          </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-white/75">esc</span>
+          <button className="ml-auto rounded-full bg-white px-3 py-1 text-xs font-bold" style={{ color }} type="submit">pin ↵</button>
         </div>
-        <input name="gif_query" defaultValue={gifQuery} placeholder="Search media" autoComplete="off" aria-label="Media search" />
-        <button name="media_kind" type="submit" value={selectedKind}>
-          Search
-        </button>
+
+        <input name="gif_page" type="hidden" value="0" />
+        <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2">
+          <div className="flex gap-1">
+            <button className="rounded-full bg-white px-2 py-1 text-xs font-bold" formAction={searchGifsAction} name="media_kind" style={{ color: selectedKind === "gif" ? color : "#7a6c54" }} type="submit" value="gif">+ GIF</button>
+            <button className="rounded-full bg-white/25 px-2 py-1 text-xs font-bold text-white" formAction={searchGifsAction} name="media_kind" type="submit" value="sticker">+ sticker</button>
+          </div>
+          <input className="rounded-full border-0 bg-white px-3 py-1 text-xs text-spill-fg focus:shadow-none" name="gif_query" defaultValue={gifQuery} placeholder="Search media" autoComplete="off" aria-label="Media search" />
+          <button className="rounded-full bg-white/25 px-2 py-1 text-xs font-bold text-white" formAction={searchGifsAction} name="media_kind" type="submit" value={selectedKind}>search</button>
+        </div>
+        {degraded ? <p className="mt-2 text-xs text-white/80">Media search failed. Text cards still work.</p> : null}
+        {gifQuery && gifResults.length > 0 ? (
+          <div className="mt-2">
+            <input name="media_kind" type="hidden" value={selectedKind} />
+            <input name="gif_existing_results" type="hidden" value={serializedResults} />
+            <button className="w-full rounded-lg border border-dashed border-white/45 py-2 text-xs font-bold text-white" formAction={searchGifsAction} name="gif_page" type="submit" value={gifPage + 1}>more</button>
+          </div>
+        ) : null}
       </form>
-      {degraded ? <p className="muted compact-copy">Media search failed. Text cards still work.</p> : null}
-      {gifQuery && gifResults.length > 0 ? (
-        <form className="gif-pager" action={searchGifsAction}>
-          <input name="retro_id" type="hidden" value={retroId} />
-          <input name="column_id" type="hidden" value={columnId} />
-          <input name="gif_query" type="hidden" value={gifQuery} />
-          <input name="gif_page" type="hidden" value={gifPage + 1} />
-          <input name="media_kind" type="hidden" value={selectedKind} />
-          <input name="gif_existing_results" type="hidden" value={serializedResults} />
-          <button className="media-result media-more" type="submit">More</button>
-        </form>
-      ) : null}
     </div>
   );
 }
 
-function ActionBoardCard({ action, retroId }: { action: RetroBoard["actions"][number]; retroId: string }) {
+function ActionCard({ action, retroId }: { action: RetroBoard["actions"][number]; retroId: string }) {
   return (
-    <article className={`card action-board-card ${action.status}`}>
-      <form className="action-card-form" action={updateActionItemAction}>
-        <input name="retro_id" type="hidden" value={retroId} />
-        <input name="action_id" type="hidden" value={action.id} />
-        <input name="title" defaultValue={action.title} aria-label="Action title" />
-        <textarea name="details" rows={2} defaultValue={action.details ?? ""} aria-label="Action details" />
-        <div className="vote-row">
-          <span className="chip">{action.status}</span>
-          <button type="submit">Save</button>
-        </div>
-      </form>
-      <div className="vote-row">
+    <article className="rounded-xl border border-spill-line bg-spill-panel p-3">
+      <h3 className="font-bold">{action.title}</h3>
+      {action.details ? <p className="mt-1 text-sm text-spill-muted">{action.details}</p> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
         <form action={confirmActionItemAction}>
           <input name="retro_id" type="hidden" value={retroId} />
           <input name="action_id" type="hidden" value={action.id} />
-          <button className="primary" type="submit">Confirm</button>
+          <Pill tone="success" type="submit">✓ confirm</Pill>
         </form>
         <form action={rejectActionItemAction}>
           <input name="retro_id" type="hidden" value={retroId} />
           <input name="action_id" type="hidden" value={action.id} />
-          <button type="submit">Reject</button>
+          <Pill type="submit">skip</Pill>
         </form>
       </div>
     </article>
   );
 }
 
-function DeckTool({ board }: { board: RetroBoard }) {
+function Deck({ board }: { board: RetroBoard }) {
   return (
-    <section className="tool-card">
-      <h3>Deck</h3>
-      {board.deck.map((item) => (
-        <article className="tool-item" key={item.id}>
-          <p>{item.suggested_text ?? item.gif_url ?? "Connector item"}</p>
-          <form className="compact-form" action={acceptDeckItemAction}>
+    <aside className="m-5 mt-0 rounded-xl border border-spill-line bg-spill-panel p-4">
+      <div className="mb-3 flex items-center gap-3">
+        <p className="text-xs font-extrabold uppercase tracking-wider text-spill-muted">your deck</p>
+        <span className="rounded-full bg-spill-action px-3 py-1 text-xs font-bold text-white">suggestions · {board.deck.length}</span>
+        <span className="ml-auto text-xs italic text-spill-muted">↑ drag chips into a column</span>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-1">
+        {board.deck.map((item) => (
+          <form className="w-64 shrink-0 rounded-lg border border-spill-line bg-spill-bg p-3" action={acceptDeckItemAction} key={item.id}>
             <input name="retro_id" type="hidden" value={board.retro.id} />
             <input name="item_id" type="hidden" value={item.id} />
-            <select name="column_id" defaultValue={board.columns[0]?.id}>
-              {board.columns.map((column) => (
-                <option key={column.id} value={column.id}>
-                  {column.title}
-                </option>
+            <select className="mb-2 px-2 py-1 text-xs" name="column_id" defaultValue={board.columns[0]?.id}>
+              {board.columns.filter((column) => !isActionsColumn(column)).map((column) => (
+                <option key={column.id} value={column.id}>{column.title}</option>
               ))}
             </select>
-            <button type="submit">Accept</button>
+            <p className="min-h-12 text-sm font-semibold">{item.suggested_text ?? item.gif_url ?? "Connector item"}</p>
+            <button className="mt-3 text-xs font-bold text-spill-muted" type="submit">↑ drag / accept</button>
           </form>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function NotesTool({ board }: { board: RetroBoard }) {
-  return (
-    <details className="tool-card">
-      <summary>Notes</summary>
-      <form className="compact-form" action={createMeetingNoteAction}>
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <input name="title" defaultValue="Meeting notes" aria-label="Notes title" />
-        <textarea name="body_text" rows={3} placeholder="Paste notes" aria-label="Notes" />
-        <button type="submit">Attach</button>
-      </form>
-      {board.meeting_notes.map((note) => (
-        <article className="tool-item" key={note.id}>
-          <strong>{note.title}</strong>
-          <p>{note.body_text}</p>
-        </article>
-      ))}
-    </details>
-  );
-}
-
-function AiTool({ board }: { board: RetroBoard }) {
-  return (
-    <details className="tool-card">
-      <summary>AI</summary>
-      <form className="compact-form" action={startAiJobAction}>
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <select name="kind" defaultValue="summary" aria-label="AI job">
-          <option value="gif_suggestions">GIF suggestions</option>
-          <option value="clustering">Clustering</option>
-          <option value="action_suggestions">Action proposals</option>
-          <option value="summary">Summary</option>
-          <option value="mood">Team mood</option>
-          <option value="tagging">Tagging</option>
-        </select>
-        <label className="inline-check">
-          <input name="fail" type="checkbox" /> fail
-        </label>
-        <button type="submit">Run</button>
-      </form>
-      {board.ai_artifacts.map((artifact) => (
-        <article className={`tool-item ${artifact.status}`} key={artifact.id}>
-          <div className="chips">
-            <span className="chip">{artifact.kind.replaceAll("_", " ")}</span>
-            <span className="chip">{artifact.status}</span>
-          </div>
-          {artifact.error_message ? <p>{artifact.error_message}</p> : null}
-          {artifact.output ? <pre>{JSON.stringify(artifact.output, null, 2)}</pre> : null}
-          {artifact.status === "failed" ? (
-            <form action={retryAiJobAction}>
-              <input name="retro_id" type="hidden" value={board.retro.id} />
-              <input name="artifact_id" type="hidden" value={artifact.id} />
-              <button type="submit">Retry</button>
-            </form>
-          ) : null}
-        </article>
-      ))}
-    </details>
-  );
-}
-
-function DeliveryTool({ board }: { board: RetroBoard }) {
-  return (
-    <section className="tool-card">
-      <h3>Delivery</h3>
-      <form className="compact-form" action={createDeliveryAction}>
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <select name="kind" defaultValue="summary_export" aria-label="Delivery kind">
-          <option value="summary_export">Summary export</option>
-          <option value="external_action_link">External action link</option>
-        </select>
-        <label className="inline-check">
-          <input name="fail" type="checkbox" /> fail
-        </label>
-        <button type="submit">Create</button>
-      </form>
-      {board.deliveries.map((delivery) => (
-        <article className={`tool-item ${delivery.status}`} key={delivery.id}>
-          <div className="chips">
-            <span className="chip">{delivery.kind.replaceAll("_", " ")}</span>
-            <span className="chip">{delivery.status}</span>
-          </div>
-          {delivery.error_message ? <p>{delivery.error_message}</p> : null}
-          {delivery.output ? <pre>{JSON.stringify(delivery.output, null, 2)}</pre> : null}
-          {delivery.status === "failed" ? (
-            <form action={retryDeliveryAction}>
-              <input name="retro_id" type="hidden" value={board.retro.id} />
-              <input name="delivery_id" type="hidden" value={delivery.id} />
-              <button type="submit">Retry</button>
-            </form>
-          ) : null}
-        </article>
-      ))}
-    </section>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -506,8 +363,17 @@ function parseGifResults(value?: string): GifResult[] {
   }
 }
 
-function phaseLabel(phase: RetroBoard["retro"]["phase"]) {
+function phaseLabel(phase: string) {
   return phase.replaceAll("_", " ");
+}
+
+function columnColor(column: RetroBoard["columns"][number], index: number) {
+  const title = column.title.toLowerCase();
+  if (title.includes("mood")) return spillColors.mood;
+  if (title.includes("well") || title.includes("liked") || title.includes("learned")) return spillColors.well;
+  if (title.includes("wrong") || title.includes("lacked")) return spillColors.wrong;
+  if (isActionsColumn(column)) return spillColors.action;
+  return [spillColors.mood, spillColors.well, spillColors.wrong, spillColors.action][index % 4];
 }
 
 function isActionsColumn(column: RetroBoard["columns"][number]) {
