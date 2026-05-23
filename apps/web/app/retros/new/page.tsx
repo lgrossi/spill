@@ -1,12 +1,10 @@
 import { AppChrome, Pill, Tile } from "../../components/spill-ui";
 import { createRetroAction } from "../../lib/actions";
+import { TemplateSelector } from "./template-selector";
 
 const inputClass = "mt-2 px-4 py-3 text-lg font-bold";
 const labelClass = "text-xs font-bold uppercase tracking-widest text-spill-muted";
 const ruleInputClass = "mt-1 border-0 bg-transparent p-0 text-base font-bold shadow-none focus:shadow-none";
-const templateCardClass = "rounded-xl border border-spill-line bg-spill-panel p-4";
-const activeTemplateCardClass = "rounded-xl border-2 border-spill-wrong bg-spill-wrong/5 p-4";
-const miniChipClass = "inline-flex rounded-full border border-spill-line px-2 py-0.5 text-xs text-spill-muted";
 
 export default function NewRetroPage() {
   return (
@@ -31,36 +29,7 @@ export default function NewRetroPage() {
 
           <div>
             <p className={labelClass}>2 · template</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className={activeTemplateCardClass}>
-                <input className="sr-only" name="template" type="radio" value="standard" defaultChecked />
-                <span className="text-base font-extrabold">standard</span>
-                <span className="mt-2 flex flex-wrap gap-1">
-                  {["mood", "went well", "went wrong", "actions"].map((item) => <span className={miniChipClass} key={item}>{item}</span>)}
-                </span>
-              </label>
-              <label className={templateCardClass}>
-                <input className="sr-only" name="template" type="radio" value="4ls" />
-                <span className="text-base font-extrabold">4 Ls</span>
-                <span className="mt-2 flex flex-wrap gap-1">
-                  {["liked", "lacked", "learned", "longed for"].map((item) => <span className={miniChipClass} key={item}>{item}</span>)}
-                </span>
-              </label>
-              <label className={templateCardClass}>
-                <input className="sr-only" name="template" type="radio" value="custom" />
-                <span className="text-base font-extrabold">custom</span>
-                <span className="mt-2 inline-flex">
-                  <span className={miniChipClass}>user deck mode</span>
-                </span>
-              </label>
-            </div>
-            <textarea
-              className="sr-only"
-              name="columns"
-              rows={5}
-              defaultValue={"Liked\nLacked\nLearned\nLonged for\nActions"}
-              aria-label="Custom columns"
-            />
+            <TemplateSelector />
           </div>
 
           <div>

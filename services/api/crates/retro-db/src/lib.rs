@@ -390,6 +390,36 @@ impl RetroRepository {
         .await
     }
 
+    pub async fn move_draft_card(
+        &self,
+        retro_id: Uuid,
+        card_id: Uuid,
+        column_id: Uuid,
+        subject: &str,
+    ) -> Result<Option<CardRecord>, sqlx::Error> {
+        sqlx::query_as::<_, CardRecord>(
+            "UPDATE cards c
+             SET column_id = $3,
+                 position = (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $4 AND column_id = $3),
+                 updated_at = NOW()
+             FROM participants p, retro_columns rc
+             WHERE c.id = $1
+               AND c.author_participant_id = p.id
+               AND p.external_subject = $2
+               AND c.state = 'draft'
+               AND c.retro_id = $4
+               AND rc.id = $3
+               AND rc.retro_id = $4
+             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+        )
+        .bind(card_id)
+        .bind(subject)
+        .bind(column_id)
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     pub async fn delete_draft_card(
         &self,
         card_id: Uuid,
@@ -1931,6 +1961,48 @@ mod tests {
             .unwrap();
         assert_eq!(ava_board.columns[0].cards[1].gif_url, None);
         assert!(ava_board.columns[0].cards[1].hidden);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn draft_cards_can_move_between_columns(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Move retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+            })
+            .await
+            .unwrap();
+
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("move me".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        let moved = repo
+            .move_draft_card(created.retro.id, card.id, created.columns[1].id, "ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(moved.column_id, created.columns[1].id);
+
+        let lee_attempt = repo
+            .move_draft_card(created.retro.id, card.id, created.columns[2].id, "lee")
+            .await
+            .unwrap();
+        assert!(lee_attempt.is_none());
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]

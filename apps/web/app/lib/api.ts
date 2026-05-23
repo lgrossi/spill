@@ -226,6 +226,15 @@ export async function castVote(retroId: string, cardId: string, count = 1): Prom
   });
 }
 
+export async function moveDraftCard(retroId: string, cardId: string, columnId: string): Promise<RetroCard> {
+  return apiFetch(`/api/retros/${retroId}/cards/${cardId}/move`, {
+    method: "PATCH",
+    body: JSON.stringify({ column_id: columnId }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
 export async function clusterBoard(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/cluster`, {
     method: "POST",

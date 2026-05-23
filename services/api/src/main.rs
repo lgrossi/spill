@@ -209,6 +209,11 @@ struct UpdateDraftCardRequest {
 }
 
 #[derive(Deserialize)]
+struct MoveDraftCardRequest {
+    column_id: Uuid,
+}
+
+#[derive(Deserialize)]
 struct CastVoteRequest {
     card_id: Uuid,
     #[serde(default = "default_vote_count")]
@@ -382,6 +387,7 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/cards/{card_id}",
             patch(update_draft_card).delete(delete_draft_card),
         )
+        .route("/retros/{retro_id}/cards/{card_id}/move", patch(move_draft_card))
         .route("/retros/{retro_id}/ready", post(mark_ready))
         .route("/retros/{retro_id}/reveal", post(reveal_board))
         .route("/retros/{retro_id}/voting/start", post(start_voting))
@@ -727,6 +733,26 @@ async fn update_draft_card(
         )
         .await
         .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
+        .map(|card| {
+            event_hub.publish(BoardEvent::CardChanged { retro_id });
+            Json(card)
+        })
+        .ok_or_else(|| ApiError::not_found("draft card not found"))
+}
+
+async fn move_draft_card(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<MoveDraftCardRequest>,
+) -> Result<Json<retro_db::CardRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .move_draft_card(retro_id, card_id, request.column_id, &user.subject)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to move draft card: {error}")))?
         .map(|card| {
             event_hub.publish(BoardEvent::CardChanged { retro_id });
             Json(card)

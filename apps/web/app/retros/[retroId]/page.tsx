@@ -17,6 +17,8 @@ import {
   startVotingAction,
 } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
+import { DraggableCard, DropColumn } from "./board-dnd";
+import { BoardDndScript } from "./board-dnd-script";
 import { BoardMedia } from "./media-card";
 
 export default async function RetroBoardPage({
@@ -47,6 +49,7 @@ export default async function RetroBoardPage({
       actions={<PhaseControls board={board} />}
     >
       <BoardSync retroId={board.retro.id} />
+      <BoardDndScript retroId={board.retro.id} />
       <section className="flex min-h-[calc(100dvh-5rem)] flex-col">
         <div className="grid flex-1 grid-cols-1 gap-4 p-5 lg:grid-cols-4">
           {board.columns.map((column, index) => {
@@ -56,7 +59,11 @@ export default async function RetroBoardPage({
             const isActiveColumn = activeColumnId === column.id;
 
             return (
-              <section className="grid min-h-[460px] grid-rows-[auto_minmax(0,1fr)_auto] gap-3" key={column.id}>
+              <DropColumn
+                columnId={column.id}
+                enabled={board.retro.phase === "writing" && !isActionsColumn(column)}
+                key={column.id}
+              >
                 <header className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
                   <h2 className="font-bold lowercase">{column.title}</h2>
@@ -65,7 +72,7 @@ export default async function RetroBoardPage({
 
                 <div className="space-y-3 overflow-auto pr-1">
                   {column.cards.map((card) => (
-                    <CardView board={board} card={card} color={color} key={card.id} />
+                    <CardView board={board} card={card} color={color} draggable={board.retro.phase === "writing" && !isActionsColumn(column) && !card.hidden} key={card.id} />
                   ))}
                   {columnActions.map((action) => (
                     <ActionCard action={action} key={action.id} retroId={board.retro.id} />
@@ -101,7 +108,7 @@ export default async function RetroBoardPage({
                     </Link>
                   )
                 ) : null}
-              </section>
+              </DropColumn>
             );
           })}
         </div>
@@ -196,7 +203,7 @@ function Presence({ ready, total }: { ready: number; total: number }) {
   );
 }
 
-function CardView({ board, card, color }: { board: RetroBoard; card: RetroBoard["columns"][number]["cards"][number]; color: string }) {
+function CardView({ board, card, color, draggable }: { board: RetroBoard; card: RetroBoard["columns"][number]["cards"][number]; color: string; draggable: boolean }) {
   if (card.hidden) {
     return (
       <article className="rounded-xl border border-dashed p-5 text-center text-sm" style={{ borderColor: `${color}55`, backgroundColor: `${color}18`, color }}>
@@ -206,10 +213,12 @@ function CardView({ board, card, color }: { board: RetroBoard; card: RetroBoard[
   }
 
   return (
-    <article className="rounded-xl p-3 text-white shadow-[0_8px_14px_rgba(42,34,27,0.13)]" style={{ backgroundColor: color }}>
-      {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
-      {card.body_text ? <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-5 first:mt-0">{card.body_text}</p> : null}
-      {card.cluster_title ? <p className="mt-3 border-t border-white/30 pt-2 text-xs uppercase tracking-wider">{card.cluster_title}</p> : null}
+    <DraggableCard cardId={card.id} columnId={card.column_id} enabled={draggable}>
+      <div style={{ backgroundColor: color }} className="rounded-xl p-3">
+        {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
+        {card.body_text ? <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-5 first:mt-0">{card.body_text}</p> : null}
+        {card.cluster_title ? <p className="mt-3 border-t border-white/30 pt-2 text-xs uppercase tracking-wider">{card.cluster_title}</p> : null}
+      </div>
       {board.retro.phase === "voting" ? (
         <div className="mt-3 flex items-center gap-2">
           <span className="rounded-full bg-white/20 px-2 py-1 text-xs font-bold">{card.vote_count}v</span>
@@ -222,7 +231,7 @@ function CardView({ board, card, color }: { board: RetroBoard; card: RetroBoard[
           </form>
         </div>
       ) : null}
-    </article>
+    </DraggableCard>
   );
 }
 
