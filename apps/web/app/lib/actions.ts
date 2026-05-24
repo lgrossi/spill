@@ -10,6 +10,12 @@ export async function createRetroAction(formData: FormData) {
   const voteLimit = Number(formData.get("vote_limit") ?? 3);
   const actionDiscussionLimit = Number(formData.get("action_discussion_limit") ?? 3);
 
+  const customColumns = formData
+    .getAll("custom_column")
+    .map((column) => String(column).trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
   const payload: CreateRetroPayload =
     template === "4ls"
       ? {
@@ -23,10 +29,7 @@ export async function createRetroAction(formData: FormData) {
       ? {
           title,
           template: "custom",
-          columns: String(formData.get("columns") ?? "")
-            .split("\n")
-            .map((column) => column.trim())
-            .filter(Boolean),
+          columns: [...customColumns, "Actions"],
           vote_limit: voteLimit,
           action_discussion_limit: actionDiscussionLimit,
         }

@@ -41,6 +41,8 @@ export default async function RetroBoardPage({
   const activeColumnId = gifColumnId ?? gifSearch.addColumn;
   const gifPage = Math.max(0, Number(gifSearch.gifPage ?? 0) || 0);
   const gifDegraded = gifSearch.gifDegraded === "1";
+  const contentColumns = board.columns.filter((column) => !isActionsColumn(column));
+  const actionColumns = board.columns.filter(isActionsColumn);
 
   return (
     <AppChrome
@@ -51,11 +53,18 @@ export default async function RetroBoardPage({
       <BoardSync retroId={board.retro.id} />
       <BoardDndScript retroId={board.retro.id} />
       <section className="flex min-h-[calc(100dvh-5rem)] flex-col">
-        <div className="grid flex-1 grid-cols-1 gap-4 p-5 lg:grid-cols-4">
-          {board.columns.map((column, index) => {
+        <div className="flex-1 space-y-5 overflow-x-auto p-5">
+          <div
+            className="grid gap-4"
+            style={{
+              gridTemplateColumns: `repeat(${Math.max(1, contentColumns.length)}, minmax(240px, 1fr))`,
+              minWidth: `${Math.max(1, contentColumns.length) * 260}px`,
+            }}
+          >
+          {contentColumns.map((column, index) => {
             const color = columnColor(column, index);
-            const columnActions = isActionsColumn(column) ? board.actions : [];
-            const columnCount = column.cards.length + columnActions.length;
+            const columnActions: RetroBoard["actions"] = [];
+            const columnCount = column.cards.length;
             const isActiveColumn = activeColumnId === column.id;
 
             return (
@@ -77,14 +86,9 @@ export default async function RetroBoardPage({
                   {columnActions.map((action) => (
                     <ActionCard action={action} key={action.id} retroId={board.retro.id} />
                   ))}
-                  {isActionsColumn(column) && board.retro.phase !== "action_discussion" && board.actions.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-spill-line p-8 text-center text-sm text-spill-muted">
-                      {board.retro.phase === "writing" ? "opens after voting" : "fills with top-voted cards"}
-                    </div>
-                  ) : null}
                 </div>
 
-                {board.retro.phase === "writing" && !isActionsColumn(column) ? (
+                {board.retro.phase === "writing" ? (
                   isActiveColumn ? (
                     <InlineComposer
                       columnId={column.id}
@@ -109,6 +113,34 @@ export default async function RetroBoardPage({
                   )
                 ) : null}
               </DropColumn>
+            );
+          })}
+          </div>
+
+          {actionColumns.map((column, index) => {
+            const color = columnColor(column, contentColumns.length + index);
+            const columnCount = board.actions.length || column.cards.length;
+
+            return (
+              <section className="rounded-xl border border-spill-line/80 bg-spill-panel/45 p-4" key={column.id}>
+                <header className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                  <h2 className="font-bold lowercase">{column.title}</h2>
+                  <span className="ml-auto text-xs text-spill-muted">{columnCount || "—"}</span>
+                </header>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  {board.retro.phase === "action_discussion" || board.actions.length > 0 ? (
+                    board.actions.map((action) => (
+                      <ActionCard action={action} key={action.id} retroId={board.retro.id} />
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-spill-line p-8 text-center text-sm text-spill-muted md:col-span-3">
+                      {board.retro.phase === "writing" ? "opens after voting" : "fills with top-voted cards"}
+                    </div>
+                  )}
+                </div>
+              </section>
             );
           })}
         </div>

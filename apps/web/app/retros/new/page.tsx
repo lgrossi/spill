@@ -2,7 +2,7 @@ import { AppChrome, Pill, Tile } from "../../components/spill-ui";
 import { createRetroAction } from "../../lib/actions";
 import { TemplateSelector } from "./template-selector";
 
-const inputClass = "mt-2 px-4 py-3 text-lg font-bold";
+const inputClass = "mt-2 px-4 py-3 text-xl font-extrabold";
 const labelClass = "text-xs font-bold uppercase tracking-widest text-spill-muted";
 const ruleInputClass = "mt-1 border-0 bg-transparent p-0 text-base font-bold shadow-none focus:shadow-none";
 
@@ -13,7 +13,7 @@ export default function NewRetroPage() {
       actions={
         <>
           <Pill href="/">cancel</Pill>
-          <button className="inline-flex items-center justify-center rounded-full border border-spill-wrong bg-spill-wrong px-3 py-1.5 text-sm font-medium leading-none text-white transition hover:brightness-95" form="new-board-form" type="submit">
+          <button className="inline-flex items-center justify-center rounded-full border border-spill-wrong bg-spill-wrong px-4 py-2 text-sm font-extrabold leading-none text-white shadow-[0_4px_10px_rgba(221,92,92,0.22)] transition hover:brightness-95" form="new-board-form" type="submit">
             pin it up
           </button>
         </>
@@ -64,7 +64,7 @@ export default function NewRetroPage() {
           <Tile>
             <div className="flex justify-between text-xs text-spill-muted">
               <span>Sprint 42 · writing</span>
-              <span>4 cols · 3 votes</span>
+              <span>4 cols + actions · 3 votes</span>
             </div>
             <div className="mt-4 grid grid-cols-4 gap-2">
               {[
