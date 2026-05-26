@@ -1,0 +1,83 @@
+# Claudius CI for SpillItOut — two Cloud Run services from one repo.
+#
+# spillio     → Next.js web frontend  (apps/web/Dockerfile)
+# spillio-api → Rust/Axum API         (services/api/Dockerfile)
+#
+# The Claudius template is included once for the primary service (spillio).
+# spillio-api reuses the same mcp-image-builder hidden job (.build-docker-image)
+# that the include pulls in, with its own CI SA (spillio-api-ci@mol-claudius-dev)
+# bound to this same GitLab project (8738) via the claudius-infra YAML.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+include:
+  - project: infra/claudius/claudius-infra
+    file: ci-templates/templates/.claudius-deploy.yml
+    ref: main
+    inputs:
+      app: spillio
+
+stages:
+  - test
+  - build
+  - deploy
+
+# Override the included build job to point at the web Dockerfile and bake
+# the API URL into the Next.js client bundle at build time.
+build:
+  variables:
+    ADD_BUILDKIT_ARGS: >
+      --file apps/web/Dockerfile,
+      --build-arg NEXT_PUBLIC_SPILLIO_API_URL=https://spillio-api.dev.claudius.mollielabs.io,
+      --reproducible,
+      --cache=false
+
+# --- spillio-api (Rust) ---
+
+build-api:
+  extends: .build-docker-image
+  stage: build
+  variables:
+    PROJECT_ID: "mol-claudius-dev"
+    APP_NAME: "spillio-api"
+    GCP_SA_NAME_CUSTOM: "spillio-api-ci"
+    GCP_SA_PROJECT_ID: "mol-claudius-dev"
+    CLAUDIUS_AR_REGION: "europe-west1"
+    IMAGE_CONTROLLER_REPOSITORY: "europe-west1-docker.pkg.dev/mol-claudius-dev/spillio-api"
+    PREDEFINED_TAGS: "false"
+    ADD_BUILDKIT_ARGS: >
+      --file services/api/Dockerfile,
+      --reproducible,
+      --cache=false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      variables:
+        TAGS: "$CI_COMMIT_SHORT_SHA,latest"
+    - when: on_success
+
+deploy-api:
+  stage: deploy
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  id_tokens: !reference [.gcp_jwt_token, id_tokens]
+  needs: [build-api]
+  rules:
+    - when: on_success
+  variables:
+    GCP_SA_NAME_CUSTOM: "spillio-api-ci"
+    GCP_SA_PROJECT_ID: "mol-claudius-dev"
+  script:
+    - !reference [.gcp_prepare_credentials]
+    - |
+      set -euo pipefail
+      gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS"
+      IMAGE="europe-west1-docker.pkg.dev/mol-claudius-dev/spillio-api/app:${CI_COMMIT_SHORT_SHA}"
+      echo "Deploying spillio-api → ${IMAGE}"
+      gcloud run services update spillio-api \
+        --image="${IMAGE}" \
+        --region="europe-west1" \
+        --project="mol-claudius-dev" \
+        --quiet
