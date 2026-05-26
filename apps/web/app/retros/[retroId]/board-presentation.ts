@@ -34,14 +34,6 @@ export function cardLabel(card: RetroCard) {
   return card.body_text || card.gif_alt_text || "media card";
 }
 
-export function authorForCard(id: string) {
-  return TEAM_AUTHORS[Math.abs(hash(id)) % TEAM_AUTHORS.length].k;
-}
-
-export function authorColorForCard(id: string) {
-  return TEAM_AUTHORS[Math.abs(hash(id)) % TEAM_AUTHORS.length].color;
-}
-
 export function presenceForPhase(phase: RetroBoard["retro"]["phase"]) {
   if (phase === "voting") return "voting" as const;
   if (phase === "completed" || phase === "action_discussion") return "ready" as const;
@@ -68,20 +60,4 @@ export function actionVoteCount(action: RetroBoard["actions"][number], cards: Re
 export function voteLabel(votes: number) {
   if (votes === 0) return "no votes";
   return votes === 1 ? "1 vote" : `${votes} votes`;
-}
-
-const TEAM_AUTHORS = [
-  { k: "na", color: spillColors.wrong },
-  { k: "lu", color: spillColors.mood },
-  { k: "sa", color: spillColors.action },
-  { k: "kt", color: spillColors.well },
-];
-
-function hash(value: string) {
-  let result = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    result = (result << 5) - result + value.charCodeAt(index);
-    result |= 0;
-  }
-  return result;
 }

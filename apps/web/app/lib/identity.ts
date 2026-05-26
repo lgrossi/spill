@@ -86,15 +86,9 @@ export async function clearLocalIdentity() {
 
 async function identityFromHeaders(): Promise<SpillIdentity | null> {
   const headerStore = await headers();
-  const configuredSubjectHeader = process.env.SPILLIO_AUTH_SUBJECT_HEADER;
   const configuredEmailHeader = process.env.SPILLIO_AUTH_EMAIL_HEADER;
   const configuredNameHeader = process.env.SPILLIO_AUTH_NAME_HEADER;
 
-  const rawSubject = firstHeader(headerStore, [
-    configuredSubjectHeader,
-    "x-spillio-user-subject",
-    "x-goog-authenticated-user-id",
-  ]);
   const email = normalizeEmail(firstHeader(headerStore, [
     configuredEmailHeader,
     "x-spillio-user-email",
@@ -109,15 +103,15 @@ async function identityFromHeaders(): Promise<SpillIdentity | null> {
     "x-auth-request-user",
   ]);
 
-  if (!rawSubject && !email) {
+  if (!email) {
     return null;
   }
 
-  const displayName = displayNameFrom(rawName, email || rawSubject || "user");
+  const displayName = displayNameFrom(rawName, email);
   return {
-    subject: email ? subjectForEmail(email) : subjectForExternal(rawSubject ?? displayName),
+    subject: subjectForEmail(email),
     displayName,
-    email: email || null,
+    email,
     source: "upstream",
   };
 }
@@ -150,10 +144,6 @@ function displayNameFrom(value: string | undefined, fallback: string) {
 
 function subjectForEmail(email: string) {
   return `email:${sha256(email)}`;
-}
-
-function subjectForExternal(subject: string) {
-  return `external:${sha256(subject.trim())}`;
 }
 
 function sha256(value: string) {

@@ -2,10 +2,10 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { BoardHistory } from "./components/board-history";
 import { IdentityGate, IdentityUnavailable } from "./components/identity-gate";
-import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Stack, TEAM, Tile, phaseColor, spillColors } from "./components/spill-ui";
+import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, spillColors } from "./components/spill-ui";
 import { listRetros, type RetroOverview, type RetroSummary } from "./lib/api";
 import { clearIdentityAction, completeActionItemAction } from "./lib/actions";
-import { currentIdentity, localIdentityEnabled } from "./lib/identity";
+import { currentIdentity, localIdentityEnabled, type SpillIdentity } from "./lib/identity";
 
 export default async function OverviewPage({
   searchParams,
@@ -20,7 +20,7 @@ export default async function OverviewPage({
 
   const overviewResult = await loadOverview();
   if (!overviewResult.ok) {
-    return <ApiUnavailable message={overviewResult.message} />;
+    return <ApiUnavailable identity={identity} message={overviewResult.message} />;
   }
 
   const overview = overviewResult.overview;
@@ -45,7 +45,7 @@ export default async function OverviewPage({
           ) : null}
         </>
       }
-      presence={<Avatar k="na" color={spillColors.wrong} size={28} status="ready" />}
+      presence={<UserAvatar identity={identity} status="ready" />}
     >
       <div className="grid flex-1 grid-cols-1 gap-8 overflow-y-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10 lg:px-10">
         <section className="min-w-0">
@@ -185,7 +185,7 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
       <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
       <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
       <div className="mt-auto flex items-end justify-between">
-        <Stack people={TEAM.slice(0, Math.max(1, Math.min(4, board.participant_count || 1)))} ring="var(--panel)" size={22} />
+        <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">{Math.max(1, board.participant_count)} people</span>
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       </div>
     </Link>
@@ -234,9 +234,9 @@ async function loadOverview(): Promise<{ ok: true; overview: RetroOverview } | {
   }
 }
 
-function ApiUnavailable({ message }: { message: string }) {
+function ApiUnavailable({ identity, message }: { identity: SpillIdentity; message: string }) {
   return (
-    <AppChrome actions={<Btn href="/" kind="secondary">retry</Btn>} presence={<Avatar k="na" color={spillColors.wrong} size={28} status="away" />}>
+    <AppChrome actions={<Btn href="/" kind="secondary">retry</Btn>} presence={<UserAvatar identity={identity} status="away" />}>
       <div className="flex flex-1 items-center justify-center p-6">
         <Tile className="max-w-lg border-spill-wrong/60 bg-spill-wrong/10">
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-wrong">boards are taking a coffee break</p>
@@ -246,6 +246,17 @@ function ApiUnavailable({ message }: { message: string }) {
         </Tile>
       </div>
     </AppChrome>
+  );
+}
+
+function UserAvatar({ identity, status }: { identity: SpillIdentity; status: "ready" | "away" }) {
+  return (
+    <Avatar
+      color={avatarColorForSeed(identity.subject)}
+      k={avatarInitials(identity.displayName)}
+      size={28}
+      status={status}
+    />
   );
 }
 

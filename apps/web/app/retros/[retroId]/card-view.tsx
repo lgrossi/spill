@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { CardFooter, GifTile, HiddenDraft, SpillCard, type ColumnAccent } from "../../components/spill-ui";
+import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, type ColumnAccent } from "../../components/spill-ui";
 import type { RetroBoard, RetroCard } from "../../lib/api";
 import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "../../lib/actions";
 import { BoardMedia } from "./media-card";
 import { DraggableCard } from "./board-dnd";
 import { DraftCardEditor } from "./card-composer";
 import { VoteControls } from "./vote-controls";
-import { authorColorForCard, authorForCard } from "./board-presentation";
 
 export function CardView({
   board,
@@ -32,6 +31,7 @@ export function CardView({
   }
 
   const isEditingGroup = editing && board.retro.phase !== "completed" && card.parent_card_id === null && card.cluster_id !== null;
+  const author = participantById(board, card.author_participant_id);
 
   if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null) {
     return <DraftCardEditor board={board} card={card} color={color} semantic={semantic} />;
@@ -45,8 +45,8 @@ export function CardView({
         {!card.cluster_id && card.cluster_details ? <p className="mt-2 text-[12px] italic text-white/80">{card.cluster_details}</p> : null}
         <ClusterMembers board={board} card={card} />
         <CardFooter
-          author={authorForCard(card.id)}
-          color={authorColorForCard(card.id)}
+          author={avatarInitials(author?.display_name)}
+          color={avatarColorForSeed(author?.id)}
           tag={semantic}
           trailing={board.retro.phase === "voting" ? <VoteControls board={board} card={card} color={color} /> : undefined}
           votes={board.retro.phase === "action_discussion" ? card.vote_count : undefined}
@@ -72,8 +72,8 @@ function GroupTitleEditor({ board, card }: { board: RetroBoard; card: RetroCard 
         placeholder="group title"
         required
       />
-      <button aria-label="Save group title" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" type="submit">ok</button>
-      <Link aria-label="Cancel edit" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" href={`/retros/${board.retro.id}`}>x</Link>
+      <button aria-label="Save group title" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" type="submit">✓</button>
+      <Link aria-label="Cancel edit" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" href={`/retros/${board.retro.id}`}>×</Link>
     </form>
   );
 }
@@ -89,11 +89,17 @@ function ClusterMembers({ board, card }: { board: RetroBoard; card: RetroCard })
         <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-white/90" key={member.id}>
           {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
           <div className="mt-1 flex items-start gap-2">
+            <Avatar
+              color={avatarColorForSeed(participantById(board, member.author_participant_id)?.id)}
+              k={avatarInitials(participantById(board, member.author_participant_id)?.display_name)}
+              ring="rgba(255,255,255,0.35)"
+              size={16}
+            />
             <span className="min-w-0 flex-1">{member.hidden ? ". . . someone's draft . . ." : member.body_text || member.gif_alt_text || "media card"}</span>
             <form action={removeClusterMemberAction} data-spill-no-drag>
               <input name="retro_id" type="hidden" value={board.retro.id} />
               <input name="card_id" type="hidden" value={member.id} />
-              <button aria-label="Remove from group" className="grid h-5 w-5 place-items-center rounded-full border border-white/35 text-[11px] font-extrabold text-white/85 transition hover:bg-white/20" title="Remove from group" type="submit">up</button>
+              <button aria-label="Remove from group" className="grid h-5 w-5 place-items-center rounded-full border border-white/35 text-[11px] font-extrabold text-white/85 transition hover:bg-white/20" title="Remove from group" type="submit">↗</button>
             </form>
           </div>
         </div>
@@ -102,16 +108,20 @@ function ClusterMembers({ board, card }: { board: RetroBoard; card: RetroCard })
   );
 }
 
+function participantById(board: RetroBoard, participantId: string) {
+  return board.participants.find((participant) => participant.id === participantId);
+}
+
 function CardActions({ board, card }: { board: RetroBoard; card: RetroCard }) {
   const editHref = card.cluster_id ? `/retros/${board.retro.id}?editCard=${card.id}` : `/retros/${board.retro.id}?addColumn=${card.column_id}&editCard=${card.id}`;
 
   return (
     <div className="absolute right-2 top-2 flex gap-1" data-spill-no-drag>
-      <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" href={editHref}>edit</Link>
+      <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" href={editHref}>✎</Link>
       <form action={deleteDraftCardAction}>
         <input name="retro_id" type="hidden" value={board.retro.id} />
         <input name="card_id" type="hidden" value={card.id} />
-        <button aria-label="Delete card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[13px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" type="submit">x</button>
+        <button aria-label="Delete card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[13px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" type="submit">×</button>
       </form>
     </div>
   );

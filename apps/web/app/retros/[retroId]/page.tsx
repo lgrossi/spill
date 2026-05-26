@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { IdentityGate, IdentityUnavailable } from "../../components/identity-gate";
-import { AppChrome, Stack, TEAM } from "../../components/spill-ui";
+import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "../../components/spill-ui";
 import { getRetro, type RetroBoard } from "../../lib/api";
 import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
 import { BoardColumns } from "./board-columns";
@@ -38,7 +38,7 @@ export default async function RetroBoardPage({
   return (
     <AppChrome
       actions={<PhaseControls board={board} />}
-      presence={<Stack people={TEAM.map((person) => ({ ...person, status: presenceForPhase(board.retro.phase) }))} size={26} />}
+      presence={<ParticipantStack board={board} />}
       subtitle={phaseSubtitle(board)}
       title={board.retro.title}
     >
@@ -49,6 +49,19 @@ export default async function RetroBoardPage({
         <BoardColumns board={board} query={query} />
       )}
     </AppChrome>
+  );
+}
+
+function ParticipantStack({ board }: { board: RetroBoard }) {
+  return (
+    <Stack
+      people={board.participants.map((participant) => ({
+        color: avatarColorForSeed(participant.id),
+        k: avatarInitials(participant.display_name),
+        status: presenceForPhase(board.retro.phase),
+      }))}
+      size={26}
+    />
   );
 }
 

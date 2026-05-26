@@ -265,6 +265,29 @@ export function Avatar({
   );
 }
 
+export function avatarInitials(label: string | null | undefined) {
+  const value = label?.trim();
+  if (!value) return "??";
+
+  const base = value.includes("@") ? value.split("@")[0] : value;
+  const parts = base.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toLowerCase();
+  }
+  return (parts[0] ?? base).slice(0, 2).toLowerCase();
+}
+
+export function avatarColorForSeed(seed: string | null | undefined) {
+  const colors = [spillColors.wrong, spillColors.mood, spillColors.action, spillColors.well, spillColors.muted];
+  const value = seed?.trim() || "spill-user";
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 export function Stack({
   people,
   size = 26,
@@ -340,8 +363,8 @@ export function SpillCard({
 }
 
 export function CardFooter({
-  author = "na",
-  color = spillColors.wrong,
+  author = "??",
+  color = spillColors.muted,
   tag,
   trailing,
   votes,
@@ -491,7 +514,7 @@ export function CardComposer({
       <input name="column_id" type="hidden" value={columnId} />
       {before}
       <IntentCardText
-        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] font-medium leading-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:text-white/75 focus:border-white/45 focus:shadow-none"
+        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/35 bg-black/15 px-3 py-2 text-[13.5px] font-medium leading-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:font-bold placeholder:text-white/95 focus:border-white/60 focus:shadow-none"
         defaultValue={draftText}
         name="body_text"
         placeholder={placeholder}
@@ -554,13 +577,6 @@ export function PhaseBadge({ phase, color }: { phase: string; color?: string }) 
     </span>
   );
 }
-
-export const TEAM = [
-  { k: "na", name: "Nat", color: spillColors.wrong, status: "ready" as const },
-  { k: "lu", name: "Lucas", color: spillColors.mood, status: "writing" as const },
-  { k: "sa", name: "Sam", color: spillColors.action, status: "writing" as const },
-  { k: "kt", name: "Katie", color: spillColors.well, status: "ready" as const },
-];
 
 export function phaseColor(phase: string) {
   if (phase === "writing") return spillColors.mood;

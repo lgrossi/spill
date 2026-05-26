@@ -30,7 +30,7 @@ export function IdentityGate({ returnTo = "/" }: { returnTo?: string }) {
                 autoComplete="name"
                 className="min-h-10 rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[13px] font-semibold normal-case tracking-normal text-spill-fg outline-none focus:border-spill-action focus:shadow-[var(--focus)]"
                 name="display_name"
-                placeholder="Ava"
+                placeholder="Your display name"
               />
             </label>
             <div className="mt-1">
@@ -51,7 +51,7 @@ export function IdentityUnavailable() {
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-wrong">identity unavailable</p>
           <h1 className="mt-3 text-[28px] font-extrabold tracking-[-0.03em] text-spill-fg">Spill needs a verified identity header.</h1>
           <p className="mt-2 text-[13.5px] leading-6 text-[var(--fg-2)]">
-            In proxy/IAP mode, access Spill through the configured auth layer. Header names are configurable with <code>SPILLIO_AUTH_EMAIL_HEADER</code>, <code>SPILLIO_AUTH_NAME_HEADER</code>, and <code>SPILLIO_AUTH_SUBJECT_HEADER</code>.
+            In proxy/IAP mode, access Spill through the configured auth layer. Email defines board ownership and visibility. Header names are configurable with <code>SPILLIO_AUTH_EMAIL_HEADER</code> and <code>SPILLIO_AUTH_NAME_HEADER</code>.
           </p>
         </Tile>
       </div>
