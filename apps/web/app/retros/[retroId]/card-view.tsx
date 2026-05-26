@@ -1,0 +1,118 @@
+import Link from "next/link";
+import { CardFooter, GifTile, HiddenDraft, SpillCard, type ColumnAccent } from "../../components/spill-ui";
+import type { RetroBoard, RetroCard } from "../../lib/api";
+import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "../../lib/actions";
+import { BoardMedia } from "./media-card";
+import { DraggableCard } from "./board-dnd";
+import { DraftCardEditor } from "./card-composer";
+import { VoteControls } from "./vote-controls";
+import { authorColorForCard, authorForCard } from "./board-presentation";
+
+export function CardView({
+  board,
+  card,
+  color,
+  draggable,
+  editing,
+  moving,
+  clustering,
+  semantic,
+}: {
+  board: RetroBoard;
+  card: RetroCard;
+  color: string;
+  draggable: boolean;
+  editing: boolean;
+  moving: boolean;
+  clustering: boolean;
+  semantic: ColumnAccent;
+}) {
+  if (card.hidden) {
+    return <HiddenDraft accent={color} />;
+  }
+
+  const isEditingGroup = editing && board.retro.phase !== "completed" && card.parent_card_id === null && card.cluster_id !== null;
+
+  if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null) {
+    return <DraftCardEditor board={board} card={card} color={color} semantic={semantic} />;
+  }
+
+  return (
+    <DraggableCard accent={color} cardId={card.id} columnId={card.column_id} enabled={draggable} clusteringEnabled={clustering} movingEnabled={moving} retroId={board.retro.id}>
+      <SpillCard accent={color}>
+        {!card.cluster_id && card.gif_url ? card.gif_url === "demo-gif" ? <GifTile className="mb-2" /> : <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
+        {isEditingGroup ? <GroupTitleEditor board={board} card={card} /> : card.body_text ? <p className="whitespace-pre-wrap first:mt-0">{card.body_text}</p> : null}
+        {!card.cluster_id && card.cluster_details ? <p className="mt-2 text-[12px] italic text-white/80">{card.cluster_details}</p> : null}
+        <ClusterMembers board={board} card={card} />
+        <CardFooter
+          author={authorForCard(card.id)}
+          color={authorColorForCard(card.id)}
+          tag={semantic}
+          trailing={board.retro.phase === "voting" ? <VoteControls board={board} card={card} color={color} /> : undefined}
+          votes={board.retro.phase === "action_discussion" ? card.vote_count : undefined}
+        />
+        {board.retro.phase !== "completed" && card.parent_card_id === null && !isEditingGroup ? <CardActions board={board} card={card} /> : null}
+      </SpillCard>
+    </DraggableCard>
+  );
+}
+
+function GroupTitleEditor({ board, card }: { board: RetroBoard; card: RetroCard }) {
+  return (
+    <form action={updateDraftCardAction} className="mb-2 flex items-center gap-1.5 pr-16" data-spill-no-drag>
+      <input name="retro_id" type="hidden" value={board.retro.id} />
+      <input name="column_id" type="hidden" value={card.column_id} />
+      <input name="card_id" type="hidden" value={card.id} />
+      <input name="editing_group_title" type="hidden" value="1" />
+      <input
+        autoFocus
+        className="min-w-0 flex-1 rounded-[6px] border border-white/25 bg-white/15 px-2 py-1.5 text-[13px] font-extrabold leading-5 text-white outline-none placeholder:text-white/60"
+        defaultValue={card.body_text ?? ""}
+        name="body_text"
+        placeholder="group title"
+        required
+      />
+      <button aria-label="Save group title" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" type="submit">ok</button>
+      <Link aria-label="Cancel edit" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" href={`/retros/${board.retro.id}`}>x</Link>
+    </form>
+  );
+}
+
+function ClusterMembers({ board, card }: { board: RetroBoard; card: RetroCard }) {
+  if (card.cluster_members.length === 0) {
+    return card.cluster_title ? <p className="mt-2 border-t border-white/20 pt-2 text-[10px] font-extrabold uppercase tracking-[0.1em] text-white/85">{card.cluster_title}</p> : null;
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-white/20 pt-2">
+      {card.cluster_members.map((member) => (
+        <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-white/90" key={member.id}>
+          {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
+          <div className="mt-1 flex items-start gap-2">
+            <span className="min-w-0 flex-1">{member.hidden ? ". . . someone's draft . . ." : member.body_text || member.gif_alt_text || "media card"}</span>
+            <form action={removeClusterMemberAction} data-spill-no-drag>
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="card_id" type="hidden" value={member.id} />
+              <button aria-label="Remove from group" className="grid h-5 w-5 place-items-center rounded-full border border-white/35 text-[11px] font-extrabold text-white/85 transition hover:bg-white/20" title="Remove from group" type="submit">up</button>
+            </form>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CardActions({ board, card }: { board: RetroBoard; card: RetroCard }) {
+  const editHref = card.cluster_id ? `/retros/${board.retro.id}?editCard=${card.id}` : `/retros/${board.retro.id}?addColumn=${card.column_id}&editCard=${card.id}`;
+
+  return (
+    <div className="absolute right-2 top-2 flex gap-1" data-spill-no-drag>
+      <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" href={editHref}>edit</Link>
+      <form action={deleteDraftCardAction}>
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <input name="card_id" type="hidden" value={card.id} />
+        <button aria-label="Delete card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[13px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" type="submit">x</button>
+      </form>
+    </div>
+  );
+}

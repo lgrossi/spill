@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRef } from "react";
-import { useGifDraftStatus } from "./gif-search-picker";
+import { useGifDraftStatus } from "./gif-draft";
 
 export function ComposerSubmit({ className, existingGif }: { className: string; existingGif?: boolean }) {
   const { hasSelectedGif, removed } = useGifDraftStatus();

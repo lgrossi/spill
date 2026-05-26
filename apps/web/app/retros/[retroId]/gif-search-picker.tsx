@@ -1,139 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
-import type { ReactNode } from "react";
-
-type GifResult = {
-  id: string;
-  url: string;
-  preview_url: string;
-  alt_text: string;
-};
-
-type GifSearchResponse = {
-  results: GifResult[];
-  degraded: boolean;
-};
-
-type GifSelection = {
-  id: string;
-  url: string;
-  preview_url: string;
-  alt_text: string;
-};
-
-type GifDraftContextValue = {
-  selectedGif: GifSelection | null;
-  removed: boolean;
-  hasSelectedGif: boolean;
-  selectGif: (gif: GifSelection) => void;
-  removeGif: () => void;
-};
-
-const GifDraftContext = createContext<GifDraftContextValue | null>(null);
-
-export function GifDraftProvider({ children, initialGif }: { children: ReactNode; initialGif?: GifSelection | null }) {
-  const [selectedGif, setSelectedGif] = useState<GifSelection | null>(initialGif ?? null);
-  const [removed, setRemoved] = useState(false);
-
-  return (
-    <GifDraftContext.Provider
-      value={{
-        selectedGif,
-        removed,
-        hasSelectedGif: Boolean(selectedGif),
-        selectGif: (gif) => {
-          setSelectedGif(gif);
-          setRemoved(false);
-        },
-        removeGif: () => {
-          setSelectedGif(null);
-          setRemoved(true);
-        },
-      }}
-    >
-      {children}
-    </GifDraftContext.Provider>
-  );
-}
-
-export function GifSelectedPreview() {
-  const { selectedGif, removed, removeGif } = useGifDraft();
-
-  return (
-    <>
-      {selectedGif ? (
-        <>
-          <input name="gif_choice" type="hidden" value={JSON.stringify({ url: selectedGif.url, altText: selectedGif.alt_text })} />
-          <div className="relative mb-2 aspect-video w-full min-w-0 max-w-full overflow-hidden rounded-[6px] bg-black/15 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]">
-            <img alt="" className="block h-full w-full min-w-0 max-w-full object-contain" loading="lazy" src={selectedGif.preview_url || selectedGif.url} />
-            <button aria-label="Remove selected GIF" className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/35 text-[13px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/45" onClick={removeGif} type="button">×</button>
-          </div>
-        </>
-      ) : null}
-      {removed ? <input name="gif_remove" type="hidden" value="1" /> : null}
-    </>
-  );
-}
+import { useState } from "react";
+import { useGifDraft } from "./gif-draft";
+import { useGifSearch } from "./gif-search-data";
 
 export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   const { selectedGif, selectGif } = useGifDraft();
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GifResult[]>([]);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [degraded, setDegraded] = useState(false);
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    setPage(0);
-
-    if (!open || trimmed.length < 2) {
-      setResults([]);
-      setLoading(false);
-      setDegraded(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      void searchPage(trimmed, 0, controller.signal);
-    }, 260);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, open]);
-
-  async function searchPage(trimmed: string, nextPage: number, signal?: AbortSignal) {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/gifs/search?q=${encodeURIComponent(trimmed)}&kind=gif&page=${nextPage}`, {
-        signal,
-      });
-      if (!response.ok) {
-        throw new Error("GIF search failed");
-      }
-      const payload = (await response.json()) as GifSearchResponse;
-      const incoming = payload.results.slice(0, 8);
-      setResults((current) => nextPage === 0 ? incoming : [...current, ...incoming]);
-      setPage(nextPage);
-      setDegraded(payload.degraded);
-    } catch {
-      if (!signal?.aborted) {
-        if (nextPage === 0) {
-          setResults([]);
-        }
-        setDegraded(true);
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-      }
-    }
-  }
+  const { degraded, loadMore, loading, query, results, setQuery } = useGifSearch(open);
 
   function suppressCardAutosubmit(event: React.PointerEvent<HTMLElement>) {
     const form = event.currentTarget.closest("form");
@@ -169,7 +43,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
         type="button"
       >
         <span>GIF</span>
-        <span>{open ? "−" : "+"}</span>
+        <span>{open ? "-" : "+"}</span>
       </button>
 
       {open ? (
@@ -221,12 +95,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
                 <button
                   className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[7px] border border-white/45 bg-white/15 px-3 text-[11.5px] font-extrabold leading-none text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(0,0,0,0.1)] transition hover:bg-white/25 disabled:pointer-events-none disabled:opacity-50"
                   disabled={loading || degraded}
-                  onClick={() => {
-                    const trimmed = query.trim();
-                    if (trimmed.length >= 2) {
-                      void searchPage(trimmed, page + 1);
-                    }
-                  }}
+                  onClick={loadMore}
                   type="button"
                 >
                   <span className="text-[15px] leading-none">+</span>
@@ -241,21 +110,4 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
       ) : null}
     </div>
   );
-}
-
-export function useHasSelectedGif() {
-  return useGifDraft().hasSelectedGif;
-}
-
-export function useGifDraftStatus() {
-  const { hasSelectedGif, removed } = useGifDraft();
-  return { hasSelectedGif, removed };
-}
-
-function useGifDraft() {
-  const context = useContext(GifDraftContext);
-  if (!context) {
-    throw new Error("GIF draft controls must be rendered inside GifDraftProvider");
-  }
-  return context;
 }
