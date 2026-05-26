@@ -1,134 +1,257 @@
 import Link from "next/link";
-import { AppChrome, PhaseBadge, Pill, SectionTitle, Tile, phaseColor } from "./components/spill-ui";
-import { listRetros, type RetroOverview } from "./lib/api";
+import type { CSSProperties } from "react";
+import { BoardHistory } from "./components/board-history";
+import { IdentityGate, IdentityUnavailable } from "./components/identity-gate";
+import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Stack, TEAM, Tile, phaseColor, spillColors } from "./components/spill-ui";
+import { listRetros, type RetroOverview, type RetroSummary } from "./lib/api";
+import { clearIdentityAction, completeActionItemAction } from "./lib/actions";
+import { currentIdentity, localIdentityEnabled } from "./lib/identity";
 
-export default async function OverviewPage() {
-  const overview = await loadOverview();
-  const activeBoards = overview.active;
-  const completedBoards = overview.completed;
-  const featured = activeBoards[0];
+export default async function OverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; status?: string; show?: string }>;
+}) {
+  const filters = await searchParams;
+  const identity = await currentIdentity();
+  if (!identity) {
+    return localIdentityEnabled() ? <IdentityGate /> : <IdentityUnavailable />;
+  }
+
+  const overviewResult = await loadOverview();
+  if (!overviewResult.ok) {
+    return <ApiUnavailable message={overviewResult.message} />;
+  }
+
+  const overview = overviewResult.overview;
+  const allBoards = [...overview.active, ...overview.completed].sort((a, b) => Date.parse(b.last_activity_at) - Date.parse(a.last_activity_at));
+  const pinnedBoards = overview.active.slice(0, 4);
+  const openActions = allBoards.flatMap((board) => (board.open_actions ?? []).map((action) => ({ ...action, board }))).slice(0, 5);
+  const recentBoards = [...allBoards]
+    .sort((a, b) => Date.parse(b.last_opened_at ?? b.last_activity_at) - Date.parse(a.last_opened_at ?? a.last_activity_at))
+    .slice(0, 4);
+  const recurringTag = topRecurringTag(allBoards);
 
   return (
     <AppChrome
-      title="boards"
-      subtitle={`${activeBoards.length} active · ${completedBoards.length} archived`}
       actions={
         <>
-          <Pill href="/history">history</Pill>
-          <Pill href="/retros/new" tone="danger">new board</Pill>
+          <Btn href="/retros/new" kind="primary">+ new board</Btn>
+          {identity.source === "local" ? (
+            <form action={clearIdentityAction}>
+              <input name="return_to" type="hidden" value="/" />
+              <Btn kind="secondary" type="submit">{identity.displayName}</Btn>
+            </form>
+          ) : null}
         </>
       }
+      presence={<Avatar k="na" color={spillColors.wrong} size={28} status="ready" />}
     >
-      <div className="grid min-h-[calc(100dvh-5rem)] grid-cols-1 gap-6 p-6 lg:grid-cols-[1fr_360px]">
-        <section>
-          <SectionTitle kicker="boards in motion">still pinned</SectionTitle>
+      <div className="grid flex-1 grid-cols-1 gap-8 overflow-y-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10 lg:px-10">
+        <section className="min-w-0">
+          <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {activeBoards.length === 0 ? (
+            {pinnedBoards.length === 0 ? (
               <Tile className="md:col-span-2">
-                <p className="text-sm font-semibold uppercase tracking-wider text-spill-muted">quick start</p>
-                <h2 className="mt-4 text-2xl font-bold">nothing on the wall yet</h2>
-                <p className="mt-2 max-w-md text-sm text-spill-muted">Create a standard board and start privately. Drafts stay hidden until reveal.</p>
+                <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">quick start</p>
+                <h2 className="mt-4 text-[28px] font-extrabold tracking-[-0.03em] text-spill-fg">Nothing on the wall yet.</h2>
+                <p className="mt-2 max-w-md text-[13.5px] leading-6 text-[var(--fg-2)]">Create a Daylight Cork board and start writing. Drafts stay private until the team reveals them.</p>
                 <div className="mt-5">
-                  <Pill href="/retros/new" tone="danger">+ new standard board</Pill>
+                  <Btn href="/retros/new" kind="primary">standard retro</Btn>
                 </div>
               </Tile>
             ) : (
-              activeBoards.map((board) => (
-                <BoardCard board={board} featured={board.id === featured?.id} key={board.id} />
-              ))
+              pinnedBoards.map((board) => <BoardCard board={board} key={board.id} />)
             )}
           </div>
 
-          <div className="mt-7">
-            <p className="text-xs font-bold uppercase tracking-wider text-spill-muted">quick start</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Pill href="/retros/new" tone="danger">+ new standard board</Pill>
-              <Pill href="/retros/new">+ custom columns</Pill>
-              <Pill href="/retros/new" dashed>+ from template</Pill>
-            </div>
-          </div>
+          <BoardHistory
+            boards={allBoards}
+            initialQuery={filters.q ?? ""}
+            initialShown={Math.max(5, Number(filters.show ?? 5) || 5)}
+            initialStatus={filters.status ?? "all"}
+          />
         </section>
 
-        <aside className="border-l border-spill-line pl-6">
-          <SectionTitle kicker="themes that keep coming back">still on the wall</SectionTitle>
-          <div className="mt-5 rounded-xl border border-spill-wrong/40 bg-spill-wrong/10 p-4">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-spill-wrong">● recurring</p>
-            <h3 className="mt-2 text-lg font-extrabold">"flaky CI"</h3>
-            <p className="text-sm text-spill-muted">3 boards in a row · 2 open actions</p>
+        <aside className="min-w-0 border-t border-spill-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <div>
+            <div className="-rotate-1 font-hand text-[26px] leading-none text-spill-fg">still on the wall</div>
+            <div className="mt-1 text-[11.5px] italic text-spill-muted">themes that keep coming back</div>
           </div>
+          {recurringTag ? (
+            <Tile className="mt-4 border-spill-wrong/50 bg-spill-wrong/10">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-spill-wrong shadow-[0_0_0_3px_rgba(207,79,79,0.2)]" />
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-wrong">recurring</span>
+                <span className="ml-auto text-[10px] text-spill-muted">{recurringTag.count} boards</span>
+              </div>
+              <h3 className="mt-2 text-lg font-bold tracking-[-0.01em] text-spill-fg">#{recurringTag.tag}</h3>
+              <p className="mt-0.5 text-xs text-spill-muted">Appears across board action tags.</p>
+            </Tile>
+          ) : (
+            <Tile className="mt-4 border-dashed bg-transparent">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">no recurring themes yet</p>
+              <p className="mt-1.5 text-xs leading-5 text-spill-muted">Meaningful action tags will appear here after they repeat across boards.</p>
+            </Tile>
+          )}
 
           <div className="mt-5">
-            <p className="text-xs font-bold uppercase tracking-wider text-spill-muted">open actions · {openActionCount(overview)}</p>
-            <div className="mt-3 space-y-2 text-sm">
-              {["quarantine flake suite", "flake counter on deploy gate", "own the onboarding doc", "demo retro process to product"].map((action, index) => (
-                <div className="flex items-center gap-3" key={action}>
-                  <span className={`h-4 w-4 rounded border ${index === 2 ? "border-spill-wrong" : "border-spill-line"}`} />
-                  <span className="flex-1">{action}</span>
-                  <span className={index === 2 ? "text-spill-wrong" : "text-spill-muted"}>{index === 2 ? "@nat" : index === 1 ? "@sam" : "@lucas"}</span>
-                </div>
-              ))}
+            <div className="flex items-center gap-2">
+              <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">open actions</p>
+              <Pill tone="ghost">{openActionCount(overview)}</Pill>
+            </div>
+            <div className="mt-3 space-y-2.5 text-[12.5px]">
+              {openActions.length === 0 ? (
+                <p className="text-spill-muted">No open actions.</p>
+              ) : (
+                openActions.map(({ board, ...action }) => (
+                  <div className="flex items-center gap-2 rounded-[8px] py-1 hover:bg-[var(--panel-hi)]" key={`action-${action.id}`}>
+                    <Link className="min-w-0 flex-1 truncate text-spill-fg hover:underline" href={`/retros/${board.id}#action-${action.id}`}>
+                      {action.title}
+                    </Link>
+                    <span className="max-w-[86px] truncate text-[10.5px] text-spill-muted">{board.title}</span>
+                    <form action={completeActionItemAction} className="shrink-0">
+                      <input name="retro_id" type="hidden" value={board.id} />
+                      <input name="action_id" type="hidden" value={action.id} />
+                      <button
+                        aria-label={`Mark ${action.title} done`}
+                        className="grid h-7 w-7 place-items-center rounded-[8px] border border-spill-line bg-[var(--panel-hi)] text-[13px] font-extrabold text-spill-well shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_0_rgba(74,52,20,0.06)] transition hover:border-spill-well hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+                        title="Mark done"
+                        type="submit"
+                      >
+                        ✓
+                      </button>
+                    </form>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           <div className="mt-5 border-t border-dashed border-spill-line pt-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-spill-muted">recent</p>
-            <div className="mt-3 space-y-2 text-sm">
-              {completedBoards.slice(0, 4).map((board) => (
-                <Link className="flex justify-between gap-4" href={`/retros/${board.id}`} key={board.id}>
-                  <span>{board.title}</span>
-                  <span className="text-spill-muted">{phaseLabel(board.phase)}</span>
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">recent</p>
+            <div className="mt-3 space-y-2 text-[12.5px]">
+              {recentBoards.length === 0 ? (
+                <p className="text-spill-muted">No boards yet.</p>
+              ) : (
+                recentBoards.map((board) => (
+                <Link className="group flex justify-between gap-4 py-1 text-spill-fg transition hover:text-spill-wrong" href={`/retros/${board.id}`} key={`recent-${board.id}`}>
+                  <span className="flex min-w-0 items-center gap-2 truncate">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: phaseColor(board.phase) }} />
+                    <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{board.title}</span>
+                  </span>
+                  <span className="shrink-0 text-spill-muted">{phaseLabel(board.phase)}</span>
                 </Link>
-              ))}
-              {completedBoards.length === 0 ? <p className="text-spill-muted">No past boards yet.</p> : null}
+                ))
+              )}
             </div>
           </div>
+
+          <div className="mt-5 border-t border-dashed border-spill-line pt-4">
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">quick start</p>
+            <div className="mt-3 grid gap-2">
+              <QuickStartLink href="/retros/new?template=standard" title="Standard retro" detail="How are you feeling?, went well, to improve, actions" />
+              <QuickStartLink href="/retros/new?template=4ls" title="4 Ls" detail="Liked, lacked, learned, longed for" />
+              <QuickStartLink href="/retros/new?template=custom" title="Custom columns" detail="Start from editable column names" />
+            </div>
+          </div>
+
         </aside>
       </div>
     </AppChrome>
   );
 }
 
-function BoardCard({ board, featured }: { board: RetroOverview["active"][number]; featured?: boolean }) {
+function QuickStartLink({ href, title, detail }: { href: string; title: string; detail: string }) {
+  return (
+    <Link className="group rounded-[8px] border border-dashed border-spill-line px-3 py-2 transition hover:border-spill-wrong/50 hover:bg-spill-wrong/5" href={href}>
+      <span className="block text-[12.5px] font-extrabold text-spill-fg group-hover:text-spill-wrong">{title}</span>
+      <span className="mt-0.5 block text-[11px] leading-4 text-spill-muted">{detail}</span>
+    </Link>
+  );
+}
+
+function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   const color = phaseColor(board.phase);
   return (
     <Link
-      className="relative flex min-h-44 flex-col rounded-xl border bg-spill-panel p-4 shadow-[0_1px_0_#d4c39d,0_5px_12px_rgba(42,34,27,0.07)] transition hover:-translate-y-0.5 hover:shadow-[0_1px_0_#d4c39d,0_8px_18px_rgba(42,34,27,0.12)]"
+      className="sp-panel-grain relative flex h-[156px] flex-col rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
       href={`/retros/${board.id}`}
-      style={{ borderColor: featured ? `${color}80` : "#d4c39d", boxShadow: featured ? `0 0 0 2px ${color}55, 0 5px 12px rgba(42,34,27,0.08)` : undefined }}
+      style={{ "--board-phase-color": color } as CSSProperties}
     >
-      <span className="absolute -top-2 left-4">
+      <span className="absolute -top-2.5 left-3.5">
         <PhaseBadge phase={phaseLabel(board.phase)} color={color} />
       </span>
-      <h2 className="mt-4 text-lg font-extrabold">{board.title}</h2>
-      <p className="mt-1 text-sm text-spill-muted">
-        {board.participant_count} participant{board.participant_count === 1 ? "" : "s"} · {board.vote_limit} votes/person
-      </p>
-      <div className="mt-auto flex items-end justify-between pt-8">
-        <div className="flex">
-          {["na", "lu", "sa", "kt"].slice(0, Math.max(1, Math.min(4, board.participant_count || 1))).map((initials, index) => (
-            <span className="-ml-1 first:ml-0 grid h-6 w-6 place-items-center rounded-full border border-spill-line bg-spill-bg text-[10px]" key={initials}>
-              {initials}
-            </span>
-          ))}
-        </div>
-        <span className="text-xs font-semibold" style={{ color }}>open →</span>
+      <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
+      <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
+      <div className="mt-auto flex items-end justify-between">
+        <Stack people={TEAM.slice(0, Math.max(1, Math.min(4, board.participant_count || 1)))} ring="var(--panel)" size={22} />
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       </div>
     </Link>
   );
+}
+
+function boardSubtitle(board: RetroOverview["active"][number]) {
+  if (board.phase === "writing") return `${Math.max(1, board.participant_count)} of ${Math.max(4, board.participant_count)} ready. waiting on you`;
+  if (board.phase === "voting") return `${Math.max(1, board.vote_limit - 2)} vote left`;
+  if (board.phase === "discussion") return `${Math.max(4, board.participant_count)} people reviewing cards`;
+  if (board.phase === "action_discussion") return "turning top themes into actions";
+  return "wrapped and searchable";
 }
 
 function openActionCount(overview: RetroOverview) {
   return [...overview.active, ...overview.completed].reduce((sum, board) => sum + board.unresolved_action_count, 0);
 }
 
-async function loadOverview(): Promise<RetroOverview> {
+function topRecurringTag(boards: RetroSummary[]) {
+  const counts = new Map<string, number>();
+  for (const board of boards) {
+    for (const tag of meaningfulRecurringTags(board)) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+
+  const [tag, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!tag || !count || count < 2) return null;
+  return { tag, count };
+}
+
+const systemRecurringTags = new Set(["topvoted", "auto-clustered"]);
+
+function meaningfulRecurringTags(board: RetroSummary) {
+  return board.recurring_tags.filter((tag) => !systemRecurringTags.has(tag.toLowerCase()));
+}
+
+async function loadOverview(): Promise<{ ok: true; overview: RetroOverview } | { ok: false; message: string }> {
   try {
-    return await listRetros();
-  } catch {
-    return { active: [], completed: [] };
+    return { ok: true, overview: await listRetros() };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Unable to reach the Spill API.",
+    };
   }
 }
 
+function ApiUnavailable({ message }: { message: string }) {
+  return (
+    <AppChrome actions={<Btn href="/" kind="secondary">retry</Btn>} presence={<Avatar k="na" color={spillColors.wrong} size={28} status="away" />}>
+      <div className="flex flex-1 items-center justify-center p-6">
+        <Tile className="max-w-lg border-spill-wrong/60 bg-spill-wrong/10">
+          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-wrong">boards are taking a coffee break</p>
+          <h1 className="mt-3 text-[28px] font-extrabold tracking-[-0.03em] text-spill-fg">We can’t reach your boards right now.</h1>
+          <p className="mt-2 text-[13.5px] leading-6 text-[var(--fg-2)]">Give it a moment and try again. Your retros are not shown until Spill can reconnect.</p>
+          <p className="mt-4 text-[11px] font-semibold text-spill-muted">Details: {message}</p>
+        </Tile>
+      </div>
+    </AppChrome>
+  );
+}
+
 function phaseLabel(phase: string) {
+  if (phase === "discussion") return "review";
+  if (phase === "action_discussion") return "action";
+  if (phase === "completed") return "done";
   return phase.replaceAll("_", " ");
 }

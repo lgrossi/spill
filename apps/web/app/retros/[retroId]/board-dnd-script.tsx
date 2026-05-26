@@ -6,6 +6,7 @@ export function BoardDndScript({ retroId }: { retroId: string }) {
   window.__spillBoardDndRetroId = retroId;
 
   document.addEventListener("mousedown", (event) => {
+    if (event.target instanceof Element && event.target.closest("[data-spill-no-drag]")) return;
     const card = event.target instanceof Element ? event.target.closest("[data-spill-card-id]") : null;
     const cardId = card?.getAttribute("data-spill-card-id") || "";
     const fromColumnId = card?.getAttribute("data-spill-card-column-id") || "";

@@ -1,17 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288 240" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 283 251" width="283" height="251" role="img" aria-labelledby="title desc">
   <title id="title">SpillItOut logo mark</title>
-  <desc id="desc">Rounded paper sheet with spilled colorful idea tiles.</desc>
-  <ellipse cx="91" cy="222" rx="75" ry="5" fill="#d7d3cc" opacity=".78"/>
-  <path d="M40 35 162 31C176 30 186 41 186 55V88C186 98 180 104 169 106 158 107 150 110 145 116 140 122 137 130 137 139 137 151 129 158 114 161L97 164C83 166 74 175 76 187 78 197 71 203 59 204L36 205C24 206 17 198 17 187L16 55C16 44 27 36 40 35Z" fill="#fffaf2" stroke="#07192b" stroke-width="13" stroke-linejoin="round"/>
-  <path d="M174 43C177 47 179 51 179 56V87C179 91 176 95 171 97" fill="none" stroke="#f4eadc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".32"/>
-  <path d="M51 82h66M52 110h55M53 136h40" fill="none" stroke="#aeb5be" stroke-width="8" stroke-linecap="round"/>
-  <path d="M51 82h27" fill="none" stroke="#8d96a1" stroke-width="8" stroke-linecap="round" opacity=".55"/>
-  <path d="M198 103C203 98 210 98 215 103L233 121C238 126 238 133 233 138L215 156C210 161 203 161 198 156L180 138C175 133 175 126 180 121L198 103Z" fill="#ff5b54"/>
-  <path d="M163 151C168 146 175 146 180 151L197 169C203 175 203 182 198 188L179 208C174 213 167 213 162 208L142 188C137 183 137 176 142 171L163 151Z" fill="#2eb9b9"/>
-  <path d="M228 154C233 149 239 150 244 155L261 172C267 178 267 184 261 190L243 207C238 212 232 211 228 207L210 189C205 184 205 178 210 173L228 154Z" fill="#ffad22"/>
-  <circle cx="249" cy="128" r="9" fill="#2eb9b9"/>
-  <path d="M160 121C165 126 169 131 167 136C165 141 158 143 154 139C150 135 152 128 160 121Z" fill="#ffad22"/>
-  <circle cx="229" cy="97" r="7" fill="#ffad22"/>
-  <path d="M127 186C133 193 136 199 133 204C129 210 119 208 117 201C116 195 121 190 127 186Z" fill="#ff5b54"/>
-  <circle cx="207" cy="212" r="6" fill="#ff5b54"/>
+  <desc id="desc">Smooth vector SpillItOut mark with a rounded paper shape and spilled idea tiles.</desc>
+  <defs>
+    <linearGradient id="paper" x1="33" x2="170" y1="36" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#fbf3e8"/>
+    </linearGradient>
+    <linearGradient id="navyEdge" x1="17" x2="183" y1="32" y2="204" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#061827"/>
+      <stop offset=".55" stop-color="#07192b"/>
+      <stop offset="1" stop-color="#0a1d31"/>
+    </linearGradient>
+    <linearGradient id="line" x1="49" x2="119" y1="84" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#969fa9"/>
+      <stop offset=".42" stop-color="#aeb5be"/>
+      <stop offset="1" stop-color="#b9c0c8"/>
+    </linearGradient>
+    <linearGradient id="coral" x1="181" x2="235" y1="104" y2="156" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff6a61"/>
+      <stop offset="1" stop-color="#ff504d"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="141" x2="197" y1="151" y2="205" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#35c3c0"/>
+      <stop offset="1" stop-color="#2aaeb1"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="209" x2="259" y1="157" y2="204" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb635"/>
+      <stop offset="1" stop-color="#ffa326"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="283" height="251" fill="#fff"/>
+  <ellipse cx="94" cy="225" rx="74" ry="4.5" fill="#d7d2c9" opacity=".72"/>
+
+  <path d="M40.5 36.2 159.6 31.7c14.1-.5 23 10.2 23 24v31.1c0 9.8-6.1 15.5-15.8 17l-11.5 1.8c-11.5 1.9-18.4 10.2-18.4 22.2v9.5c0 13.4-9.5 22-24.7 25.1L96 165.6C83.9 168 75.8 175.5 72.1 187.1c-3.4 10.5-11.2 15.6-24.2 16.5l-10.1.5c-12 .7-19.3-7-19.3-18.6L17.6 55.4c-.1-10.8 10.2-18.7 22.9-19.2Z" fill="url(#paper)" stroke="url(#navyEdge)" stroke-width="12.2" stroke-linejoin="round"/>
+
+  <path d="M171.8 43.7c3.5 4.1 5.2 8.4 5.2 13.1v28.5c0 5.7-3 9.8-8.6 11.7" fill="none" stroke="#f4eadc" stroke-width="2.7" stroke-linecap="round" opacity=".45"/>
+
+  <path d="M51.5 83.5h66" fill="none" stroke="url(#line)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M51.5 83.5h28" fill="none" stroke="#8c95a0" stroke-width="8" stroke-linecap="round" opacity=".55"/>
+  <path d="M52.4 110.4h54.8M53.4 136.6h39.4" fill="none" stroke="#aeb5be" stroke-width="8" stroke-linecap="round"/>
+
+  <path d="M198.2 105.4c4.7-4.7 11.6-4.6 16.2 0l18.7 18.7c4.5 4.5 4.4 11.2-.3 15.8l-18 17.7c-4.5 4.4-11.1 4.4-15.5 0l-18.2-18.2c-4.5-4.5-4.4-11.2.2-15.8l16.9-18.2Z" fill="url(#coral)"/>
+  <path d="M162.3 153.8c4.6-4.6 11-4.5 15.2-.3l18.2 18.2c4.1 4.1 4.1 10.1-.1 14.4l-17.9 18.7c-4.7 4.9-11.3 5.1-15.7.7l-19-19c-4.2-4.2-4.1-10.4.2-14.7l19.1-18Z" fill="url(#teal)"/>
+  <path d="M228.2 158.5c4.2-4.2 9.9-4 14.1.2l14.9 14.9c4.6 4.6 4.4 10.2-.4 14.9l-14.9 14.5c-4.1 4-9.9 4-13.9 0l-15.4-15.4c-4.4-4.4-4.3-9.9.4-14.5l15.2-14.6Z" fill="url(#amber)"/>
+
+  <path d="M248.9 122.1c6.5 4.4 9.4 9.6 6.3 14.3-3.2 4.8-11.1 4.6-14-.2-3-4.9 1.1-10.7 7.7-14.1Z" fill="#2eb9b9"/>
+  <path d="M160.5 123.3c5.1 5.2 8.1 10.2 5.7 14.7-2.4 4.6-8.8 5.2-12.7 1.3-4.2-4.2-1.2-10.9 7-16Z" fill="#ffad22"/>
+  <path d="M228.7 89.9c6.2 4 8.4 8.7 5.4 12.7-3 4-9.5 3.5-11.8-.8-2.4-4.5.6-8.9 6.4-11.9Z" fill="#ffad22"/>
+  <path d="M129.2 187.3c5.7 6.5 8.1 12.6 4.3 17.5-3.7 4.7-12.4 3.6-14.4-3.1-1.7-5.8 3.6-10.8 10.1-14.4Z" fill="#ff5b54"/>
+  <path d="M207.9 208c4.8 3.9 6.5 8.2 3.6 11.5-2.8 3.3-8.7 2.1-10.1-2.1-1.2-3.9 1.8-7.1 6.5-9.4Z" fill="#ff5b54"/>
 </svg>

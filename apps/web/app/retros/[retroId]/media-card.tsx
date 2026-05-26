@@ -41,7 +41,7 @@ function VideoMedia({ alt, src }: { alt: string; src: string }) {
           }
         }}
       >
-        {muted ? "🔇" : "🔊"}
+        {muted ? "off" : "on"}
       </button>
     </div>
   );

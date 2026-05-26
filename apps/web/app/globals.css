@@ -4,20 +4,65 @@
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-hand: "Caveat", cursive;
-  --color-spill-bg: #f4ead4;
-  --color-spill-panel: #ece0c2;
-  --color-spill-soft: #e8dcbb;
-  --color-spill-line: #d4c39d;
-  --color-spill-fg: #2a221b;
-  --color-spill-muted: #7a6c54;
-  --color-spill-mood: #d49a5c;
-  --color-spill-well: #3aa676;
-  --color-spill-wrong: #dd5c5c;
-  --color-spill-action: #9e6cc4;
+  --color-spill-bg: var(--paper);
+  --color-spill-panel: var(--panel);
+  --color-spill-soft: var(--panel-hi);
+  --color-spill-line: var(--line);
+  --color-spill-fg: var(--fg);
+  --color-spill-muted: var(--muted);
+  --color-spill-mood: var(--c-mood);
+  --color-spill-well: var(--c-well);
+  --color-spill-wrong: var(--c-wrong);
+  --color-spill-action: var(--c-act);
 }
 
 :root {
   color-scheme: light;
+
+  --paper: #f3e8cf;
+  --paper-2: #ecdcb8;
+  --panel: #fbf3df;
+  --panel-hi: #fff8e6;
+  --line: #d9c89e;
+  --line-2: #c4ae7a;
+
+  --fg: #1f1812;
+  --fg-2: #4a3d2e;
+  --muted: #86755a;
+
+  --c-mood: #cf8a3f;
+  --c-well: #2f9469;
+  --c-wrong: #cf4f4f;
+  --c-act: #8757b6;
+  --c-mood-in: #e9a44e;
+  --c-well-in: #3eb486;
+  --c-wrong-in: #e26565;
+  --c-act-in: #a173d0;
+
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-hand: "Caveat", cursive;
+
+  --fs-display-xl: 56px;
+  --fs-display-lg: 28px;
+  --fs-h1: 22px;
+  --fs-h2: 16px;
+  --fs-body: 13.5px;
+  --fs-ui: 12.5px;
+  --fs-meta: 11px;
+  --fs-micro: 10px;
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  --shadow-1: 0 1px 0 rgba(74,52,20,0.06), 0 2px 6px rgba(74,52,20,0.06);
+  --shadow-2: 0 1px 0 rgba(74,52,20,0.08), 0 8px 18px -4px rgba(74,52,20,0.12);
+  --shadow-3: 0 2px 0 rgba(74,52,20,0.08), 0 16px 32px -8px rgba(74,52,20,0.18);
+  --focus: 0 0 0 3px rgba(207, 79, 79, 0.20);
+
+  --card-inset-hi: inset 0 1px 0 rgba(255,255,255,0.18);
+  --card-inset-lo: inset 0 -1px 0 rgba(0,0,0,0.08);
 }
 
 * {
@@ -31,13 +76,8 @@ body {
 
 body {
   margin: 0;
-  background:
-    linear-gradient(rgba(42, 34, 27, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(42, 34, 27, 0.035) 1px, transparent 1px),
-    #f4ead4;
-  background-size: 64px 64px;
-  color: #2a221b;
-  font-family: var(--font-sans);
+  color: var(--fg);
+  font-family: var(--font-ui);
 }
 
 a {
@@ -64,32 +104,125 @@ button:disabled {
 input,
 select,
 textarea {
-  width: 100%;
-  border-radius: 0.75rem;
-  border: 1px solid #d4c39d;
-  background: rgba(244, 234, 212, 0.7);
-  color: #2a221b;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel-hi);
+  color: var(--fg);
   outline: none;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: #dd5c5c;
-  box-shadow: 0 0 0 2px rgba(221, 92, 92, 0.18);
+  border-color: var(--c-wrong);
+  box-shadow: var(--focus);
 }
 
 textarea {
   resize: vertical;
 }
 
+.sp-paper {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(132,98,52,0.04) 0 1px, transparent 2px),
+    radial-gradient(circle at 65% 35%, rgba(132,98,52,0.045) 0 1px, transparent 2px),
+    radial-gradient(circle at 85% 70%, rgba(132,98,52,0.04) 0 1px, transparent 2px),
+    radial-gradient(circle at 25% 80%, rgba(132,98,52,0.05) 0 1px, transparent 2px),
+    radial-gradient(circle at 45% 55%, rgba(132,98,52,0.035) 0 1px, transparent 2px),
+    repeating-linear-gradient(115deg, rgba(180,140,80,0.03) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(35deg, rgba(180,140,80,0.025) 0 1px, transparent 1px 5px);
+}
+
+.sp-panel-grain {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(60,40,20,0.018) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(60,40,20,0.012) 0 1px, transparent 1px 4px);
+}
+
+.sp-card-grain {
+  position: relative;
+}
+
+.sp-card-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.025) 0 1px, transparent 1px 3px);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+@keyframes sp-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47,148,105,0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(47,148,105,0); }
+}
+
+.sp-live-dot {
+  border-radius: 50%;
+  animation: sp-pulse 1.8s ease-out infinite;
+}
+
+@keyframes sp-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.sp-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: currentColor;
+  animation: sp-caret 1s steps(1) infinite;
+}
+
+.sp-tape {
+  position: absolute;
+  width: 64px;
+  height: 18px;
+  border-left: 1px solid rgba(255,255,255,0.4);
+  border-right: 1px solid rgba(0,0,0,0.06);
+  background: linear-gradient(180deg, rgba(255,240,180,0.7), rgba(245,220,140,0.85));
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.sp-pin {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.3),
+    inset -2px -2px 3px rgba(0,0,0,0.25),
+    inset 2px 2px 3px rgba(255,255,255,0.4);
+}
+
+.sp-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.sp-scroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.sp-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .gif-image {
   display: block;
   width: 100%;
   max-height: 180px;
+  border-radius: var(--r-sm);
+  background: rgba(31, 24, 18, 0.14);
   object-fit: contain;
-  border-radius: 0.55rem;
-  background: rgba(42, 34, 27, 0.14);
 }
 
 .media-video-frame {
@@ -105,10 +238,15 @@ textarea {
   right: 0.4rem;
   bottom: 0.4rem;
   display: grid;
-  width: 2rem;
+  min-width: 2rem;
   height: 2rem;
   place-items: center;
-  border-radius: 999px;
-  background: rgba(42, 34, 27, 0.78);
-  color: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-hi);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
 }

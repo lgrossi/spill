@@ -1,73 +1,166 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { IntentCardText, IntentSearch } from "./intent-controls";
 
 export const spillColors = {
-  mood: "#d49a5c",
-  well: "#3aa676",
-  wrong: "#dd5c5c",
-  action: "#9e6cc4",
-  muted: "#7a6c54",
+  mood: "#cf8a3f",
+  well: "#2f9469",
+  wrong: "#cf4f4f",
+  action: "#8757b6",
+  muted: "#86755a",
+  paper: "#f3e8cf",
+  panel: "#fbf3df",
+  line: "#d9c89e",
 } as const;
 
-export function SpillLogo({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <SpilledMug className="h-8 w-8" />
-      {!compact ? (
-        <span className="inline-flex items-baseline text-2xl font-extrabold tracking-[-0.08em] text-spill-fg">
-          Spill
-          <span className="ml-1 h-2.5 w-2.5 translate-y-0.5 rounded-full bg-spill-wrong shadow-[3px_4px_0_rgba(221,92,92,0.45)]" />
-        </span>
-      ) : null}
-    </div>
-  );
-}
+export type ColumnAccent = "mood" | "well" | "wrong" | "action";
 
-export function SpilledMug({ className = "h-10 w-10" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 100 100" aria-hidden="true">
-      <g transform="rotate(-26 50 56)">
-        <rect x="22" y="32" width="44" height="40" rx="3" fill="#f4ead4" stroke="#2a221b" strokeWidth="3" />
-        <path d="M66 40 q 12 0 12 12 q 0 12 -12 12" fill="none" stroke="#2a221b" strokeWidth="3" />
-        <ellipse cx="44" cy="32" rx="22" ry="4" fill="#f4ead4" stroke="#2a221b" strokeWidth="2.4" />
-        <ellipse cx="44" cy="32" rx="18" ry="3" fill="#3b2818" />
-      </g>
-      <path d="M58 64 q 8 14 22 18 q 14 4 18 12" fill="none" stroke="#dd5c5c" strokeWidth="4" strokeLinecap="round" />
-      <ellipse cx="82" cy="86" rx="14" ry="5" fill="#dd5c5c" stroke="#2a221b" strokeWidth="2" />
-      <circle cx="68" cy="74" r="3" fill="#dd5c5c" stroke="#2a221b" strokeWidth="1.4" />
-      <circle cx="95" cy="80" r="2.4" fill="#dd5c5c" stroke="#2a221b" strokeWidth="1.4" />
-    </svg>
-  );
-}
+export const columnIcons: Record<ColumnAccent, string> = {
+  mood: "M",
+  well: "W",
+  wrong: "R",
+  action: "A",
+};
 
 export function AppChrome({
   title,
   subtitle,
   children,
   actions,
+  presence,
 }: {
-  title: string;
-  subtitle?: string;
+  title?: string;
+  subtitle?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
+  presence?: ReactNode;
 }) {
   return (
-    <main className="min-h-dvh p-2 text-spill-fg">
-      <section className="mx-auto min-h-[calc(100dvh-1rem)] max-w-[1600px] overflow-hidden rounded-lg border border-spill-line bg-spill-bg shadow-[0_8px_22px_rgba(42,34,27,0.12)]">
-        <header className="flex h-16 items-center gap-4 border-b border-spill-line bg-spill-panel px-5">
-          <Link href="/" className="flex items-center gap-3">
-            <SpillLogo />
-          </Link>
-          <div className="h-7 w-px bg-spill-line" />
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-bold leading-tight">{title}</h1>
-            {subtitle ? <p className="truncate text-xs text-spill-muted">{subtitle}</p> : null}
-          </div>
-          <div className="ml-auto flex items-center gap-2">{actions}</div>
-        </header>
+    <main className="sp-paper flex min-h-dvh flex-col text-spill-fg">
+      <TopBar title={title} subtitle={subtitle} actions={actions} presence={presence} />
+      <section className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-hidden">
         {children}
       </section>
     </main>
+  );
+}
+
+export function TopBar({
+  title,
+  subtitle,
+  actions,
+  presence,
+}: {
+  title?: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  presence?: ReactNode;
+}) {
+  return (
+    <header className="sp-panel-grain h-14 shrink-0 border-b border-spill-line bg-spill-panel shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(0,0,0,0.04)]">
+      <div className="flex h-full w-full items-center gap-3 px-4 md:px-8 lg:px-10">
+        <Link href="/" aria-label="Spill home">
+          <SpillLogo />
+        </Link>
+        {title ? (
+          <>
+            <div className="h-6 w-px bg-spill-line" />
+            <div className="min-w-0">
+              <h1 className="truncate text-[13.5px] font-semibold leading-tight tracking-[-0.01em] text-spill-fg">{title}</h1>
+              {subtitle ? <div className="flex min-w-0 items-center gap-1.5 truncate text-[10.5px] leading-tight text-spill-muted">{subtitle}</div> : null}
+            </div>
+          </>
+        ) : null}
+        <div className="ml-auto flex items-center gap-1.5 [&>form]:contents">
+          <div className="hidden items-center md:flex">{presence}</div>
+          {actions}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+export function SpillLogo({ compact = false, size = 18 }: { compact?: boolean; size?: number }) {
+  const markSize = size * 1.22;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <svg width={markSize} height={markSize} viewBox="0 0 30 30" aria-hidden="true" className="block shrink-0">
+        <defs>
+          <linearGradient id="spill-logo-red" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stopColor={spillColors.wrong} />
+            <stop offset="1" stopColor="#a83232" />
+          </linearGradient>
+        </defs>
+        <g transform="rotate(-22 15 16)">
+          <rect x="6" y="8" width="14" height="13" rx="2" fill={spillColors.paper} stroke={spillColors.wrong === "#cf4f4f" ? "#1f1812" : spillColors.wrong} strokeWidth="1.6" />
+          <path d="M20 11 q 4 0 4 4 q 0 4 -4 4" fill="none" stroke="#1f1812" strokeWidth="1.6" />
+          <ellipse cx="13" cy="8" rx="7" ry="1.4" fill="#1f1812" />
+        </g>
+        <ellipse cx="22" cy="24" rx="6" ry="2" fill="url(#spill-logo-red)" stroke="#1f1812" strokeWidth="0.9" />
+        <circle cx="17" cy="21" r="1.4" fill="url(#spill-logo-red)" stroke="#1f1812" strokeWidth="0.6" />
+        <circle cx="26" cy="20" r="1" fill="url(#spill-logo-red)" stroke="#1f1812" strokeWidth="0.5" />
+      </svg>
+      {!compact ? (
+        <span className="inline-flex items-baseline font-extrabold leading-none tracking-[-0.065em] text-spill-fg" style={{ fontSize: size }}>
+          Spill
+          <span className="ml-0.5 translate-y-[2px] rounded-full bg-spill-wrong" style={{ width: size * 0.18, height: size * 0.18 }} />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+export function Btn({
+  children,
+  href,
+  kind = "ghost",
+  accent = spillColors.wrong,
+  type,
+  form,
+  disabled,
+  className = "",
+  style,
+}: {
+  children: ReactNode;
+  href?: string;
+  kind?: "primary" | "secondary" | "ghost" | "dashed";
+  accent?: string;
+  type?: "button" | "submit";
+  form?: string;
+  disabled?: boolean;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const base =
+    "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[12.5px] font-semibold leading-none transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)] disabled:pointer-events-none disabled:opacity-45";
+  const variants: Record<NonNullable<Parameters<typeof Btn>[0]["kind"]>, string> = {
+    primary: "border-[color:var(--btn-border)] bg-[linear-gradient(180deg,var(--btn-accent)_0%,var(--btn-shade)_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_1px_0_rgba(74,52,20,0.12),0_2px_6px_var(--btn-glow)]",
+    secondary: "border-spill-line bg-[var(--panel-hi)] text-[var(--fg-2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_1px_0_rgba(74,52,20,0.06)]",
+    ghost: "border-spill-line bg-[var(--paper)] text-[var(--fg-2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]",
+    dashed: "border-dashed border-spill-line bg-transparent text-spill-muted shadow-none",
+  };
+  const cssVars = {
+    color: kind === "primary" ? "#fffaf0" : undefined,
+    "--btn-accent": accent,
+    "--btn-shade": shade(accent, -8),
+    "--btn-border": shade(accent, -16),
+    "--btn-glow": `${accent}40`,
+    ...style,
+  } as CSSProperties;
+  const classes = `${base} ${variants[kind]} ${className}`;
+
+  if (href) {
+    return (
+      <Link className={classes} href={href} style={cssVars}>
+        {children}
+      </Link>
+    );
+  }
+
+  return (
+    <button className={classes} disabled={disabled} form={form} style={cssVars} type={type ?? "button"}>
+      {children}
+    </button>
   );
 }
 
@@ -75,99 +168,417 @@ export function Pill({
   children,
   href,
   tone = "neutral",
+  accent = spillColors.wrong,
   dashed = false,
   type,
   disabled,
+  className = "",
 }: {
   children: ReactNode;
   href?: string;
-  tone?: "neutral" | "danger" | "success" | "action" | "mood";
+  tone?: "neutral" | "solid" | "soft" | "ghost" | "danger" | "success" | "action" | "mood";
+  accent?: string;
   dashed?: boolean;
   type?: "button" | "submit";
   disabled?: boolean;
+  className?: string;
 }) {
-  const color =
-    tone === "danger"
-      ? "border-spill-wrong bg-spill-wrong text-white"
-      : tone === "success"
-        ? "border-spill-well bg-spill-well text-white"
-        : tone === "action"
-          ? "border-spill-action bg-spill-action text-white"
-          : tone === "mood"
-            ? "border-spill-mood bg-spill-mood text-white"
-            : "border-spill-line bg-transparent text-spill-fg";
-  const className = `inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium leading-none transition hover:brightness-95 ${dashed ? "border-dashed" : ""} ${color}`;
+  const actualAccent =
+    tone === "danger" ? spillColors.wrong : tone === "success" ? spillColors.well : tone === "action" ? spillColors.action : tone === "mood" ? spillColors.mood : accent;
+  const normalizedTone = tone === "danger" || tone === "success" || tone === "action" || tone === "mood" ? "solid" : tone;
+  const variants = {
+    neutral: "border-spill-line bg-[var(--panel-hi)] text-[var(--fg-2)]",
+    solid: "border-[color:var(--pill-border)] bg-[var(--pill-accent)] text-white",
+    soft: "border-[color:var(--pill-soft-border)] bg-[var(--pill-soft-bg)] text-[var(--pill-accent)]",
+    ghost: "border-[var(--line-2)] bg-transparent text-spill-muted",
+  };
+  const cssVars = {
+    "--pill-accent": actualAccent,
+    "--pill-border": shade(actualAccent, -14),
+    "--pill-soft-bg": `${actualAccent}1f`,
+    "--pill-soft-border": `${actualAccent}55`,
+  } as CSSProperties;
+  const classes = `inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-[1.3] tracking-[0.01em] ${dashed ? "border-dashed" : ""} ${variants[normalizedTone]} ${className}`;
+
   if (href) {
     return (
-      <Link href={href} className={className}>
+      <Link className={classes} href={href} style={cssVars}>
         {children}
       </Link>
     );
   }
+
   return (
-    <button className={className} type={type ?? "button"} disabled={disabled}>
+    <button className={classes} disabled={disabled} style={cssVars} type={type ?? "button"}>
       {children}
     </button>
   );
 }
 
-export function StatusPill({
-  children,
-  tone = "neutral",
+export function StatusPill(props: Parameters<typeof Pill>[0]) {
+  return <Pill {...props} />;
+}
+
+export function Avatar({
+  k,
+  color = spillColors.muted,
+  size = 26,
+  status,
+  ring = "var(--panel)",
 }: {
-  children: ReactNode;
-  tone?: "neutral" | "danger" | "success" | "action" | "mood";
+  k: string;
+  color?: string;
+  size?: number;
+  status?: "ready" | "writing" | "voting" | "away";
+  ring?: string;
 }) {
-  const color =
-    tone === "danger"
-      ? "border-spill-wrong bg-spill-wrong text-white"
-      : tone === "success"
-        ? "border-spill-well bg-spill-well text-white"
-        : tone === "action"
-          ? "border-spill-action bg-spill-action text-white"
-          : tone === "mood"
-            ? "border-spill-mood bg-spill-mood text-white"
-            : "border-spill-line bg-transparent text-spill-fg";
+  const statusColor = status === "ready" ? spillColors.well : status === "writing" ? spillColors.mood : status === "voting" ? spillColors.action : status === "away" ? spillColors.muted : undefined;
   return (
-    <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium leading-none ${color}`}>
-      {children}
+    <span
+      className="relative inline-flex shrink-0 items-center justify-center rounded-full text-white shadow-[0_1px_2px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.15)]"
+      style={{
+        width: size,
+        height: size,
+        border: `2px solid ${ring}`,
+        background: `linear-gradient(135deg, ${color} 0%, ${shade(color, -18)} 100%)`,
+        fontSize: size * 0.38,
+        fontWeight: 700,
+        letterSpacing: -0.3,
+      }}
+      title={status}
+    >
+      {k.slice(0, 2).toLowerCase()}
+      {statusColor ? (
+        <span
+          className={status === "writing" || status === "voting" ? "sp-live-dot absolute" : "absolute rounded-full"}
+          style={{
+            right: -1,
+            bottom: -1,
+            width: size * 0.34,
+            height: size * 0.34,
+            border: `1.6px solid ${ring}`,
+            background: statusColor,
+          }}
+        />
+      ) : null}
     </span>
+  );
+}
+
+export function Stack({
+  people,
+  size = 26,
+  ring = "var(--panel)",
+}: {
+  people: { k: string; color: string; status?: "ready" | "writing" | "voting" | "away" }[];
+  size?: number;
+  ring?: string;
+}) {
+  return (
+    <div className="inline-flex">
+      {people.map((person, index) => (
+        <span className={index ? "-ml-2" : ""} key={`${person.k}-${index}`}>
+          <Avatar {...person} ring={ring} size={size} />
+        </span>
+      ))}
+    </div>
   );
 }
 
 export function SectionTitle({ children, kicker }: { children: ReactNode; kicker?: ReactNode }) {
   return (
-    <div className="flex items-baseline gap-2">
-      <h2 className="font-hand text-4xl leading-none text-spill-fg">{children}</h2>
-      {kicker ? <p className="text-sm italic text-spill-muted">{kicker}</p> : null}
+    <div className="flex items-baseline gap-3">
+      <h2 className="m-0 text-[32px] font-extrabold leading-none tracking-[-0.025em] text-spill-fg">{children}</h2>
+      {kicker ? <p className="-rotate-2 font-hand text-[22px] leading-none text-spill-muted">{kicker}</p> : null}
     </div>
   );
 }
 
-export function Tile({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Tile({
+  children,
+  className = "",
+  style,
+  hi = false,
+  id,
+}: {
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+  hi?: boolean;
+  id?: string;
+}) {
   return (
-    <div className={`rounded-xl border border-spill-line bg-spill-panel p-4 shadow-[0_1px_0_#d4c39d,0_5px_12px_rgba(42,34,27,0.07)] ${className}`}>
+    <div className={`sp-panel-grain rounded-[10px] border border-spill-line p-3.5 shadow-[var(--shadow-1)] ${hi ? "bg-[var(--panel-hi)]" : "bg-spill-panel"} ${className}`} id={id} style={style}>
       {children}
+    </div>
+  );
+}
+
+export function SpillCard({
+  accent,
+  children,
+  className = "",
+  style,
+}: {
+  accent: string;
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-white shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
+      style={{
+        background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 60%, ${shade(accent, -6)} 100%)`,
+        "--card-button-fg": accent,
+        ...style,
+      } as CSSProperties}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function CardFooter({
+  author = "na",
+  color = spillColors.wrong,
+  tag,
+  trailing,
+  votes,
+}: {
+  author?: string;
+  color?: string;
+  tag?: string;
+  trailing?: ReactNode;
+  votes?: number;
+}) {
+  return (
+    <div className="mt-2 flex items-center gap-1.5 border-t border-white/20 pt-1.5 text-[11px]">
+      <Avatar k={author} color={color} ring="rgba(255,255,255,0.55)" size={18} />
+      {tag ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9.5px] font-semibold tracking-[0.03em] text-white">#{tag}</span> : null}
+      <div className="flex-1" />
+      {trailing ?? (votes !== undefined ? (
+        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-2 text-[10.5px] font-bold text-[var(--card-button-fg)]" aria-label={`${votes} total votes`}>
+          {votes === 0 ? "no votes" : `${votes} ${votes === 1 ? "vote" : "votes"}`}
+        </span>
+      ) : null)}
+    </div>
+  );
+}
+
+export function ColumnHeader({
+  name,
+  count,
+  accent,
+  icon,
+  sub,
+}: {
+  name: string;
+  count: ReactNode;
+  accent: string;
+  icon?: string;
+  sub?: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 px-0.5 pb-2.5">
+      <span className="h-2 w-2 self-center rounded-full shadow-[0_0_0_3px_var(--col-glow)]" style={{ backgroundColor: accent, "--col-glow": `${accent}22` } as CSSProperties} />
+      <span className="text-[13.5px] font-bold leading-none tracking-[-0.01em] text-spill-fg">{name}</span>
+      {sub ? <span className="text-[11px] italic text-spill-muted">{sub}</span> : null}
+      <span className="ml-auto rounded-full border border-spill-line bg-[var(--panel-hi)] px-2 py-0.5 text-[11px] font-semibold text-spill-muted">{count}</span>
+    </div>
+  );
+}
+
+export function HiddenDraft({ accent }: { accent: string }) {
+  return (
+    <div
+      className="grid h-[52px] place-items-center rounded-[8px] border border-dashed text-[11px] font-semibold italic tracking-[0.03em]"
+      style={{
+        color: accent,
+        borderColor: `${accent}55`,
+        background: `repeating-linear-gradient(45deg, ${accent}14 0 8px, ${accent}06 8px 16px)`,
+      }}
+    >
+      . . . someone's draft . . .
+    </div>
+  );
+}
+
+export function GifTile({ label = "GIF", className = "" }: { label?: string; className?: string }) {
+  return (
+    <div className={`relative h-[70px] overflow-hidden rounded-[6px] bg-[radial-gradient(circle_at_30%_40%,#f4cdb0,#a85a3a_70%)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_-8px_16px_rgba(0,0,0,0.18)] ${className}`}>
+      <span className="absolute left-1 top-1 rounded-[3px] bg-black/45 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.05em] text-white backdrop-blur">{label}</span>
+    </div>
+  );
+}
+
+export function Field({
+  label,
+  hint,
+  children,
+  className = "",
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="flex items-baseline justify-between gap-3">
+        <span className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">{label}</span>
+        {hint ? <span className="text-[11px] text-spill-muted">{hint}</span> : null}
+      </span>
+      <span className="mt-1.5 block">{children}</span>
+    </label>
+  );
+}
+
+export const fieldControlClass =
+  "min-h-10 rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[13px] font-semibold text-spill-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] outline-none placeholder:text-spill-muted focus:border-spill-wrong focus:shadow-[var(--focus)]";
+
+export const chipButtonClass =
+  "inline-flex h-7 min-w-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] border border-spill-line bg-[var(--paper)] px-2.5 text-[11.5px] font-extrabold leading-none text-[var(--fg-2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_0_rgba(74,52,20,0.06)] transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)] disabled:pointer-events-none disabled:opacity-45";
+
+export const cardButtonClass =
+  "inline-flex h-6 min-w-6 items-center justify-center gap-1 whitespace-nowrap rounded-[999px] border border-white/45 bg-white px-2.5 text-[10.5px] font-extrabold leading-none text-[var(--card-button-fg)] shadow-[0_1px_2px_rgba(0,0,0,0.14)] transition hover:brightness-[0.98] disabled:pointer-events-none disabled:opacity-45";
+
+export const cardGhostButtonClass =
+  "inline-flex h-6 min-w-6 items-center justify-center gap-1 whitespace-nowrap rounded-[999px] border border-white/25 bg-white/20 px-2.5 text-[10.5px] font-extrabold leading-none text-white transition hover:bg-white/25";
+
+export function SearchField({
+  name = "q",
+  defaultValue,
+  placeholder = "Search boards",
+}: {
+  name?: string;
+  defaultValue?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="relative w-full">
+      <svg className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-spill-muted" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="8.5" cy="8.5" r="5.25" stroke="currentColor" strokeWidth="2" />
+        <path d="m12.5 12.5 4 4" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+      </svg>
+      <IntentSearch className={`${fieldControlClass} pl-8`} defaultValue={defaultValue} name={name} placeholder={placeholder} style={{ width: "100%" }} />
+    </div>
+  );
+}
+
+export function CardComposer({
+  retroId,
+  columnId,
+  placeholder,
+  accent,
+  draftText = "",
+  before,
+  after,
+  actions,
+}: {
+  retroId: string;
+  columnId: string;
+  placeholder: string;
+  accent: string;
+  draftText?: string;
+  before?: ReactNode;
+  after?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="sp-card-grain w-full min-w-0 overflow-hidden rounded-[8px] p-3 text-white shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--composer-glow": `${accent}33` } as CSSProperties}>
+      <input name="retro_id" type="hidden" value={retroId} />
+      <input name="column_id" type="hidden" value={columnId} />
+      {before}
+      <IntentCardText
+        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/20 bg-white/10 px-3 py-2 text-[13.5px] font-medium leading-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:text-white/75 focus:border-white/45 focus:shadow-none"
+        defaultValue={draftText}
+        name="body_text"
+        placeholder={placeholder}
+        rows={3}
+      />
+      {after}
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <div className="flex-1" />
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+export function StageIndicator({ phase, retroId }: { phase: string; retroId?: string }) {
+  const steps = [
+    ["writing", "WRITE"],
+    ["voting", "VOTE"],
+    ["action_discussion", "ACT"],
+  ];
+  const activePhase = phase === "discussion" ? "voting" : phase;
+  const activeIndex = Math.max(0, steps.findIndex(([key]) => key === activePhase));
+  return (
+    <div className="hidden items-center gap-1 rounded-full border border-spill-line bg-[var(--panel-hi)] p-1 md:flex">
+      {steps.map(([key, label], index) => {
+        const active = index === activeIndex;
+        const done = index < activeIndex || phase === "completed";
+        const content = (
+          <>
+            {index + 1} {label}
+          </>
+        );
+        const className = `rounded-full px-2.5 py-1 text-[10px] font-extrabold tracking-[0.1em] ${active ? "bg-spill-wrong text-white" : done ? "text-spill-fg hover:bg-[var(--paper-2)]" : "text-spill-muted"}`;
+        const href = retroId ? `/retros/${retroId}${key === "action_discussion" ? "#actions" : "#board"}` : undefined;
+        return href ? (
+          <Link
+            className={className}
+            href={href}
+            key={key}
+          >
+            {content}
+          </Link>
+        ) : (
+          <span
+            className={className}
+            key={key}
+          >
+            {content}
+          </span>
+        );
+      })}
     </div>
   );
 }
 
 export function PhaseBadge({ phase, color }: { phase: string; color?: string }) {
   return (
-    <span
-      className="inline-flex rounded-full px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-white"
-      style={{ backgroundColor: color ?? spillColors.muted }}
-    >
+    <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.09em] text-white shadow-[0_2px_4px_rgba(0,0,0,0.12)]" style={{ backgroundColor: color ?? spillColors.muted }}>
       {phase}
     </span>
   );
 }
 
+export const TEAM = [
+  { k: "na", name: "Nat", color: spillColors.wrong, status: "ready" as const },
+  { k: "lu", name: "Lucas", color: spillColors.mood, status: "writing" as const },
+  { k: "sa", name: "Sam", color: spillColors.action, status: "writing" as const },
+  { k: "kt", name: "Katie", color: spillColors.well, status: "ready" as const },
+];
+
 export function phaseColor(phase: string) {
   if (phase === "writing") return spillColors.mood;
-  if (phase === "discussion") return spillColors.well;
+  if (phase === "discussion") return spillColors.action;
   if (phase === "voting") return spillColors.action;
   if (phase === "action_discussion") return spillColors.wrong;
   if (phase === "completed") return spillColors.well;
   return spillColors.muted;
+}
+
+export function shade(hex: string, percent: number) {
+  const c = hex.replace("#", "");
+  const num = Number.parseInt(c, 16);
+  let r = (num >> 16) + Math.round((255 * percent) / 100);
+  let g = ((num >> 8) & 0xff) + Math.round((255 * percent) / 100);
+  let b = (num & 0xff) + Math.round((255 * percent) / 100);
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
