@@ -24,7 +24,7 @@ use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
 use retro_db::{RetroOverview, RetroRepository};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -50,17 +50,8 @@ enum Command {
     Serve {
         #[arg(long, env = "SPILLIO_API_ADDR", default_value = "127.0.0.1:4000")]
         addr: SocketAddr,
-        #[arg(
-            long,
-            env = "DATABASE_URL",
-            default_value = "postgres://spillio:spillio@localhost:5432/spillio"
-        )]
-        database_url: String,
     },
-    Migrate {
-        #[arg(long, env = "DATABASE_URL")]
-        database_url: String,
-    },
+    Migrate {},
 }
 
 #[derive(Clone, Default)]
@@ -670,10 +661,10 @@ fn job_workflow(
     ))
 }
 
-async fn run_server(addr: SocketAddr, database_url: &str) -> anyhow::Result<()> {
+async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(database_url)
+        .connect_with(PgConnectOptions::new())
         .await
         .context("failed to connect to Postgres")?;
 
@@ -689,10 +680,10 @@ async fn run_server(addr: SocketAddr, database_url: &str) -> anyhow::Result<()> 
         .context("API server failed")
 }
 
-async fn run_migrations(database_url: &str) -> anyhow::Result<()> {
+async fn run_migrations() -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(database_url)
+        .connect_with(PgConnectOptions::new())
         .await
         .context("failed to connect to Postgres")?;
 
@@ -739,8 +730,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match Cli::parse().command {
-        Command::Serve { addr, database_url } => run_server(addr, &database_url).await,
-        Command::Migrate { database_url } => run_migrations(&database_url).await,
+        Command::Serve { addr } => run_server(addr).await,
+        Command::Migrate {} => run_migrations().await,
     }
 }
 

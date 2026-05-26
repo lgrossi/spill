@@ -10,5 +10,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/target/release/spillio-api /usr/local/bin/spillio-api
-EXPOSE 4000
-CMD ["spillio-api", "serve", "--addr", "0.0.0.0:4000"]
+EXPOSE 8080
+COPY services/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["spillio-api", "serve"]
