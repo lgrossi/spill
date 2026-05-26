@@ -23,14 +23,7 @@ use events::{BoardEvent, BoardEventHub};
 use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
-use retro_core::{
-    AiArtifactKind, CardBody, DeliveryKind, DomainError, IngestedItemPlacement, IngestionSource,
-};
-use retro_db::{
-    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterCardsInput, ClusterError,
-    CreateMeetingNoteInput, CreateRetroInput, DraftCardInput, IngestItemInput, RetroOverview,
-    RetroRepository, RetroTemplate, UpdateActionInput, VotingError,
-};
+use retro_db::{CreateRetroInput, RetroOverview, RetroRepository, RetroTemplate};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::trace::TraceLayer;
@@ -40,7 +33,9 @@ mod contracts;
 mod error;
 mod events;
 mod identity;
+mod jobs;
 mod media;
+mod workflow;
 
 #[derive(Parser, Debug)]
 #[command(name = "spillio-api")]
@@ -272,25 +267,11 @@ async fn create_draft_card(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CreateDraftCardRequest>,
 ) -> Result<(StatusCode, Json<retro_db::CardRecord>), ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let card_body = card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
-    let card = repository
-        .create_draft_card(DraftCardInput {
-            retro_id,
-            column_id: request.column_id,
-            author_subject: user.subject,
-            author_display_name: user.display_name,
-            body_text: card_body.body_text,
-            gif_url: card_body.gif_url,
-            gif_alt_text: card_body.gif_alt_text,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to create draft card: {error}")))?;
-
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
-
-    Ok((StatusCode::CREATED, Json(card)))
+    let (status, card) = retro_workflow(repository, event_hub)?
+        .create_draft_card(user, retro_id, request)
+        .await?;
+    Ok((status, Json(card)))
 }
 
 async fn ingest_item(
@@ -300,28 +281,11 @@ async fn ingest_item(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<IngestItemRequest>,
 ) -> Result<(StatusCode, Json<retro_db::IngestedItemRecord>), ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    validate_source(&request.source)?;
-    validate_placement(&request)?;
-    let item = repository
-        .ingest_item(IngestItemInput {
-            retro_id,
-            subject: user.subject,
-            display_name: user.display_name,
-            source: request.source,
-            placement: request.placement,
-            target_column_id: request.target_column_id,
-            suggested_text: optional_non_empty(request.suggested_text),
-            gif_url: optional_non_empty(request.gif_url),
-            idempotency_key: optional_non_empty(request.idempotency_key),
-            raw_payload: request.raw_payload,
-            source_metadata: request.source_metadata,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to ingest item: {error}")))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
-    Ok((StatusCode::CREATED, Json(item)))
+    let (status, item) = retro_workflow(repository, event_hub)?
+        .ingest_item(user, retro_id, request)
+        .await?;
+    Ok((status, Json(item)))
 }
 
 async fn accept_deck_item(
@@ -331,20 +295,10 @@ async fn accept_deck_item(
     Path((retro_id, item_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<AcceptDeckItemRequest>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let card = repository
-        .accept_deck_item(AcceptDeckItemInput {
-            retro_id,
-            item_id,
-            column_id: request.column_id,
-            subject: user.subject,
-            display_name: user.display_name,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to accept deck item: {error}")))?
-        .ok_or_else(|| ApiError::not_found("deck item not found"))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let card = retro_workflow(repository, event_hub)?
+        .accept_deck_item(user, retro_id, item_id, request)
+        .await?;
     Ok(Json(card))
 }
 
@@ -354,19 +308,9 @@ async fn start_ai_job(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<StartAiJobRequest>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    validate_ai_kind(&request.kind)?;
-    let artifact = repository
-        .create_ai_artifact(
-            retro_id,
-            &request.kind,
-            ai_input_with_requested_failure(&repository, retro_id, &request.kind, request.fail)
-                .await?,
-        )
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
-    let artifact = run_fake_ai_job(&repository, artifact, request.fail).await?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let artifact = job_workflow(repository, event_hub)?
+        .start_ai_job(retro_id, request)
+        .await?;
     Ok(Json(artifact))
 }
 
@@ -375,14 +319,9 @@ async fn retry_ai_job(
     State(event_hub): State<BoardEventHub>,
     Path((retro_id, artifact_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    let artifact = repository
-        .retry_ai_artifact(retro_id, artifact_id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to retry AI job: {error}")))?
-        .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
-    let artifact = run_fake_ai_job(&repository, artifact, false).await?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let artifact = job_workflow(repository, event_hub)?
+        .retry_ai_job(retro_id, artifact_id)
+        .await?;
     Ok(Json(artifact))
 }
 
@@ -393,19 +332,10 @@ async fn create_meeting_note(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CreateMeetingNoteRequest>,
 ) -> Result<(StatusCode, Json<retro_db::MeetingNoteRecord>), ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let note = repository
-        .create_meeting_note(CreateMeetingNoteInput {
-            retro_id,
-            author_subject: user.subject,
-            author_display_name: user.display_name,
-            title: optional_non_empty(request.title).unwrap_or_else(|| "Meeting notes".to_owned()),
-            body_text: require_non_empty("body_text", request.body_text)?,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to create meeting note: {error}")))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let note = job_workflow(repository, event_hub)?
+        .create_meeting_note(user, retro_id, request)
+        .await?;
     Ok((StatusCode::CREATED, Json(note)))
 }
 
@@ -415,24 +345,9 @@ async fn create_delivery(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CreateDeliveryRequest>,
 ) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    validate_delivery_kind(&request.kind)?;
-    let output = match request.kind.as_str() {
-        "summary_export" => repository
-            .export_summary_payload(retro_id)
-            .await
-            .map_err(|error| ApiError::internal(format!("failed to export summary: {error}")))?,
-        "external_action_link" => serde_json::json!({
-            "placeholder_url": "https://example.invalid/spillio/action-placeholder",
-            "message": "External action delivery integration placeholder"
-        }),
-        _ => unreachable!(),
-    };
-    let delivery = repository
-        .create_delivery(retro_id, &request.kind, output, request.fail)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to create delivery: {error}")))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let delivery = job_workflow(repository, event_hub)?
+        .create_delivery(retro_id, request)
+        .await?;
     Ok(Json(delivery))
 }
 
@@ -441,41 +356,10 @@ async fn retry_delivery(
     State(event_hub): State<BoardEventHub>,
     Path((retro_id, delivery_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    let delivery = repository
+    let delivery = job_workflow(repository, event_hub)?
         .retry_delivery(retro_id, delivery_id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to retry delivery: {error}")))?
-        .ok_or_else(|| ApiError::not_found("delivery not found"))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+        .await?;
     Ok(Json(delivery))
-}
-
-async fn run_fake_ai_job(
-    repository: &RetroRepository,
-    artifact: retro_db::AiArtifactRecord,
-    fail: bool,
-) -> Result<retro_db::AiArtifactRecord, ApiError> {
-    let artifact = repository
-        .mark_ai_running(artifact.id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to mark AI job running: {error}")))?
-        .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
-
-    if fail {
-        return repository
-            .fail_ai_artifact(artifact.id, "fake AI provider failure")
-            .await
-            .map_err(|error| ApiError::internal(format!("failed to mark AI job failed: {error}")))?
-            .ok_or_else(|| ApiError::not_found("AI artifact not found"));
-    }
-
-    let output = fake_ai_output(&artifact.kind);
-    repository
-        .complete_ai_artifact(artifact.id, output)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to complete AI job: {error}")))?
-        .ok_or_else(|| ApiError::not_found("AI artifact not found"))
 }
 
 async fn update_draft_card(
@@ -485,25 +369,11 @@ async fn update_draft_card(
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateDraftCardRequest>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let card_body = card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
-    repository
-        .update_draft_card(
-            card_id,
-            &user.subject,
-            card_body.body_text.as_deref(),
-            card_body.gif_url.as_deref(),
-            card_body.gif_alt_text.as_deref(),
-            request.cluster_details.as_deref(),
-        )
+    retro_workflow(repository, event_hub)?
+        .update_draft_card(user, retro_id, card_id, request)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
-        .map(|card| {
-            event_hub.publish(BoardEvent::CardChanged { retro_id });
-            Json(card)
-        })
-        .ok_or_else(|| ApiError::not_found("draft card not found"))
+        .map(Json)
 }
 
 async fn move_draft_card(
@@ -513,23 +383,11 @@ async fn move_draft_card(
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<MoveDraftCardRequest>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .move_draft_card(
-            retro_id,
-            card_id,
-            request.column_id,
-            request.before_card_id,
-            &user.subject,
-        )
+    retro_workflow(repository, event_hub)?
+        .move_draft_card(user, retro_id, card_id, request)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to move draft card: {error}")))?
-        .map(|card| {
-            event_hub.publish(BoardEvent::CardChanged { retro_id });
-            Json(card)
-        })
-        .ok_or_else(|| ApiError::not_found("draft card not found"))
+        .map(Json)
 }
 
 async fn cluster_cards(
@@ -539,19 +397,10 @@ async fn cluster_cards(
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<ClusterCardsRequest>,
 ) -> Result<Json<retro_db::ClusterRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let cluster = repository
-        .cluster_cards(ClusterCardsInput {
-            retro_id,
-            card_id,
-            target_card_id: request.target_card_id,
-            subject: user.subject,
-            display_name: user.display_name,
-        })
-        .await
-        .map_err(cluster_error)?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let cluster = retro_workflow(repository, event_hub)?
+        .cluster_cards(user, retro_id, card_id, request)
+        .await?;
     Ok(Json(cluster))
 }
 
@@ -561,18 +410,10 @@ async fn delete_draft_card(
     headers: HeaderMap,
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    if repository
-        .delete_draft_card(card_id, &user.subject)
+    retro_workflow(repository, event_hub)?
+        .delete_draft_card(user, retro_id, card_id)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to delete draft card: {error}")))?
-    {
-        event_hub.publish(BoardEvent::CardChanged { retro_id });
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Err(ApiError::not_found("draft card not found"))
-    }
 }
 
 async fn remove_cluster_member(
@@ -580,16 +421,10 @@ async fn remove_cluster_member(
     State(event_hub): State<BoardEventHub>,
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    repository
+    retro_workflow(repository, event_hub)?
         .remove_cluster_member(retro_id, card_id)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to remove cluster member: {error}")))?
-        .map(|card| {
-            event_hub.publish(BoardEvent::CardChanged { retro_id });
-            Json(card)
-        })
-        .ok_or_else(|| ApiError::not_found("cluster member not found"))
+        .map(Json)
 }
 
 async fn mark_ready(
@@ -598,19 +433,11 @@ async fn mark_ready(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .mark_ready(retro_id, &user.subject, &user.display_name)
+    retro_workflow(repository, event_hub)?
+        .mark_ready(user, retro_id)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to mark ready: {error}")))?;
-    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn unmark_ready(
@@ -619,19 +446,11 @@ async fn unmark_ready(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .unmark_ready(retro_id, &user.subject)
+    retro_workflow(repository, event_hub)?
+        .unmark_ready(user, retro_id)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to unmark ready: {error}")))?;
-    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn reveal_board(
@@ -640,29 +459,11 @@ async fn reveal_board(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let board = repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+    retro_workflow(repository, event_hub)?
+        .reveal_board(user, retro_id)
         .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
-        .ok_or_else(|| ApiError::not_found("retro not found"))?;
-    if board.retro.phase == "writing" && board.ready.ready_count < board.ready.participant_count {
-        return Err(ApiError::bad_request(
-            "everyone must be ready before reveal",
-        ));
-    }
-    repository
-        .reveal_board(retro_id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to reveal board: {error}")))?;
-    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn start_voting(
@@ -671,19 +472,11 @@ async fn start_voting(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .start_voting(retro_id)
+    retro_workflow(repository, event_hub)?
+        .start_voting(user, retro_id)
         .await
-        .map_err(voting_error)?;
-    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn cast_vote(
@@ -693,19 +486,10 @@ async fn cast_vote(
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CastVoteRequest>,
 ) -> Result<Json<retro_db::VotingInfo>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let info = repository
-        .cast_vote(CastVoteInput {
-            retro_id,
-            card_id: request.card_id,
-            subject: user.subject,
-            display_name: user.display_name,
-            count: request.count,
-        })
-        .await
-        .map_err(voting_error)?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let info = retro_workflow(repository, event_hub)?
+        .cast_vote(user, retro_id, request)
+        .await?;
     Ok(Json(info))
 }
 
@@ -715,13 +499,10 @@ async fn remove_vote(
     headers: HeaderMap,
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::VotingInfo>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let info = repository
-        .remove_vote(retro_id, card_id, &user.subject, &user.display_name)
-        .await
-        .map_err(voting_error)?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let info = retro_workflow(repository, event_hub)?
+        .remove_vote(user, retro_id, card_id)
+        .await?;
     Ok(Json(info))
 }
 
@@ -731,19 +512,11 @@ async fn cluster_board(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .cluster_board(retro_id)
+    retro_workflow(repository, event_hub)?
+        .cluster_board(user, retro_id)
         .await
-        .map_err(cluster_error)?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn start_action_discussion(
@@ -752,19 +525,11 @@ async fn start_action_discussion(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .start_action_discussion(retro_id)
+    retro_workflow(repository, event_hub)?
+        .start_action_discussion(user, retro_id)
         .await
-        .map_err(action_error)?;
-    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn update_action(
@@ -773,18 +538,9 @@ async fn update_action(
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateActionRequest>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    let action = repository
-        .update_action(UpdateActionInput {
-            retro_id,
-            action_id,
-            title: require_non_empty("title", request.title)?,
-            details: request.details,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to update action: {error}")))?
-        .ok_or_else(|| ApiError::not_found("action not found"))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    let action = retro_workflow(repository, event_hub)?
+        .update_action(retro_id, action_id, request)
+        .await?;
     Ok(Json(action))
 }
 
@@ -826,20 +582,11 @@ async fn complete_retro(
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    repository
-        .complete_retro(retro_id)
+    retro_workflow(repository, event_hub)?
+        .complete_retro(user, retro_id)
         .await
-        .map_err(action_error)?
-        .ok_or_else(|| ApiError::bad_request("retro must be in action discussion to complete"))?;
-    event_hub.publish(BoardEvent::PhaseChanged { retro_id });
-    repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
 async fn set_action_status(
@@ -849,13 +596,9 @@ async fn set_action_status(
     action_id: Uuid,
     status: &'static str,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    let repository = configured_repository(repository)?;
-    let action = repository
+    let action = retro_workflow(repository, event_hub)?
         .set_action_status(retro_id, action_id, status)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to update action status: {error}")))?
-        .ok_or_else(|| ApiError::not_found("action not found"))?;
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+        .await?;
     Ok(Json(action))
 }
 
@@ -883,117 +626,6 @@ async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, ret
             break;
         }
     }
-}
-
-struct CardBodyPayload {
-    body_text: Option<String>,
-    gif_url: Option<String>,
-    gif_alt_text: Option<String>,
-}
-
-fn card_body_payload(
-    body_text: Option<String>,
-    gif_url: Option<String>,
-    gif_alt_text: Option<String>,
-) -> Result<CardBodyPayload, ApiError> {
-    let body_text = optional_non_empty(body_text);
-    let gif_url = optional_non_empty(gif_url);
-    let gif_alt_text = optional_non_empty(gif_alt_text);
-    let body = CardBody::from_payload(body_text, gif_url, gif_alt_text).map_err(domain_error)?;
-
-    Ok(CardBodyPayload {
-        body_text: body.text().map(ToOwned::to_owned),
-        gif_url: body.gif_url().map(ToOwned::to_owned),
-        gif_alt_text: body.gif_alt_text().map(ToOwned::to_owned),
-    })
-}
-
-fn validate_source(source: &str) -> Result<(), ApiError> {
-    IngestionSource::try_from(source)
-        .map(|_| ())
-        .map_err(domain_error)
-}
-
-fn validate_placement(request: &IngestItemRequest) -> Result<(), ApiError> {
-    match IngestedItemPlacement::try_from(request.placement.as_str()).map_err(domain_error)? {
-        IngestedItemPlacement::UserDeck => Ok(()),
-        IngestedItemPlacement::RetroDraft if request.target_column_id.is_some() => Ok(()),
-        IngestedItemPlacement::RetroDraft => Err(ApiError::bad_request(
-            "retro_draft placement requires target_column_id",
-        )),
-    }?;
-
-    CardBody::from_payload(
-        optional_non_empty(request.suggested_text.clone()),
-        optional_non_empty(request.gif_url.clone()),
-        None,
-    )
-    .map_err(domain_error)?;
-
-    Ok(())
-}
-
-fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {
-    AiArtifactKind::try_from(kind)
-        .map(|_| ())
-        .map_err(domain_error)
-}
-
-fn validate_delivery_kind(kind: &str) -> Result<(), ApiError> {
-    DeliveryKind::try_from(kind)
-        .map(|_| ())
-        .map_err(domain_error)
-}
-
-async fn ai_input_with_requested_failure(
-    repository: &RetroRepository,
-    retro_id: Uuid,
-    kind: &str,
-    fail: bool,
-) -> Result<serde_json::Value, ApiError> {
-    let mut input = repository
-        .ai_input_with_note_context(retro_id, kind)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to build AI input: {error}")))?;
-    input["requested_failure"] = serde_json::json!(fail);
-    Ok(input)
-}
-
-fn fake_ai_output(kind: &str) -> serde_json::Value {
-    match kind {
-        "gif_suggestions" => serde_json::json!({
-            "review_required": true,
-            "suggestions": [{"query": "ship it", "reason": "celebrate a positive moment"}]
-        }),
-        "clustering" => serde_json::json!({
-            "review_required": true,
-            "clusters": [{"title": "Release flow", "tags": ["release", "flow"]}]
-        }),
-        "action_suggestions" => serde_json::json!({
-            "review_required": true,
-            "actions": [{"title": "Assign one owner for follow-up", "confidence": "fake"}]
-        }),
-        "summary" => serde_json::json!({
-            "review_required": true,
-            "summary": "Fake provider summary ready for human review."
-        }),
-        "mood" => serde_json::json!({
-            "review_required": true,
-            "mood": "mixed",
-            "signals": ["optimistic", "blocked"]
-        }),
-        "tagging" => serde_json::json!({
-            "review_required": true,
-            "tags": ["process", "ownership", "follow-up"]
-        }),
-        _ => serde_json::json!({"review_required": true}),
-    }
-}
-
-fn optional_non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
 }
 
 async fn api_not_found() -> ApiError {
@@ -1037,6 +669,26 @@ fn configured_repository(repository: Option<RetroRepository>) -> Result<RetroRep
     repository.ok_or_else(|| ApiError::internal("retro repository is not configured"))
 }
 
+fn retro_workflow(
+    repository: Option<RetroRepository>,
+    event_hub: BoardEventHub,
+) -> Result<workflow::RetroWorkflow, ApiError> {
+    Ok(workflow::RetroWorkflow::new(
+        configured_repository(repository)?,
+        event_hub,
+    ))
+}
+
+fn job_workflow(
+    repository: Option<RetroRepository>,
+    event_hub: BoardEventHub,
+) -> Result<jobs::JobWorkflow, ApiError> {
+    Ok(jobs::JobWorkflow::new(
+        configured_repository(repository)?,
+        event_hub,
+    ))
+}
+
 fn require_non_empty(field: &'static str, value: String) -> Result<String, ApiError> {
     let value = value.trim().to_owned();
     if value.is_empty() {
@@ -1053,40 +705,6 @@ fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError
         Err(ApiError::bad_request(format!(
             "{field} must be zero or positive"
         )))
-    }
-}
-
-fn voting_error(error: VotingError) -> ApiError {
-    match error {
-        VotingError::Sqlx(error) => ApiError::internal(format!("voting failed: {error}")),
-        VotingError::Invalid(message) => ApiError::bad_request(message),
-    }
-}
-
-fn cluster_error(error: ClusterError) -> ApiError {
-    match error {
-        ClusterError::Sqlx(error) => ApiError::internal(format!("clustering failed: {error}")),
-        ClusterError::Invalid(message) => ApiError::bad_request(message),
-    }
-}
-
-fn action_error(error: ActionError) -> ApiError {
-    match error {
-        ActionError::Sqlx(error) => {
-            ApiError::internal(format!("action discussion failed: {error}"))
-        }
-        ActionError::Invalid(message) => ApiError::bad_request(message),
-    }
-}
-
-fn domain_error(error: DomainError) -> ApiError {
-    match error {
-        DomainError::EmptyCardBody => ApiError::bad_request("card requires text or gif"),
-        DomainError::EmptyText => ApiError::bad_request("text cannot be empty"),
-        DomainError::InvalidDomainValue { domain, value } => {
-            ApiError::bad_request(format!("invalid {domain}: {value}"))
-        }
-        other => ApiError::bad_request(format!("domain validation failed: {other:?}")),
     }
 }
 
