@@ -1,4 +1,4 @@
-FROM node:22-alpine AS deps
+FROM registry.hub.docker.com/library/node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -8,11 +8,14 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 WORKDIR /app
+# Baked at build time so the browser WebSocket URL is correct in the client bundle.
+ARG NEXT_PUBLIC_SPILLIO_API_URL
+ENV NEXT_PUBLIC_SPILLIO_API_URL=$NEXT_PUBLIC_SPILLIO_API_URL
 COPY apps/web apps/web
 COPY packages/companions packages/companions
 RUN pnpm --filter @spillio/web build
 
-FROM node:22-alpine AS runtime
+FROM registry.hub.docker.com/library/node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
