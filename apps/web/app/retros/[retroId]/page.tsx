@@ -3,39 +3,29 @@ import { notFound } from "next/navigation";
 import { IdentityGate, IdentityUnavailable } from "../../components/identity-gate";
 import {
   AppChrome,
-  Btn,
   CardComposer,
   CardFooter,
   ColumnHeader,
   GifTile,
   HiddenDraft,
-  PhaseBadge,
   Pill,
   SpillCard,
   Stack,
-  StageIndicator,
   TEAM,
   Tile,
   cardButtonClass,
   columnIcons,
-  spillColors,
   type ColumnAccent,
 } from "../../components/spill-ui";
 import { getRetro, type RetroBoard, type RetroCard } from "../../lib/api";
 import {
   castVoteAction,
-  completeRetroAction,
   completeActionItemAction,
   confirmActionItemAction,
   createDraftCardAction,
   deleteDraftCardAction,
-  markReadyAction,
   removeClusterMemberAction,
   removeVoteAction,
-  revealRetroAction,
-  startActionDiscussionAction,
-  startVotingAction,
-  unmarkReadyAction,
   updateDraftCardAction,
 } from "../../lib/actions";
 import { BoardSync } from "./board-sync";
@@ -43,6 +33,7 @@ import { DraggableCard, DropColumn, DropEndMarker } from "./board-dnd";
 import { BoardMedia } from "./media-card";
 import { GifDraftProvider, GifSearchPicker, GifSelectedPreview } from "./gif-search-picker";
 import { ComposerSubmit } from "./composer-submit";
+import { PhaseControls } from "./phase-controls";
 import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
 import {
   actionVoteCount,
@@ -95,80 +86,6 @@ export default async function RetroBoardPage({
         <BoardColumns board={board} query={query} />
       )}
     </AppChrome>
-  );
-}
-
-function PhaseControls({ board }: { board: RetroBoard }) {
-  if (board.retro.phase === "writing") {
-    const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        <Pill tone="soft" accent={spillColors.mood}>
-          <span className="sp-live-dot h-1.5 w-1.5 bg-spill-mood" />
-          writing
-        </Pill>
-        <form action={board.ready.current_user_ready ? unmarkReadyAction : markReadyAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={board.ready.current_user_ready ? "secondary" : "primary"} type="submit">{board.ready.current_user_ready ? "not ready" : "I'm ready"}</Btn>
-        </form>
-        <form action={revealRetroAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="dashed" type="submit" disabled={!allReady}>reveal -&gt;</Btn>
-        </form>
-      </>
-    );
-  }
-
-  if (board.retro.phase === "discussion") {
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        <Pill tone="soft" accent={spillColors.action}>review</Pill>
-        <form action={startVotingAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="dashed" type="submit" disabled={board.retro.vote_limit <= 0}>vote -&gt;</Btn>
-        </form>
-        {board.retro.vote_limit <= 0 ? (
-          <form action={startActionDiscussionAction}>
-            <input name="retro_id" type="hidden" value={board.retro.id} />
-            <Btn kind="primary" type="submit">act -&gt;</Btn>
-          </form>
-        ) : null}
-      </>
-    );
-  }
-
-  if (board.retro.phase === "voting") {
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        <form action={startActionDiscussionAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="primary" type="submit" disabled={board.retro.action_discussion_limit <= 0}>act -&gt;</Btn>
-        </form>
-      </>
-    );
-  }
-
-  if (board.retro.phase === "action_discussion") {
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        <Pill tone="soft" accent={spillColors.action}>action</Pill>
-        <form action={completeRetroAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="dashed" type="submit">wrap retro</Btn>
-        </form>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <PhaseBadge color={spillColors.well} phase="wrapped" />
-      <Btn href="/" kind="primary">home</Btn>
-    </>
   );
 }
 

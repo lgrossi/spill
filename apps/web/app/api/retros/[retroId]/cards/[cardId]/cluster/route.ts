@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clusterCards } from "../../../../../../lib/api";
+import { clusterBoardCard } from "../../../../../../lib/board-commands";
 
 export async function PATCH(
   request: Request,
@@ -7,12 +7,11 @@ export async function PATCH(
 ) {
   const { retroId, cardId } = await params;
   const body = await request.json();
-  const targetCardId = typeof body?.target_card_id === "string" ? body.target_card_id : "";
+  const result = await clusterBoardCard(retroId, cardId, body);
 
-  if (!targetCardId) {
-    return NextResponse.json({ error: "target_card_id is required" }, { status: 400 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  const cluster = await clusterCards(retroId, cardId, targetCardId);
-  return NextResponse.json(cluster);
+  return NextResponse.json(result.value);
 }

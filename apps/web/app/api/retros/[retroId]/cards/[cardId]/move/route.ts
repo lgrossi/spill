@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { moveDraftCard } from "../../../../../../lib/api";
+import { moveBoardCard } from "../../../../../../lib/board-commands";
 
 export async function PATCH(
   request: Request,
@@ -7,13 +7,11 @@ export async function PATCH(
 ) {
   const { retroId, cardId } = await params;
   const body = await request.json();
-  const columnId = typeof body?.column_id === "string" ? body.column_id : "";
-  const beforeCardId = typeof body?.before_card_id === "string" ? body.before_card_id : undefined;
+  const result = await moveBoardCard(retroId, cardId, body);
 
-  if (!columnId) {
-    return NextResponse.json({ error: "column_id is required" }, { status: 400 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  const card = await moveDraftCard(retroId, cardId, columnId, beforeCardId);
-  return NextResponse.json(card);
+  return NextResponse.json(result.value);
 }
