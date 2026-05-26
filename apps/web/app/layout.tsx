@@ -5,9 +5,9 @@ export const metadata: Metadata = {
   title: "Spill.",
   description: "A retro board for teams who like GIFs and do not want to overthink.",
   icons: {
-    icon: "/brand/spillitout-logo-mark.svg",
-    shortcut: "/brand/spillitout-logo-mark.svg",
-    apple: "/brand/spillitout-logo-mark.svg",
+    icon: "/brand/spill-mug-icon.svg",
+    shortcut: "/brand/spill-mug-icon.svg",
+    apple: "/brand/spill-mug-icon.svg",
   },
 };
 
