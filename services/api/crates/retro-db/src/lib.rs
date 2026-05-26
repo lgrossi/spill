@@ -6,12 +6,12 @@ use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
 use board_read_model::attach_cards_to_columns;
-use domain_mapping::{
-    action_tags, cluster_key, column_accent_color, column_key, manual_cluster_title,
-};
+use domain_mapping::{action_tags, cluster_key, manual_cluster_title};
 
 mod board_read_model;
+mod creation;
 mod domain_mapping;
+mod overview;
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
@@ -33,77 +33,7 @@ impl RetroRepository {
     }
 
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
-        let mut columns = input.template.column_titles();
-        if input.action_discussion_limit > 0
-            && !columns
-                .iter()
-                .any(|column| column.trim().eq_ignore_ascii_case("actions"))
-        {
-            columns.push("Actions".to_owned());
-        }
-        let mut tx = self.pool.begin().await?;
-
-        let retro = sqlx::query_as::<_, RetroRecord>(
-            "INSERT INTO retros (title, vote_limit, action_discussion_limit, clustering_mode)
-             VALUES ($1, $2, $3, 'disabled')
-             RETURNING id, title, phase, vote_limit, action_discussion_limit",
-        )
-        .bind(input.title.trim())
-        .bind(input.vote_limit)
-        .bind(input.action_discussion_limit)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            "INSERT INTO participants (retro_id, external_subject, display_name, role)
-             VALUES ($1, $2, $3, 'host')
-             ON CONFLICT (retro_id, external_subject) DO UPDATE
-             SET display_name = EXCLUDED.display_name
-             RETURNING id",
-        )
-        .bind(retro.id)
-        .bind(input.creator_subject.trim())
-        .bind(input.creator_display_name.trim())
-        .fetch_one(&mut *tx)
-        .await?;
-
-        let mut records = Vec::with_capacity(columns.len());
-        for (position, title) in columns.iter().enumerate() {
-            let accent_color = input
-                .column_colors
-                .get(position)
-                .map(String::as_str)
-                .filter(|color| !color.trim().is_empty())
-                .unwrap_or_else(|| column_accent_color(title, position));
-            let record = sqlx::query_as::<_, RetroColumnRow>(
-                "INSERT INTO retro_columns (retro_id, column_key, title, position, accent_color)
-                 VALUES ($1, $2, $3, $4, $5)
-                 RETURNING id, retro_id, column_key, title, position, order_direction, accent_color",
-            )
-            .bind(retro.id)
-            .bind(column_key(title, position))
-            .bind(title.trim())
-            .bind(position as i32)
-            .bind(accent_color)
-            .fetch_one(&mut *tx)
-            .await?;
-            records.push(record.into());
-        }
-
-        tx.commit().await?;
-
-        Ok(RetroBoard {
-            retro,
-            columns: records,
-            ready: ReadyInfo::default(),
-            voting: VotingInfo::default(),
-            clusters: Vec::new(),
-            actions: Vec::new(),
-            deck: Vec::new(),
-            ai_artifacts: Vec::new(),
-            meeting_notes: Vec::new(),
-            deliveries: Vec::new(),
-        })
+        creation::create_retro(&self.pool, input).await
     }
 
     pub async fn fetch_board(&self, id: Uuid) -> Result<Option<RetroBoard>, sqlx::Error> {
@@ -201,79 +131,7 @@ impl RetroRepository {
     }
 
     pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RetroSummaryRow>(
-            "SELECT
-                r.id,
-                r.title,
-                r.phase,
-                r.vote_limit,
-                r.action_discussion_limit,
-                to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
-                to_char(
-                    GREATEST(
-                        r.created_at,
-                        COALESCE(r.completed_at, r.created_at),
-                        COALESCE((SELECT MAX(card.updated_at) FROM cards card WHERE card.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(v.created_at) FROM votes v WHERE v.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(ai.created_at) FROM action_items ai WHERE ai.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(rm.ready_at) FROM participant_ready_marks rm WHERE rm.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(artifact.updated_at) FROM ai_artifacts artifact WHERE artifact.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(note.created_at) FROM meeting_notes note WHERE note.retro_id = r.id), r.created_at),
-                        COALESCE((SELECT MAX(delivery.updated_at) FROM deliveries delivery WHERE delivery.retro_id = r.id), r.created_at)
-                    ) AT TIME ZONE 'UTC',
-                    'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'
-                ) AS last_activity_at,
-                (
-                    SELECT to_char(MAX(ra.opened_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')
-                    FROM retro_accesses ra
-                    JOIN participants ap ON ap.id = ra.participant_id
-                    WHERE ra.retro_id = r.id AND ap.external_subject = $1
-                ) AS last_opened_at,
-                COUNT(DISTINCT p.id)::BIGINT AS participant_count,
-                COUNT(DISTINCT c.id)::BIGINT AS column_count,
-                COUNT(DISTINCT a.id) FILTER (WHERE a.status NOT IN ('rejected', 'done'))::BIGINT AS unresolved_action_count,
-                COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags,
-                COALESCE(
-                    (
-                        SELECT jsonb_agg(
-                            jsonb_build_object(
-                                'id', ai.id,
-                                'title', ai.title,
-                                'status', ai.status
-                            )
-                            ORDER BY ai.position, ai.created_at, ai.id
-                        )
-                        FROM action_items ai
-                        WHERE ai.retro_id = r.id AND ai.status NOT IN ('rejected', 'done')
-                    ),
-                    '[]'::jsonb
-                ) AS open_actions
-             FROM retros r
-             LEFT JOIN participants p ON p.retro_id = r.id
-             LEFT JOIN retro_columns c ON c.retro_id = r.id
-             LEFT JOIN action_items a ON a.retro_id = r.id
-             LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
-	             WHERE EXISTS (
-	                 SELECT 1
-	                 FROM participants scoped_participant
-	                 LEFT JOIN retro_accesses scoped_access ON scoped_access.participant_id = scoped_participant.id
-	                 WHERE scoped_participant.retro_id = r.id
-	                   AND scoped_participant.external_subject = $1
-	                   AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
-	             )
-             GROUP BY r.id
-             ORDER BY last_activity_at DESC, r.created_at DESC",
-        )
-        .bind(subject)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let summaries = rows.into_iter().map(RetroSummary::from).collect::<Vec<_>>();
-        let (completed, active): (Vec<_>, Vec<_>) = summaries
-            .into_iter()
-            .partition(|summary| summary.phase == "completed");
-
-        Ok(RetroOverview { active, completed })
+        overview::list_retros(&self.pool, subject).await
     }
 
     pub async fn create_draft_card(
@@ -320,13 +178,12 @@ impl RetroRepository {
             .ensure_participant(input.retro_id, &input.subject, &input.display_name)
             .await?;
 
-        if let Some(idempotency_key) = input.idempotency_key.as_deref() {
-            if let Some(existing) = self
+        if let Some(idempotency_key) = input.idempotency_key.as_deref()
+            && let Some(existing) = self
                 .fetch_ingested_by_idempotency(participant_id, &input.source, idempotency_key)
                 .await?
-            {
-                return Ok(existing);
-            }
+        {
+            return Ok(existing);
         }
 
         let accepted_card_id = if input.placement == "retro_draft" {

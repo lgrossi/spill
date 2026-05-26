@@ -1,15 +1,17 @@
 use axum::http::StatusCode;
 use retro_core::{CardBody, DomainError, IngestedItemPlacement, IngestionSource};
 use retro_db::{
-    AcceptDeckItemInput, CastVoteInput, ClusterCardsInput, ClusterError, DraftCardInput,
-    IngestItemInput, RetroRepository, UpdateActionInput, VotingError,
+    AcceptDeckItemInput, CastVoteInput, ClusterCardsInput, ClusterError, CreateRetroInput,
+    DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate, UpdateActionInput,
+    VotingError,
 };
 use uuid::Uuid;
 
 use crate::{
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
-        IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest, UpdateDraftCardRequest,
+        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
+        UpdateDraftCardRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -28,6 +30,31 @@ impl RetroWorkflow {
             repository,
             event_hub,
         }
+    }
+
+    pub async fn create_retro(
+        &self,
+        user: CurrentUser,
+        request: CreateRetroRequest,
+    ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
+        let board = self
+            .repository
+            .create_retro(CreateRetroInput {
+                title: require_non_empty("title", request.title)?,
+                creator_subject: user.subject,
+                creator_display_name: user.display_name,
+                template: retro_template(&request.template, request.columns)?,
+                vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
+                action_discussion_limit: require_non_negative(
+                    "action_discussion_limit",
+                    request.action_discussion_limit,
+                )?,
+                column_colors: request.column_colors,
+            })
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
+
+        Ok((StatusCode::CREATED, board))
     }
 
     pub async fn create_draft_card(
@@ -117,7 +144,8 @@ impl RetroWorkflow {
     ) -> Result<retro_db::CardRecord, ApiError> {
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
-        self.repository
+        let card = self
+            .repository
             .update_draft_card(
                 card_id,
                 &user.subject,
@@ -128,11 +156,9 @@ impl RetroWorkflow {
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
-            .map(|card| {
-                self.event_hub.publish(BoardEvent::CardChanged { retro_id });
-                card
-            })
-            .ok_or_else(|| ApiError::not_found("draft card not found"))
+            .ok_or_else(|| ApiError::not_found("draft card not found"))?;
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        Ok(card)
     }
 
     pub async fn move_draft_card(
@@ -142,7 +168,8 @@ impl RetroWorkflow {
         card_id: Uuid,
         request: MoveDraftCardRequest,
     ) -> Result<retro_db::CardRecord, ApiError> {
-        self.repository
+        let card = self
+            .repository
             .move_draft_card(
                 retro_id,
                 card_id,
@@ -152,11 +179,9 @@ impl RetroWorkflow {
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to move draft card: {error}")))?
-            .map(|card| {
-                self.event_hub.publish(BoardEvent::CardChanged { retro_id });
-                card
-            })
-            .ok_or_else(|| ApiError::not_found("draft card not found"))
+            .ok_or_else(|| ApiError::not_found("draft card not found"))?;
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        Ok(card)
     }
 
     pub async fn cluster_cards(
@@ -205,17 +230,16 @@ impl RetroWorkflow {
         retro_id: Uuid,
         card_id: Uuid,
     ) -> Result<retro_db::CardRecord, ApiError> {
-        self.repository
+        let card = self
+            .repository
             .remove_cluster_member(retro_id, card_id)
             .await
             .map_err(|error| {
                 ApiError::internal(format!("failed to remove cluster member: {error}"))
             })?
-            .map(|card| {
-                self.event_hub.publish(BoardEvent::CardChanged { retro_id });
-                card
-            })
-            .ok_or_else(|| ApiError::not_found("cluster member not found"))
+            .ok_or_else(|| ApiError::not_found("cluster member not found"))?;
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        Ok(card)
     }
 
     pub async fn mark_ready(
@@ -473,6 +497,38 @@ pub fn require_non_empty(field: &'static str, value: String) -> Result<String, A
         Err(ApiError::bad_request(format!("{field} cannot be empty")))
     } else {
         Ok(value)
+    }
+}
+
+fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError> {
+    if value >= 0 {
+        Ok(value)
+    } else {
+        Err(ApiError::bad_request(format!(
+            "{field} must be zero or positive"
+        )))
+    }
+}
+
+fn retro_template(template: &str, columns: Vec<String>) -> Result<RetroTemplate, ApiError> {
+    match template {
+        "standard" => Ok(RetroTemplate::Standard),
+        "custom" => {
+            let columns = columns
+                .into_iter()
+                .map(|column| column.trim().to_owned())
+                .filter(|column| !column.is_empty())
+                .collect::<Vec<_>>();
+
+            if columns.is_empty() {
+                Err(ApiError::bad_request(
+                    "custom retros require at least one column",
+                ))
+            } else {
+                Ok(RetroTemplate::Custom { columns })
+            }
+        }
+        _ => Err(ApiError::bad_request("template must be standard or custom")),
     }
 }
 

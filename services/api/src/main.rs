@@ -23,7 +23,7 @@ use events::{BoardEvent, BoardEventHub};
 use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
-use retro_db::{CreateRetroInput, RetroOverview, RetroRepository, RetroTemplate};
+use retro_db::{RetroOverview, RetroRepository};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::trace::TraceLayer;
@@ -219,30 +219,16 @@ async fn list_retros(
 
 async fn create_retro(
     State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
     Json(request): Json<CreateRetroRequest>,
 ) -> Result<(StatusCode, Json<retro_db::RetroBoard>), ApiError> {
-    let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
-    let template = request.to_template()?;
+    let (status, board) = retro_workflow(repository, event_hub)?
+        .create_retro(user, request)
+        .await?;
 
-    let board = repository
-        .create_retro(CreateRetroInput {
-            title: require_non_empty("title", request.title)?,
-            creator_subject: user.subject,
-            creator_display_name: user.display_name,
-            template,
-            vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
-            action_discussion_limit: require_non_negative(
-                "action_discussion_limit",
-                request.action_discussion_limit,
-            )?,
-            column_colors: request.column_colors,
-        })
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
-
-    Ok((StatusCode::CREATED, Json(board)))
+    Ok((status, Json(board)))
 }
 
 async fn open_retro(
@@ -639,32 +625,6 @@ fn health_response() -> HealthResponse {
     }
 }
 
-impl CreateRetroRequest {
-    fn to_template(&self) -> Result<RetroTemplate, ApiError> {
-        match self.template.as_str() {
-            "standard" => Ok(RetroTemplate::Standard),
-            "custom" => {
-                let columns = self
-                    .columns
-                    .iter()
-                    .map(|column| column.trim())
-                    .filter(|column| !column.is_empty())
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<_>>();
-
-                if columns.is_empty() {
-                    Err(ApiError::bad_request(
-                        "custom retros require at least one column",
-                    ))
-                } else {
-                    Ok(RetroTemplate::Custom { columns })
-                }
-            }
-            _ => Err(ApiError::bad_request("template must be standard or custom")),
-        }
-    }
-}
-
 fn configured_repository(repository: Option<RetroRepository>) -> Result<RetroRepository, ApiError> {
     repository.ok_or_else(|| ApiError::internal("retro repository is not configured"))
 }
@@ -687,25 +647,6 @@ fn job_workflow(
         configured_repository(repository)?,
         event_hub,
     ))
-}
-
-fn require_non_empty(field: &'static str, value: String) -> Result<String, ApiError> {
-    let value = value.trim().to_owned();
-    if value.is_empty() {
-        Err(ApiError::bad_request(format!("{field} cannot be empty")))
-    } else {
-        Ok(value)
-    }
-}
-
-fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError> {
-    if value >= 0 {
-        Ok(value)
-    } else {
-        Err(ApiError::bad_request(format!(
-            "{field} must be zero or positive"
-        )))
-    }
 }
 
 async fn run_server(addr: SocketAddr, database_url: &str) -> anyhow::Result<()> {

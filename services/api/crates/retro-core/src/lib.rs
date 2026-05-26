@@ -90,27 +90,10 @@ domain_string_enum!(ColumnOrder, "column_order", {
     ReverseChronological => "reverse_chronological",
 });
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Retro(
-    pub Uuid,
-    pub NonEmptyText,
-    pub RetroPhase,
-    pub RetroSettings,
-);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RetroSettings {
     pub vote_limit: VoteLimit,
     pub action_discussion_limit: ActionDiscussionLimit,
-}
-
-impl Default for RetroSettings {
-    fn default() -> Self {
-        Self {
-            vote_limit: VoteLimit::default(),
-            action_discussion_limit: ActionDiscussionLimit::default(),
-        }
-    }
 }
 
 macro_rules! positive_count {
@@ -138,19 +121,6 @@ macro_rules! positive_count {
 
 positive_count!(VoteLimit, InvalidVoteLimit);
 positive_count!(ActionDiscussionLimit, InvalidActionDiscussionLimit);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Participant(pub Uuid, pub NonEmptyText, pub ParticipantRole);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ParticipantRole {
-    Host,
-    Member,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RetroColumn(pub Uuid, pub NonEmptyText, pub ColumnOrder);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Card {
@@ -287,9 +257,6 @@ impl ParticipantVotes {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ActionItem(pub Uuid, pub NonEmptyText, pub ActionStatus);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionStatus {
@@ -305,9 +272,6 @@ domain_string_enum!(ActionStatus, "action_status", {
     Rejected => "rejected",
     Done => "done",
 });
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IngestedItem(pub Uuid, pub Uuid, pub IngestedItemPlacement, pub CardBody);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -336,9 +300,6 @@ domain_string_enum!(IngestionSource, "ingestion_source", {
     Upload => "upload",
     Other => "other",
 });
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AiArtifact(pub Uuid, pub AiArtifactKind, pub JobStatus);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
