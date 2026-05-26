@@ -1,14 +1,12 @@
 #!/bin/sh
 set -e
 
-# Construct DATABASE_URL from standard PG* env vars when not set explicitly.
-# Works with Cloud SQL Unix socket (PGHOST = socket directory path) and
-# standard TCP Postgres deployments alike.
-if [ -z "$DATABASE_URL" ] && [ -n "$PGHOST" ]; then
-  export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@/${PGDATABASE}?host=${PGHOST}"
-fi
+# Cloud Run sets PORT; SPILLIO_API_ADDR must be 0.0.0.0 so the container
+# is reachable. Falls back to 8080 for local runs without PORT set.
+export SPILLIO_API_ADDR="0.0.0.0:${PORT:-8080}"
 
 # Run migrations before serving. sqlx migrations are idempotent — safe on every start.
+# PG* env vars (PGHOST, PGUSER, PGPASSWORD, PGDATABASE) are read directly by sqlx.
 /usr/local/bin/spillio-api migrate
 
 exec "$@"
