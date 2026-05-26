@@ -174,4 +174,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn frontend_contract_mirrors_core_enum_values_and_payload_fields() {
+        let frontend_contracts = fs::read_to_string("../../apps/web/app/lib/contracts.ts")
+            .expect("frontend contract file");
+
+        assert_contract_contains(
+            &frontend_contracts,
+            "RetroPhase",
+            &[
+                "\"writing\"",
+                "\"discussion\"",
+                "\"voting\"",
+                "\"action_discussion\"",
+                "\"completed\"",
+            ],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "GifResult",
+            &[
+                "id: string",
+                "url: string",
+                "preview_url: string",
+                "alt_text: string",
+                "media_type: \"image\" | \"video\"",
+                "kind: \"all\" | \"gif\" | \"sticker\" | \"clip\"",
+            ],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "RetroBoard",
+            &[
+                "retro:",
+                "columns: RetroColumn[]",
+                "ready:",
+                "voting:",
+                "clusters:",
+                "actions: RetroActionItem[]",
+                "deck: IngestedItem[]",
+                "ai_artifacts: AiArtifact[]",
+                "meeting_notes: MeetingNote[]",
+                "deliveries: Delivery[]",
+            ],
+        );
+    }
+
+    fn assert_contract_contains(source: &str, contract_name: &str, expected: &[&str]) {
+        for value in expected {
+            assert!(
+                source.contains(value),
+                "frontend {contract_name} contract is missing {value}"
+            );
+        }
+    }
 }
