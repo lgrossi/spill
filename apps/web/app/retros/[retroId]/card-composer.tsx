@@ -19,7 +19,7 @@ export function DraftCardEditor({ board, card, color, semantic }: { board: Retro
           after={<GifSearchPicker columnTitle={semantic} />}
           actions={
             <>
-              <Link aria-label="Cancel edit" className={composerButtonClass("ghost")} href={`/retros/${board.retro.id}?addColumn=${card.column_id}`}>x</Link>
+              <Link aria-label="Cancel edit" className={composerButtonClass("ghost")} href={`/retros/${board.retro.id}?addColumn=${card.column_id}`}>×</Link>
               <ComposerSubmit className={composerButtonClass("solid")} existingGif={Boolean(card.gif_url)} />
             </>
           }
@@ -55,13 +55,13 @@ export function InlineComposer({
           after={<GifSearchPicker columnTitle={columnTitle} />}
           actions={
             <>
-              <Link aria-label="Cancel card" className={composerButtonClass("ghost")} href={`/retros/${retroId}`}>x</Link>
+              <Link aria-label="Cancel card" className={composerButtonClass("ghost")} href={`/retros/${retroId}`}>×</Link>
               <ComposerSubmit className={composerButtonClass("solid")} />
             </>
           }
           columnId={columnId}
           draftText={draftText}
-          placeholder="what's on your mind, na?"
+          placeholder="What's on your mind?"
           retroId={retroId}
         />
       </GifDraftProvider>

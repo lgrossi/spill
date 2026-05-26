@@ -43,7 +43,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
         type="button"
       >
         <span>GIF</span>
-        <span>{open ? "-" : "+"}</span>
+        <span>{open ? "−" : "+"}</span>
       </button>
 
       {open ? (

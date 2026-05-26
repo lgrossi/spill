@@ -114,13 +114,13 @@ function CommittedActions({ allCards, board }: { allCards: RetroCard[]; board: R
               <form action={confirmActionItemAction}>
                 <input name="retro_id" type="hidden" value={board.retro.id} />
                 <input name="action_id" type="hidden" value={action.id} />
-                <button aria-label="Reopen action" className={actionCheckClass(true)} type="submit">ok</button>
+                <button aria-label="Reopen action" className={actionCheckClass(true)} type="submit">✓</button>
               </form>
             ) : action.status !== "rejected" ? (
               <form action={completeActionItemAction}>
                 <input name="retro_id" type="hidden" value={board.retro.id} />
                 <input name="action_id" type="hidden" value={action.id} />
-                <button aria-label="Mark action done" className={actionCheckClass(false)} type="submit">ok</button>
+                <button aria-label="Mark action done" className={actionCheckClass(false)} type="submit">✓</button>
               </form>
             ) : null}
           </div>
