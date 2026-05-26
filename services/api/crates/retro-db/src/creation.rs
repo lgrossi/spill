@@ -1,8 +1,8 @@
 use sqlx::PgPool;
 
 use crate::{
-    CreateRetroInput, ReadyInfo, RetroBoard, RetroColumnRecord, RetroColumnRow, RetroRecord,
-    VotingInfo,
+    CreateRetroInput, ParticipantRecord, ReadyInfo, RetroBoard, RetroColumnRecord, RetroColumnRow,
+    RetroRecord, VotingInfo,
     domain_mapping::{column_accent_color, column_key},
 };
 
@@ -31,12 +31,12 @@ pub(super) async fn create_retro(
     .fetch_one(&mut *tx)
     .await?;
 
-    sqlx::query(
+    let participant = sqlx::query_as::<_, ParticipantRecord>(
         "INSERT INTO participants (retro_id, external_subject, display_name, role)
          VALUES ($1, $2, $3, 'host')
          ON CONFLICT (retro_id, external_subject) DO UPDATE
          SET display_name = EXCLUDED.display_name
-         RETURNING id",
+         RETURNING id, retro_id, display_name, role",
     )
     .bind(retro.id)
     .bind(input.creator_subject.trim())
@@ -71,6 +71,7 @@ pub(super) async fn create_retro(
 
     Ok(RetroBoard {
         retro,
+        participants: vec![participant],
         columns: records,
         ready: ReadyInfo::default(),
         voting: VotingInfo::default(),

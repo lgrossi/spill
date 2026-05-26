@@ -13,6 +13,7 @@ export type {
   RetroCard,
   RetroColumn,
   RetroOverview,
+  RetroParticipant,
   RetroPhase,
   RetroSummary,
 } from "./contracts";

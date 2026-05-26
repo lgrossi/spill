@@ -105,6 +105,8 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
     let created: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(created["retro"]["phase"], "writing");
+    assert_eq!(created["participants"][0]["display_name"], "Ava");
+    assert_eq!(created["participants"][0]["role"], "host");
     assert_eq!(
         created["columns"]
             .as_array()
@@ -204,6 +206,15 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
         .unwrap();
     let ava_board: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let participant_ids = ava_board["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|participant| participant["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(participant_ids.len(), 2);
+    assert!(participant_ids.contains(&ava_board["columns"][0]["cards"][0]["author_participant_id"].as_str().unwrap()));
+    assert!(participant_ids.contains(&ava_board["columns"][0]["cards"][1]["author_participant_id"].as_str().unwrap()));
 
     assert_eq!(
         ava_board["columns"][0]["cards"][0]["body_text"],
@@ -714,6 +725,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary"}"#))
                 .unwrap(),
@@ -732,6 +744,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"mood","fail":true}"#))
                 .unwrap(),
@@ -751,6 +764,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
                 .uri(format!(
                     "/api/retros/{retro_id}/ai-jobs/{artifact_id}/retry"
                 ))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -807,6 +821,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary"}"#))
                 .unwrap(),
@@ -840,6 +855,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"mood"}"#))
                 .unwrap(),
@@ -898,6 +914,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/deliveries"))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary_export","fail":true}"#))
                 .unwrap(),
@@ -918,6 +935,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
                 .uri(format!(
                     "/api/retros/{retro_id}/deliveries/{delivery_id}/retry"
                 ))
+                .header(HEADER_USER_SUBJECT, "ava")
                 .body(Body::empty())
                 .unwrap(),
         )

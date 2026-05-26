@@ -291,11 +291,13 @@ async fn accept_deck_item(
 async fn start_ai_job(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<StartAiJobRequest>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     let artifact = job_workflow(repository, event_hub)?
-        .start_ai_job(retro_id, request)
+        .start_ai_job(user, retro_id, request)
         .await?;
     Ok(Json(artifact))
 }
@@ -303,10 +305,12 @@ async fn start_ai_job(
 async fn retry_ai_job(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, artifact_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     let artifact = job_workflow(repository, event_hub)?
-        .retry_ai_job(retro_id, artifact_id)
+        .retry_ai_job(user, retro_id, artifact_id)
         .await?;
     Ok(Json(artifact))
 }
@@ -328,11 +332,13 @@ async fn create_meeting_note(
 async fn create_delivery(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CreateDeliveryRequest>,
 ) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     let delivery = job_workflow(repository, event_hub)?
-        .create_delivery(retro_id, request)
+        .create_delivery(user, retro_id, request)
         .await?;
     Ok(Json(delivery))
 }
@@ -340,10 +346,12 @@ async fn create_delivery(
 async fn retry_delivery(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, delivery_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::DeliveryRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     let delivery = job_workflow(repository, event_hub)?
-        .retry_delivery(retro_id, delivery_id)
+        .retry_delivery(user, retro_id, delivery_id)
         .await?;
     Ok(Json(delivery))
 }
@@ -405,10 +413,12 @@ async fn delete_draft_card(
 async fn remove_cluster_member(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::CardRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     retro_workflow(repository, event_hub)?
-        .remove_cluster_member(retro_id, card_id)
+        .remove_cluster_member(user, retro_id, card_id)
         .await
         .map(Json)
 }
@@ -521,11 +531,13 @@ async fn start_action_discussion(
 async fn update_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateActionRequest>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
     let action = retro_workflow(repository, event_hub)?
-        .update_action(retro_id, action_id, request)
+        .update_action(user, retro_id, action_id, request)
         .await?;
     Ok(Json(action))
 }
@@ -533,33 +545,41 @@ async fn update_action(
 async fn confirm_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    set_action_status(repository, event_hub, retro_id, action_id, "confirmed").await
+    let user = CurrentUser::from_headers(&headers)?;
+    set_action_status(repository, event_hub, user, retro_id, action_id, "confirmed").await
 }
 
 async fn complete_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    set_action_status(repository, event_hub, retro_id, action_id, "done").await
+    let user = CurrentUser::from_headers(&headers)?;
+    set_action_status(repository, event_hub, user, retro_id, action_id, "done").await
 }
 
 async fn reject_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    set_action_status(repository, event_hub, retro_id, action_id, "rejected").await
+    let user = CurrentUser::from_headers(&headers)?;
+    set_action_status(repository, event_hub, user, retro_id, action_id, "rejected").await
 }
 
 async fn propose_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
-    set_action_status(repository, event_hub, retro_id, action_id, "proposed").await
+    let user = CurrentUser::from_headers(&headers)?;
+    set_action_status(repository, event_hub, user, retro_id, action_id, "proposed").await
 }
 
 async fn complete_retro(
@@ -578,12 +598,13 @@ async fn complete_retro(
 async fn set_action_status(
     repository: Option<RetroRepository>,
     event_hub: BoardEventHub,
+    user: CurrentUser,
     retro_id: Uuid,
     action_id: Uuid,
     status: &'static str,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
     let action = retro_workflow(repository, event_hub)?
-        .set_action_status(retro_id, action_id, status)
+        .set_action_status(user, retro_id, action_id, status)
         .await?;
     Ok(Json(action))
 }

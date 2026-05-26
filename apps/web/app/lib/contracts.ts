@@ -42,6 +42,7 @@ export type RetroCard = {
   id: string;
   retro_id: string;
   column_id: string;
+  author_participant_id: string;
   body_text: string | null;
   gif_url: string | null;
   gif_alt_text: string | null;
@@ -57,11 +58,19 @@ export type RetroCard = {
   cluster_category: string | null;
   cluster_members: {
     id: string;
+    author_participant_id: string;
     body_text: string | null;
     gif_url: string | null;
     gif_alt_text: string | null;
     hidden: boolean;
   }[];
+};
+
+export type RetroParticipant = {
+  id: string;
+  retro_id: string;
+  display_name: string;
+  role: "host" | "member";
 };
 
 export type GifResult = {
@@ -86,6 +95,7 @@ export type RetroBoard = {
     vote_limit: number;
     action_discussion_limit: number;
   };
+  participants: RetroParticipant[];
   columns: RetroColumn[];
   ready: {
     participant_count: number;

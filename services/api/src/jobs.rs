@@ -7,7 +7,7 @@ use crate::{
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
     identity::CurrentUser,
-    workflow::require_non_empty,
+    workflow::{authorize_retro_participant, require_non_empty},
 };
 
 #[derive(Clone)]
@@ -26,9 +26,11 @@ impl JobWorkflow {
 
     pub async fn start_ai_job(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         request: StartAiJobRequest,
     ) -> Result<retro_db::AiArtifactRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         validate_ai_kind(&request.kind)?;
         let artifact = self
             .repository
@@ -47,9 +49,11 @@ impl JobWorkflow {
 
     pub async fn retry_ai_job(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         artifact_id: Uuid,
     ) -> Result<retro_db::AiArtifactRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let artifact = self
             .repository
             .retry_ai_artifact(retro_id, artifact_id)
@@ -67,6 +71,7 @@ impl JobWorkflow {
         retro_id: Uuid,
         request: CreateMeetingNoteRequest,
     ) -> Result<retro_db::MeetingNoteRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let note = self
             .repository
             .create_meeting_note(CreateMeetingNoteInput {
@@ -87,9 +92,11 @@ impl JobWorkflow {
 
     pub async fn create_delivery(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         request: CreateDeliveryRequest,
     ) -> Result<retro_db::DeliveryRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         validate_delivery_kind(&request.kind)?;
         let output = match request.kind.as_str() {
             "summary_export" => self
@@ -116,9 +123,11 @@ impl JobWorkflow {
 
     pub async fn retry_delivery(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         delivery_id: Uuid,
     ) -> Result<retro_db::DeliveryRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let delivery = self
             .repository
             .retry_delivery(retro_id, delivery_id)

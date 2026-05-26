@@ -44,6 +44,7 @@ impl RetroRepository {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
+        let participants = self.fetch_participants(id).await?;
         let columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let actions = self.fetch_actions(id).await?;
@@ -55,6 +56,7 @@ impl RetroRepository {
         let voting = self.voting_info(id, "").await?;
         Ok(Some(RetroBoard {
             retro,
+            participants,
             columns,
             ready,
             voting,
@@ -78,6 +80,7 @@ impl RetroRepository {
         };
         let participant_id = self.ensure_participant(id, subject, display_name).await?;
         self.record_retro_access(id, participant_id).await?;
+        let participants = self.fetch_participants(id).await?;
         let mut columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let cards = self.fetch_cards_for_user(id, subject).await?;
@@ -91,6 +94,7 @@ impl RetroRepository {
         let voting = self.voting_info(id, subject).await?;
         Ok(Some(RetroBoard {
             retro,
+            participants,
             columns,
             ready,
             voting,
@@ -138,6 +142,35 @@ impl RetroRepository {
         overview::list_retros(&self.pool, subject).await
     }
 
+    pub async fn authorize_retro_participant(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+        display_name: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let participant_id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO participants (retro_id, external_subject, display_name, role)
+             SELECT $1, $2, $3, 'member'
+             WHERE EXISTS (SELECT 1 FROM retros WHERE id = $1)
+             ON CONFLICT (retro_id, external_subject)
+             DO UPDATE
+             SET display_name = EXCLUDED.display_name
+             RETURNING id",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .bind(display_name.trim())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(participant_id) = participant_id else {
+            return Ok(false);
+        };
+
+        self.record_retro_access(retro_id, participant_id).await?;
+        Ok(true)
+    }
+
     async fn ensure_participant(
         &self,
         retro_id: Uuid,
@@ -177,6 +210,21 @@ impl RetroRepository {
         .await?;
 
         Ok(())
+    }
+
+    async fn fetch_participants(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<ParticipantRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ParticipantRecord>(
+            "SELECT id, retro_id, display_name, role
+             FROM participants
+             WHERE retro_id = $1
+             ORDER BY CASE role WHEN 'host' THEN 0 ELSE 1 END, created_at ASC, id ASC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
     }
 
     async fn fetch_cards_for_user(
@@ -394,6 +442,7 @@ pub struct RetroRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct RetroBoard {
     pub retro: RetroRecord,
+    pub participants: Vec<ParticipantRecord>,
     pub columns: Vec<RetroColumnRecord>,
     pub ready: ReadyInfo,
     pub voting: VotingInfo,
@@ -403,6 +452,14 @@ pub struct RetroBoard {
     pub ai_artifacts: Vec<AiArtifactRecord>,
     pub meeting_notes: Vec<MeetingNoteRecord>,
     pub deliveries: Vec<DeliveryRecord>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct ParticipantRecord {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub display_name: String,
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -471,6 +528,7 @@ pub struct CardRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct ClusterMemberRecord {
     pub id: Uuid,
+    pub author_participant_id: Uuid,
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
@@ -481,6 +539,7 @@ impl From<&CardRecord> for ClusterMemberRecord {
     fn from(card: &CardRecord) -> Self {
         Self {
             id: card.id,
+            author_participant_id: card.author_participant_id,
             body_text: card.body_text.clone(),
             gif_url: card.gif_url.clone(),
             gif_alt_text: card.gif_alt_text.clone(),

@@ -63,6 +63,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
         request: CreateDraftCardRequest,
     ) -> Result<(StatusCode, retro_db::CardRecord), ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
         let card = self
@@ -89,6 +90,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
         request: IngestItemRequest,
     ) -> Result<(StatusCode, retro_db::IngestedItemRecord), ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         validate_source(&request.source)?;
         validate_placement(&request)?;
         let item = self
@@ -119,6 +121,7 @@ impl RetroWorkflow {
         item_id: Uuid,
         request: AcceptDeckItemRequest,
     ) -> Result<retro_db::CardRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card = self
             .repository
             .accept_deck_item(AcceptDeckItemInput {
@@ -142,6 +145,7 @@ impl RetroWorkflow {
         card_id: Uuid,
         request: UpdateDraftCardRequest,
     ) -> Result<retro_db::CardRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
         let card = self
@@ -168,6 +172,7 @@ impl RetroWorkflow {
         card_id: Uuid,
         request: MoveDraftCardRequest,
     ) -> Result<retro_db::CardRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card = self
             .repository
             .move_draft_card(
@@ -191,6 +196,7 @@ impl RetroWorkflow {
         card_id: Uuid,
         request: ClusterCardsRequest,
     ) -> Result<retro_db::ClusterRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let cluster = self
             .repository
             .cluster_cards(ClusterCardsInput {
@@ -212,6 +218,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
         card_id: Uuid,
     ) -> Result<StatusCode, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         if self
             .repository
             .delete_draft_card(card_id, &user.subject)
@@ -227,9 +234,11 @@ impl RetroWorkflow {
 
     pub async fn remove_cluster_member(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         card_id: Uuid,
     ) -> Result<retro_db::CardRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card = self
             .repository
             .remove_cluster_member(retro_id, card_id)
@@ -247,6 +256,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .mark_ready(retro_id, &user.subject, &user.display_name)
             .await
@@ -261,6 +271,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .unmark_ready(retro_id, &user.subject)
             .await
@@ -275,6 +286,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let board = self.fetch_board_for_user(retro_id, &user).await?;
         if board.retro.phase == "writing" && board.ready.ready_count < board.ready.participant_count
         {
@@ -296,6 +308,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .start_voting(retro_id)
             .await
@@ -311,6 +324,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
         request: CastVoteRequest,
     ) -> Result<retro_db::VotingInfo, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let info = self
             .repository
             .cast_vote(CastVoteInput {
@@ -332,6 +346,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
         card_id: Uuid,
     ) -> Result<retro_db::VotingInfo, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let info = self
             .repository
             .remove_vote(retro_id, card_id, &user.subject, &user.display_name)
@@ -346,6 +361,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .cluster_board(retro_id)
             .await
@@ -359,6 +375,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .start_action_discussion(retro_id)
             .await
@@ -370,10 +387,12 @@ impl RetroWorkflow {
 
     pub async fn update_action(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         action_id: Uuid,
         request: UpdateActionRequest,
     ) -> Result<retro_db::ActionItemRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let action = self
             .repository
             .update_action(UpdateActionInput {
@@ -391,10 +410,12 @@ impl RetroWorkflow {
 
     pub async fn set_action_status(
         &self,
+        user: CurrentUser,
         retro_id: Uuid,
         action_id: Uuid,
         status: &'static str,
     ) -> Result<retro_db::ActionItemRecord, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let action = self
             .repository
             .set_action_status(retro_id, action_id, status)
@@ -412,6 +433,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
             .complete_retro(retro_id)
             .await
@@ -434,6 +456,24 @@ impl RetroWorkflow {
             .await
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))
+    }
+}
+
+pub(crate) async fn authorize_retro_participant(
+    repository: &RetroRepository,
+    user: &CurrentUser,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    if repository
+        .authorize_retro_participant(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!("failed to authorize retro participant: {error}"))
+        })?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("retro not found"))
     }
 }
 
