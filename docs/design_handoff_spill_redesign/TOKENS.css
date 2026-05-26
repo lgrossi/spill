@@ -1,0 +1,126 @@
+/* Spill. — Daylight Cork design tokens
+   Drop into your global stylesheet, or translate to Tailwind theme / styled-components / etc.
+   Values are normative — match exactly. */
+
+:root {
+  /* ─── Surfaces ──────────────────────────────────────────── */
+  --paper:    #f3e8cf;   /* app canvas background */
+  --paper-2:  #ecdcb8;   /* slightly darker paper, used in chrome */
+  --panel:    #fbf3df;   /* raised panels, top bar, tiles */
+  --panel-hi: #fff8e6;   /* hover, input fields */
+  --line:     #d9c89e;   /* 1px borders */
+  --line-2:   #c4ae7a;   /* darker borders, dividers */
+
+  /* ─── Ink ───────────────────────────────────────────────── */
+  --fg:       #1f1812;   /* primary text, headings */
+  --fg-2:     #4a3d2e;   /* body text */
+  --muted:    #86755a;   /* labels, meta, placeholders */
+
+  /* ─── Column accents (semantic) ─────────────────────────── */
+  --c-mood:    #cf8a3f;   /* mood / how-you-feel */
+  --c-well:    #2f9469;   /* went well */
+  --c-wrong:   #cf4f4f;   /* went wrong   ← also = brand primary */
+  --c-act:     #8757b6;   /* actions */
+
+  --c-mood-in:  #e9a44e;
+  --c-well-in:  #3eb486;
+  --c-wrong-in: #e26565;
+  --c-act-in:   #a173d0;
+
+  /* ─── Type ──────────────────────────────────────────────── */
+  --font-ui:   "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-hand: "Caveat", cursive;
+
+  /* Scale */
+  --fs-display-xl: 56px;  /* hero numerals, board names */
+  --fs-display-lg: 28px;  /* board titles */
+  --fs-h1:         22px;  /* screen titles */
+  --fs-h2:         16px;  /* section headers */
+  --fs-body:       13.5px; /* card content */
+  --fs-ui:         12.5px; /* buttons, controls */
+  --fs-meta:       11px;   /* pills, status */
+  --fs-micro:      10px;   /* uppercase labels (letter-spacing: 1.4px) */
+
+  /* ─── Radii ─────────────────────────────────────────────── */
+  --r-sm:   6px;
+  --r-md:   8px;   /* default */
+  --r-lg:   12px;
+  --r-pill: 999px;
+
+  /* ─── Shadows ───────────────────────────────────────────── */
+  --shadow-1: 0 1px 0 rgba(74,52,20,0.06), 0 2px 6px rgba(74,52,20,0.06);
+  --shadow-2: 0 1px 0 rgba(74,52,20,0.08), 0 8px 18px -4px rgba(74,52,20,0.12);
+  --shadow-3: 0 2px 0 rgba(74,52,20,0.08), 0 16px 32px -8px rgba(74,52,20,0.18);
+  --focus:    0 0 0 3px rgba(207, 79, 79, 0.20);
+
+  /* Card-specific insets — apply ON TOP of --shadow-2 */
+  --card-inset-hi: inset 0 1px 0 rgba(255,255,255,0.18);
+  --card-inset-lo: inset 0 -1px 0 rgba(0,0,0,0.08);
+
+  /* ─── Spacing scale ─────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+}
+
+/* ─── Surface textures ──────────────────────────────────────
+   The soul of Daylight Cork. Apply .sp-paper to the body / app
+   root; .sp-card-grain to every Card; .sp-panel-grain to chrome. */
+
+.sp-paper {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(132,98,52,0.04) 0 1px, transparent 2px),
+    radial-gradient(circle at 65% 35%, rgba(132,98,52,0.045) 0 1px, transparent 2px),
+    radial-gradient(circle at 85% 70%, rgba(132,98,52,0.04) 0 1px, transparent 2px),
+    radial-gradient(circle at 25% 80%, rgba(132,98,52,0.05) 0 1px, transparent 2px),
+    radial-gradient(circle at 45% 55%, rgba(132,98,52,0.035) 0 1px, transparent 2px),
+    repeating-linear-gradient(115deg, rgba(180,140,80,0.03) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(35deg,  rgba(180,140,80,0.025) 0 1px, transparent 1px 5px);
+}
+
+.sp-panel-grain {
+  background-image:
+    repeating-linear-gradient(0deg,  rgba(60,40,20,0.018) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(60,40,20,0.012) 0 1px, transparent 1px 4px);
+}
+
+.sp-card-grain { position: relative; }
+.sp-card-grain::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg,  rgba(255,255,255,0.02) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.025) 0 1px, transparent 1px 3px);
+  border-radius: inherit;
+  mix-blend-mode: overlay;
+}
+
+/* ─── Animation utilities ──────────────────────────────────── */
+@keyframes sp-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47,148,105,0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(47,148,105,0); }
+}
+.sp-live-dot {
+  background: var(--c-well);
+  border-radius: 50%;
+  animation: sp-pulse 1.8s ease-out infinite;
+}
+
+@keyframes sp-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.sp-caret {
+  display: inline-block;
+  width: 2px; height: 1em;
+  background: var(--c-wrong);
+  vertical-align: -2px; margin-left: 1px;
+  animation: sp-caret 1s steps(1) infinite;
+}
