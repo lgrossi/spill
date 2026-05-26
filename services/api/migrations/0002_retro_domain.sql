@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE retros (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT NOT NULL CHECK (btrim(title) <> ''),
     phase TEXT NOT NULL DEFAULT 'writing' CHECK (phase IN ('writing', 'discussion', 'voting', 'action_discussion', 'completed')),
-    vote_limit INTEGER NOT NULL DEFAULT 3 CHECK (vote_limit > 0), action_discussion_limit INTEGER NOT NULL DEFAULT 3 CHECK (action_discussion_limit > 0),
+    vote_limit INTEGER NOT NULL DEFAULT 3 CHECK (vote_limit >= 0), action_discussion_limit INTEGER NOT NULL DEFAULT 3 CHECK (action_discussion_limit >= 0),
     clustering_mode TEXT NOT NULL DEFAULT 'manual' CHECK (clustering_mode IN ('manual', 'auto_on_vote_start', 'disabled')),
     clustering_status TEXT NOT NULL DEFAULT 'not_run' CHECK (clustering_status IN ('not_run', 'running', 'completed', 'failed')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ

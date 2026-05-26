@@ -14,13 +14,13 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use clap::{Parser, Subcommand};
 use retro_db::{
-    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterError, CreateMeetingNoteInput,
-    CreateRetroInput, DraftCardInput, IngestItemInput, RetroOverview, RetroRepository,
-    RetroTemplate, UpdateActionInput, VotingError,
+    AcceptDeckItemInput, ActionError, CastVoteInput, ClusterCardsInput, ClusterError,
+    CreateMeetingNoteInput, CreateRetroInput, DraftCardInput, IngestItemInput, RetroOverview,
+    RetroRepository, RetroTemplate, UpdateActionInput, VotingError,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -187,6 +187,8 @@ struct CreateRetroRequest {
     template: String,
     #[serde(default)]
     columns: Vec<String>,
+    #[serde(default)]
+    column_colors: Vec<String>,
     #[serde(default = "default_vote_limit")]
     vote_limit: i32,
     #[serde(default = "default_action_discussion_limit")]
@@ -206,11 +208,18 @@ struct UpdateDraftCardRequest {
     body_text: Option<String>,
     gif_url: Option<String>,
     gif_alt_text: Option<String>,
+    cluster_details: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct MoveDraftCardRequest {
     column_id: Uuid,
+    before_card_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+struct ClusterCardsRequest {
+    target_card_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -387,11 +396,26 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/cards/{card_id}",
             patch(update_draft_card).delete(delete_draft_card),
         )
-        .route("/retros/{retro_id}/cards/{card_id}/move", patch(move_draft_card))
-        .route("/retros/{retro_id}/ready", post(mark_ready))
+        .route(
+            "/retros/{retro_id}/cards/{card_id}/move",
+            patch(move_draft_card),
+        )
+        .route(
+            "/retros/{retro_id}/cards/{card_id}/cluster",
+            patch(cluster_cards),
+        )
+        .route(
+            "/retros/{retro_id}/cards/{card_id}/cluster-member",
+            delete(remove_cluster_member),
+        )
+        .route(
+            "/retros/{retro_id}/ready",
+            post(mark_ready).delete(unmark_ready),
+        )
         .route("/retros/{retro_id}/reveal", post(reveal_board))
         .route("/retros/{retro_id}/voting/start", post(start_voting))
         .route("/retros/{retro_id}/votes", post(cast_vote))
+        .route("/retros/{retro_id}/votes/{card_id}", delete(remove_vote))
         .route("/retros/{retro_id}/cluster", post(cluster_board))
         .route(
             "/retros/{retro_id}/actions/start",
@@ -406,8 +430,16 @@ fn api_router() -> Router<AppState> {
             post(confirm_action),
         )
         .route(
+            "/retros/{retro_id}/actions/{action_id}/done",
+            post(complete_action),
+        )
+        .route(
             "/retros/{retro_id}/actions/{action_id}/reject",
             post(reject_action),
+        )
+        .route(
+            "/retros/{retro_id}/actions/{action_id}/propose",
+            post(propose_action),
         )
         .route("/retros/{retro_id}/complete", post(complete_retro))
         .route("/retros/{retro_id}/ingest", post(ingest_item))
@@ -449,10 +481,12 @@ async fn session(headers: HeaderMap) -> Result<Json<SessionResponse>, ApiError> 
 
 async fn list_retros(
     State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
 ) -> Result<Json<RetroOverview>, ApiError> {
     let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
     repository
-        .list_retros()
+        .list_retros(&user.subject)
         .await
         .map(Json)
         .map_err(|error| ApiError::internal(format!("failed to list retros: {error}")))
@@ -473,11 +507,12 @@ async fn create_retro(
             creator_subject: user.subject,
             creator_display_name: user.display_name,
             template,
-            vote_limit: require_positive("vote_limit", request.vote_limit)?,
-            action_discussion_limit: require_positive(
+            vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
+            action_discussion_limit: require_non_negative(
                 "action_discussion_limit",
                 request.action_discussion_limit,
             )?,
+            column_colors: request.column_colors,
         })
         .await
         .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
@@ -730,6 +765,7 @@ async fn update_draft_card(
             card_body.body_text.as_deref(),
             card_body.gif_url.as_deref(),
             card_body.gif_alt_text.as_deref(),
+            request.cluster_details.as_deref(),
         )
         .await
         .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
@@ -750,7 +786,13 @@ async fn move_draft_card(
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
     repository
-        .move_draft_card(retro_id, card_id, request.column_id, &user.subject)
+        .move_draft_card(
+            retro_id,
+            card_id,
+            request.column_id,
+            request.before_card_id,
+            &user.subject,
+        )
         .await
         .map_err(|error| ApiError::internal(format!("failed to move draft card: {error}")))?
         .map(|card| {
@@ -758,6 +800,29 @@ async fn move_draft_card(
             Json(card)
         })
         .ok_or_else(|| ApiError::not_found("draft card not found"))
+}
+
+async fn cluster_cards(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<ClusterCardsRequest>,
+) -> Result<Json<retro_db::ClusterRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let cluster = repository
+        .cluster_cards(ClusterCardsInput {
+            retro_id,
+            card_id,
+            target_card_id: request.target_card_id,
+            subject: user.subject,
+            display_name: user.display_name,
+        })
+        .await
+        .map_err(cluster_error)?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(cluster))
 }
 
 async fn delete_draft_card(
@@ -778,6 +843,23 @@ async fn delete_draft_card(
     } else {
         Err(ApiError::not_found("draft card not found"))
     }
+}
+
+async fn remove_cluster_member(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::CardRecord>, ApiError> {
+    let repository = configured_repository(repository)?;
+    repository
+        .remove_cluster_member(retro_id, card_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to remove cluster member: {error}")))?
+        .map(|card| {
+            event_hub.publish(BoardEvent::CardChanged { retro_id });
+            Json(card)
+        })
+        .ok_or_else(|| ApiError::not_found("cluster member not found"))
 }
 
 async fn mark_ready(
@@ -801,6 +883,27 @@ async fn mark_ready(
         .ok_or_else(|| ApiError::not_found("retro not found"))
 }
 
+async fn unmark_ready(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    repository
+        .unmark_ready(retro_id, &user.subject)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to unmark ready: {error}")))?;
+    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
+    repository
+        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
 async fn reveal_board(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
@@ -815,7 +918,9 @@ async fn reveal_board(
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .ok_or_else(|| ApiError::not_found("retro not found"))?;
     if board.retro.phase == "writing" && board.ready.ready_count < board.ready.participant_count {
-        return Err(ApiError::bad_request("everyone must be ready before reveal"));
+        return Err(ApiError::bad_request(
+            "everyone must be ready before reveal",
+        ));
     }
     repository
         .reveal_board(retro_id)
@@ -868,6 +973,22 @@ async fn cast_vote(
             display_name: user.display_name,
             count: request.count,
         })
+        .await
+        .map_err(voting_error)?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(info))
+}
+
+async fn remove_vote(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path((retro_id, card_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::VotingInfo>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let info = repository
+        .remove_vote(retro_id, card_id, &user.subject, &user.display_name)
         .await
         .map_err(voting_error)?;
     event_hub.publish(BoardEvent::CardChanged { retro_id });
@@ -945,12 +1066,28 @@ async fn confirm_action(
     set_action_status(repository, event_hub, retro_id, action_id, "confirmed").await
 }
 
+async fn complete_action(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    set_action_status(repository, event_hub, retro_id, action_id, "done").await
+}
+
 async fn reject_action(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
     set_action_status(repository, event_hub, retro_id, action_id, "rejected").await
+}
+
+async fn propose_action(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
+    set_action_status(repository, event_hub, retro_id, action_id, "proposed").await
 }
 
 async fn complete_retro(
@@ -1181,10 +1318,8 @@ impl GifProvider {
 
         match search_klipy(query, page, kind).await {
             Ok(results) if !results.is_empty() => return Ok(results),
-            Ok(_) | Err(()) => {}
+            Ok(_) | Err(()) => Err(()),
         }
-
-        Ok(fake_gif_results(query, page, kind))
     }
 }
 
@@ -1224,7 +1359,9 @@ async fn search_klipy(
     match kind {
         MediaSearchKind::Gif => search_klipy_typed(query, page, "gifs", kind).await,
         MediaSearchKind::Sticker => search_klipy_typed(query, page, "stickers", kind).await,
-        MediaSearchKind::All | MediaSearchKind::Clip => search_klipy_unified(query, page, kind).await,
+        MediaSearchKind::All | MediaSearchKind::Clip => {
+            search_klipy_unified(query, page, kind).await
+        }
     }
 }
 
@@ -1247,10 +1384,7 @@ async fn search_klipy_unified(
         if let Some(pos) = &pos {
             request = request.query(&[("pos", pos)]);
         }
-        let search = request
-            .send()
-            .await
-            .map_err(|_| ())?;
+        let search = request.send().await.map_err(|_| ())?;
         if !search.status().is_success() {
             return Err(());
         }
@@ -1265,8 +1399,12 @@ async fn search_klipy_unified(
         .into_iter()
         .filter_map(|result| {
             let formats = &result.media_formats;
-            let image = select_klipy_media(formats, &["gif", "mediumgif", "tinygif", "nanogif", "webp"]);
-            let video = select_klipy_media(formats, &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"]);
+            let image =
+                select_klipy_media(formats, &["gif", "mediumgif", "tinygif", "nanogif", "webp"]);
+            let video = select_klipy_media(
+                formats,
+                &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"],
+            );
             let media = if kind == MediaSearchKind::Clip {
                 video.or(image)
             } else {
@@ -1317,7 +1455,10 @@ async fn search_klipy_typed(
     if !response.status().is_success() {
         return Err(());
     }
-    let response = response.json::<KlipyTypedSearchResponse>().await.map_err(|_| ())?;
+    let response = response
+        .json::<KlipyTypedSearchResponse>()
+        .await
+        .map_err(|_| ())?;
     Ok(response
         .data
         .into_iter()
@@ -1398,56 +1539,6 @@ fn select_klipy_media<'a>(
         .or_else(|| formats.values().next())
 }
 
-fn fake_gif_results(query: &str, page: usize, kind: MediaSearchKind) -> Vec<GifResult> {
-        let slug = query
-            .chars()
-            .filter_map(|character| {
-                if character.is_ascii_alphanumeric() {
-                    Some(character.to_ascii_lowercase())
-                } else if character.is_whitespace() || character == '-' || character == '_' {
-                    Some('-')
-                } else {
-                    None
-                }
-            })
-            .collect::<String>()
-            .trim_matches('-')
-            .to_owned();
-
-        let gif_ids = [
-            "111ebonMs90YLu",
-            "xT9IgG50Fb7Mi0prBC",
-            "l0MYt5jPR6QX5pnqM",
-            "26u4cqiYI30juCOGY",
-            "13HgwGsXF0aiGY",
-            "3oEjI6SIIHBdRxXI40",
-            "3o7abKhOpu0NwenH3O",
-            "26ufdipQqU2lhNA4g",
-            "26BRv0ThflsHCqDrG",
-            "3oriO0OEd9QIDdllqo",
-            "xT0xeJpnrWC4XWblEk",
-            "3oz8xIsloV7zOmt81G",
-            "l0HlBO7eyXzSZkJri",
-            "l4FGuhL4U2WyjdkaY",
-            "5VKbvrjxpVJCM",
-            "12XDYvMJNcmLgQ",
-        ];
-        let start = (query.bytes().fold(page * 4, |sum, byte| sum + byte as usize)) % gif_ids.len();
-
-        (0..8)
-            .map(|offset| gif_ids[(start + offset) % gif_ids.len()])
-            .enumerate()
-            .map(|(index, gif_id)| GifResult {
-                id: format!("{slug}-{page}-{}", index + 1),
-                url: format!("https://media.giphy.com/media/{gif_id}/giphy.gif"),
-                preview_url: format!("https://media.giphy.com/media/{gif_id}/200.gif"),
-                alt_text: format!("{query} GIF {}", page * 4 + index + 1),
-                media_type: "image".to_owned(),
-                kind: kind.as_str().to_owned(),
-            })
-            .collect()
-}
-
 async fn api_not_found() -> ApiError {
     ApiError::not_found("API route not found")
 }
@@ -1498,11 +1589,13 @@ fn require_non_empty(field: &'static str, value: String) -> Result<String, ApiEr
     }
 }
 
-fn require_positive(field: &'static str, value: i32) -> Result<i32, ApiError> {
-    if value > 0 {
+fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError> {
+    if value >= 0 {
         Ok(value)
     } else {
-        Err(ApiError::bad_request(format!("{field} must be positive")))
+        Err(ApiError::bad_request(format!(
+            "{field} must be zero or positive"
+        )))
     }
 }
 
@@ -1529,6 +1622,7 @@ fn action_error(error: ActionError) -> ApiError {
         ActionError::Sqlx(error) => {
             ApiError::internal(format!("action discussion failed: {error}"))
         }
+        ActionError::Invalid(message) => ApiError::bad_request(message),
     }
 }
 
@@ -1747,7 +1841,7 @@ mod tests {
                 .iter()
                 .map(|column| column["title"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["Mood", "Went well", "Went wrong", "Actions"]
+            ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
         let retro_id = created["retro"]["id"].as_str().unwrap();
@@ -1935,13 +2029,21 @@ mod tests {
         let search: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert_eq!(search["degraded"], false);
-        assert_eq!(search["results"].as_array().unwrap().len(), 8);
-        assert!(matches!(
-            search["results"][0]["media_type"].as_str(),
-            Some("image" | "video")
-        ));
-        assert!(search["results"][0]["url"].as_str().unwrap().starts_with("http"));
+        if search["degraded"].as_bool().unwrap() {
+            assert_eq!(search["results"].as_array().unwrap().len(), 0);
+        } else {
+            assert_eq!(search["results"].as_array().unwrap().len(), 8);
+            assert!(matches!(
+                search["results"][0]["media_type"].as_str(),
+                Some("image" | "video")
+            ));
+            assert!(
+                search["results"][0]["url"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("http")
+            );
+        }
 
         let response = app
             .clone()
@@ -1956,7 +2058,11 @@ mod tests {
         let page_two: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert_ne!(page_two["results"][0]["url"], search["results"][0]["url"]);
+        if page_two["degraded"].as_bool().unwrap() {
+            assert_eq!(page_two["results"].as_array().unwrap().len(), 0);
+        } else {
+            assert_ne!(page_two["results"][0]["url"], search["results"][0]["url"]);
+        }
 
         let response = app
             .clone()
@@ -1971,7 +2077,14 @@ mod tests {
         let other_query: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
-        assert_ne!(other_query["results"][0]["url"], search["results"][0]["url"]);
+        if other_query["degraded"].as_bool().unwrap() {
+            assert_eq!(other_query["results"].as_array().unwrap().len(), 0);
+        } else {
+            assert_ne!(
+                other_query["results"][0]["url"],
+                search["results"][0]["url"]
+            );
+        }
 
         let response = app
             .clone()

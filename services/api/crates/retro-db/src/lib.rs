@@ -25,12 +25,17 @@ impl RetroRepository {
     }
 
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
-        let columns = input.template.column_titles();
+        let mut columns = input.template.column_titles();
+        if input.action_discussion_limit > 0
+            && !columns.iter().any(|column| column.trim().eq_ignore_ascii_case("actions"))
+        {
+            columns.push("Actions".to_owned());
+        }
         let mut tx = self.pool.begin().await?;
 
         let retro = sqlx::query_as::<_, RetroRecord>(
-            "INSERT INTO retros (title, vote_limit, action_discussion_limit)
-             VALUES ($1, $2, $3)
+            "INSERT INTO retros (title, vote_limit, action_discussion_limit, clustering_mode)
+             VALUES ($1, $2, $3, 'disabled')
              RETURNING id, title, phase, vote_limit, action_discussion_limit",
         )
         .bind(input.title.trim())
@@ -54,15 +59,22 @@ impl RetroRepository {
 
         let mut records = Vec::with_capacity(columns.len());
         for (position, title) in columns.iter().enumerate() {
+            let accent_color = input
+                .column_colors
+                .get(position)
+                .map(String::as_str)
+                .filter(|color| !color.trim().is_empty())
+                .unwrap_or_else(|| column_accent_color(title, position));
             let record = sqlx::query_as::<_, RetroColumnRow>(
-                "INSERT INTO retro_columns (retro_id, column_key, title, position)
-                 VALUES ($1, $2, $3, $4)
-                 RETURNING id, retro_id, column_key, title, position, order_direction",
+                "INSERT INTO retro_columns (retro_id, column_key, title, position, accent_color)
+                 VALUES ($1, $2, $3, $4, $5)
+                 RETURNING id, retro_id, column_key, title, position, order_direction, accent_color",
             )
             .bind(retro.id)
             .bind(column_key(title, position))
             .bind(title.trim())
             .bind(position as i32)
+            .bind(accent_color)
             .fetch_one(&mut *tx)
             .await?;
             records.push(record.into());
@@ -120,7 +132,8 @@ impl RetroRepository {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
-        self.ensure_participant(id, subject, display_name).await?;
+        let participant_id = self.ensure_participant(id, subject, display_name).await?;
+        self.record_retro_access(id, participant_id).await?;
         let mut columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let cards = self.fetch_cards_for_user(id, subject).await?;
@@ -129,8 +142,24 @@ impl RetroRepository {
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         let meeting_notes = self.fetch_meeting_notes(id).await?;
         let deliveries = self.fetch_deliveries(id).await?;
+        let mut member_cards = std::collections::BTreeMap::<Uuid, Vec<ClusterMemberRecord>>::new();
+        let mut top_level_cards = Vec::new();
+        for card in cards {
+            if let Some(parent_card_id) = card.parent_card_id {
+                member_cards
+                    .entry(parent_card_id)
+                    .or_default()
+                    .push(ClusterMemberRecord::from(&card));
+            } else {
+                top_level_cards.push(card);
+            }
+        }
+        for card in &mut top_level_cards {
+            card.cluster_members = member_cards.remove(&card.id).unwrap_or_default();
+        }
+
         for column in &mut columns {
-            column.cards = cards
+            column.cards = top_level_cards
                 .iter()
                 .filter(|card| card.column_id == column.id)
                 .cloned()
@@ -157,7 +186,7 @@ impl RetroRepository {
         retro_id: Uuid,
     ) -> Result<Vec<RetroColumnRecord>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetroColumnRow>(
-            "SELECT id, retro_id, column_key, title, position, order_direction
+            "SELECT id, retro_id, column_key, title, position, order_direction, accent_color
              FROM retro_columns
              WHERE retro_id = $1
              ORDER BY position ASC",
@@ -183,7 +212,7 @@ impl RetroRepository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    pub async fn list_retros(&self) -> Result<RetroOverview, sqlx::Error> {
+    pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetroSummaryRow>(
             "SELECT
                 r.id,
@@ -191,18 +220,63 @@ impl RetroRepository {
                 r.phase,
                 r.vote_limit,
                 r.action_discussion_limit,
+                to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+                to_char(
+                    GREATEST(
+                        r.created_at,
+                        COALESCE(r.completed_at, r.created_at),
+                        COALESCE((SELECT MAX(card.updated_at) FROM cards card WHERE card.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(v.created_at) FROM votes v WHERE v.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(ai.created_at) FROM action_items ai WHERE ai.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(rm.ready_at) FROM participant_ready_marks rm WHERE rm.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(artifact.updated_at) FROM ai_artifacts artifact WHERE artifact.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(note.created_at) FROM meeting_notes note WHERE note.retro_id = r.id), r.created_at),
+                        COALESCE((SELECT MAX(delivery.updated_at) FROM deliveries delivery WHERE delivery.retro_id = r.id), r.created_at)
+                    ) AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'
+                ) AS last_activity_at,
+                (
+                    SELECT to_char(MAX(ra.opened_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')
+                    FROM retro_accesses ra
+                    JOIN participants ap ON ap.id = ra.participant_id
+                    WHERE ra.retro_id = r.id AND ap.external_subject = $1
+                ) AS last_opened_at,
                 COUNT(DISTINCT p.id)::BIGINT AS participant_count,
                 COUNT(DISTINCT c.id)::BIGINT AS column_count,
-                COUNT(DISTINCT a.id) FILTER (WHERE a.status <> 'rejected')::BIGINT AS unresolved_action_count,
-                COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags
+                COUNT(DISTINCT a.id) FILTER (WHERE a.status NOT IN ('rejected', 'done'))::BIGINT AS unresolved_action_count,
+                COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            jsonb_build_object(
+                                'id', ai.id,
+                                'title', ai.title,
+                                'status', ai.status
+                            )
+                            ORDER BY ai.position, ai.created_at, ai.id
+                        )
+                        FROM action_items ai
+                        WHERE ai.retro_id = r.id AND ai.status NOT IN ('rejected', 'done')
+                    ),
+                    '[]'::jsonb
+                ) AS open_actions
              FROM retros r
              LEFT JOIN participants p ON p.retro_id = r.id
              LEFT JOIN retro_columns c ON c.retro_id = r.id
              LEFT JOIN action_items a ON a.retro_id = r.id
              LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
+	             WHERE EXISTS (
+	                 SELECT 1
+	                 FROM participants scoped_participant
+	                 LEFT JOIN retro_accesses scoped_access ON scoped_access.participant_id = scoped_participant.id
+	                 WHERE scoped_participant.retro_id = r.id
+	                   AND scoped_participant.external_subject = $1
+	                   AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
+	             )
              GROUP BY r.id
-             ORDER BY r.created_at DESC",
+             ORDER BY last_activity_at DESC, r.created_at DESC",
         )
+        .bind(subject)
         .fetch_all(&self.pool)
         .await?;
 
@@ -235,10 +309,10 @@ impl RetroRepository {
                 $4,
                 $5,
                 $6,
-                'draft',
+                (SELECT CASE WHEN phase = 'writing' THEN 'draft' ELSE 'revealed' END FROM retros WHERE id = $1),
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
              )
-             RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, NULL::UUID AS cluster_id, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+             RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, NULL::UUID AS cluster_id, NULL::UUID AS parent_card_id, NULL::TEXT AS cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(input.retro_id)
         .bind(input.column_id)
@@ -370,22 +444,33 @@ impl RetroRepository {
         body_text: Option<&str>,
         gif_url: Option<&str>,
         gif_alt_text: Option<&str>,
+        cluster_details: Option<&str>,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
-             SET body_text = $3, gif_url = $4, gif_alt_text = $5, updated_at = NOW()
-             FROM participants p
+             SET body_text = CASE
+                     WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN COALESCE($3, c.body_text)
+                     ELSE $3
+                 END,
+                 gif_url = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $4 END,
+                 gif_alt_text = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $5 END,
+                 cluster_details = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $6 END,
+                 updated_at = NOW()
+             FROM participants p, retros r
              WHERE c.id = $1
                AND c.author_participant_id = p.id
-               AND p.external_subject = $2
-               AND c.state = 'draft'
-             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+               AND r.id = c.retro_id
+               AND r.phase <> 'completed'
+               AND c.parent_card_id IS NULL
+               AND ((c.state = 'draft' AND p.external_subject = $2) OR c.state = 'revealed')
+             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
         .bind(subject)
         .bind(body_text.map(str::trim).filter(|value| !value.is_empty()))
         .bind(gif_url.map(str::trim).filter(|value| !value.is_empty()))
         .bind(gif_alt_text.map(str::trim).filter(|value| !value.is_empty()))
+        .bind(cluster_details.map(str::trim).filter(|value| !value.is_empty()))
         .fetch_optional(&self.pool)
         .await
     }
@@ -395,29 +480,95 @@ impl RetroRepository {
         retro_id: Uuid,
         card_id: Uuid,
         column_id: Uuid,
+        before_card_id: Option<Uuid>,
         subject: &str,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
-        sqlx::query_as::<_, CardRecord>(
+        let mut tx = self.pool.begin().await?;
+
+        let moved = sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
              SET column_id = $3,
-                 position = (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $4 AND column_id = $3),
+	                 position = (
+	                     SELECT COALESCE(MAX(position) + 1, 0)
+	                     FROM cards
+	                     WHERE retro_id = $4 AND column_id = $3
+	                 ),
                  updated_at = NOW()
-             FROM participants p, retro_columns rc
+             FROM participants p, retro_columns rc, retros r
              WHERE c.id = $1
                AND c.author_participant_id = p.id
-               AND p.external_subject = $2
-               AND c.state = 'draft'
                AND c.retro_id = $4
+               AND r.id = c.retro_id
                AND rc.id = $3
                AND rc.retro_id = $4
-             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+               AND r.phase <> 'completed'
+               AND (c.state = 'revealed' OR (c.state = 'draft' AND p.external_subject = $2))
+             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
         .bind(subject)
         .bind(column_id)
         .bind(retro_id)
-        .fetch_optional(&self.pool)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(_) = moved else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        let existing_card_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id
+             FROM cards
+             WHERE retro_id = $1
+               AND column_id = $2
+               AND id <> $3
+             ORDER BY position ASC, id ASC",
+        )
+        .bind(retro_id)
+        .bind(column_id)
+        .bind(card_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut ordered_card_ids = Vec::with_capacity(existing_card_ids.len() + 1);
+        let mut inserted = false;
+        for existing_card_id in existing_card_ids {
+            if Some(existing_card_id) == before_card_id {
+                ordered_card_ids.push(card_id);
+                inserted = true;
+            }
+            ordered_card_ids.push(existing_card_id);
+        }
+        if !inserted {
+            ordered_card_ids.push(card_id);
+        }
+
+        for (position, ordered_card_id) in ordered_card_ids.iter().enumerate() {
+            sqlx::query("UPDATE cards SET position = $1, updated_at = NOW() WHERE id = $2")
+                .bind(position as i32)
+                .bind(ordered_card_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        sqlx::query("UPDATE cards SET column_id = $1, updated_at = NOW() WHERE parent_card_id = $2")
+            .bind(column_id)
+            .bind(card_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let moved = sqlx::query_as::<_, CardRecord>(
+            "SELECT c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden
+             FROM cards c
+             WHERE c.id = $1",
+        )
+        .bind(card_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(Some(moved))
     }
 
     pub async fn delete_draft_card(
@@ -427,11 +578,15 @@ impl RetroRepository {
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "DELETE FROM cards c
-             USING participants p
+             USING participants p, retros r
              WHERE c.id = $1
                AND c.author_participant_id = p.id
-               AND p.external_subject = $2
-               AND c.state = 'draft'",
+               AND r.id = c.retro_id
+               AND r.phase <> 'completed'
+               AND (
+                 (c.state = 'draft' AND p.external_subject = $2)
+                 OR (c.state = 'revealed' AND c.parent_card_id IS NULL)
+               )",
         )
         .bind(card_id)
         .bind(subject)
@@ -439,6 +594,84 @@ impl RetroRepository {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn remove_cluster_member(
+        &self,
+        retro_id: Uuid,
+        member_card_id: Uuid,
+    ) -> Result<Option<CardRecord>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let removed = sqlx::query_as::<_, CardRecord>(
+            "UPDATE cards member
+             SET parent_card_id = NULL,
+                 cluster_id = NULL,
+                 column_id = parent.column_id,
+                 position = (
+                    SELECT COALESCE(MAX(position) + 1, 0)
+                    FROM cards
+                    WHERE retro_id = $1 AND column_id = parent.column_id AND parent_card_id IS NULL
+                 ),
+                 updated_at = NOW()
+             FROM cards parent, retros r
+             WHERE member.id = $2
+               AND member.retro_id = $1
+               AND parent.id = member.parent_card_id
+               AND r.id = member.retro_id
+               AND r.phase <> 'completed'
+             RETURNING member.id, member.retro_id, member.column_id, member.author_participant_id, member.body_text, member.gif_url, member.gif_alt_text, member.state, member.position, member.cluster_id, member.parent_card_id, member.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+        )
+        .bind(retro_id)
+        .bind(member_card_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "WITH singleton_groups AS (
+                 SELECT parent.id, parent.column_id
+                 FROM cards parent
+                 JOIN cards child ON child.parent_card_id = parent.id
+                 WHERE parent.retro_id = $1
+                   AND parent.cluster_id IS NOT NULL
+                   AND parent.parent_card_id IS NULL
+                 GROUP BY parent.id, parent.column_id
+                 HAVING COUNT(child.id) = 1
+             )
+             UPDATE cards member
+             SET parent_card_id = NULL,
+                 cluster_id = NULL,
+                 column_id = singleton_groups.column_id,
+                 position = (
+                     SELECT COALESCE(MAX(position) + 1, 0)
+                     FROM cards
+                     WHERE retro_id = $1
+                       AND column_id = singleton_groups.column_id
+                       AND parent_card_id IS NULL
+                 ),
+                 updated_at = NOW()
+             FROM singleton_groups
+             WHERE member.retro_id = $1
+               AND member.parent_card_id = singleton_groups.id",
+        )
+        .bind(retro_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "DELETE FROM cards parent
+             WHERE parent.retro_id = $1
+               AND parent.cluster_id IS NOT NULL
+               AND parent.parent_card_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM cards child WHERE child.parent_card_id = parent.id
+               )",
+        )
+        .bind(retro_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(removed)
     }
 
     pub async fn mark_ready(
@@ -466,6 +699,24 @@ impl RetroRepository {
         Ok(())
     }
 
+    pub async fn unmark_ready(&self, retro_id: Uuid, subject: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM participant_ready_marks m
+             USING participants p, retros r
+             WHERE m.participant_id = p.id
+               AND m.retro_id = r.id
+               AND p.external_subject = $1
+               AND m.retro_id = $2
+               AND m.phase = CASE WHEN r.phase = 'voting' THEN 'voting' ELSE 'writing' END",
+        )
+        .bind(subject)
+        .bind(retro_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn reveal_board(&self, retro_id: Uuid) -> Result<RetroRecord, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let retro = sqlx::query_as::<_, RetroRecord>(
@@ -491,7 +742,7 @@ impl RetroRepository {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET phase = 'voting'
-             WHERE id = $1 AND phase = 'discussion'
+             WHERE id = $1 AND phase = 'discussion' AND vote_limit > 0
              RETURNING id, title, phase, vote_limit, action_discussion_limit",
         )
         .bind(retro_id)
@@ -556,6 +807,42 @@ impl RetroRepository {
             votes_used: attempted as i64,
             votes_remaining: retro.vote_limit - attempted,
         })
+    }
+
+    pub async fn remove_vote(
+        &self,
+        retro_id: Uuid,
+        card_id: Uuid,
+        subject: &str,
+        display_name: &str,
+    ) -> Result<VotingInfo, VotingError> {
+        let participant_id = self.ensure_participant(retro_id, subject, display_name).await?;
+        let retro = self
+            .fetch_retro(retro_id)
+            .await?
+            .ok_or_else(|| VotingError::Invalid("retro not found".to_owned()))?;
+        if retro.phase != "voting" {
+            return Err(VotingError::Invalid(
+                "retro is not in voting phase".to_owned(),
+            ));
+        }
+
+        sqlx::query(
+            "DELETE FROM votes
+             WHERE id = (
+                SELECT id FROM votes
+                WHERE retro_id = $1 AND participant_id = $2 AND target_card_id = $3
+                ORDER BY created_at DESC
+                LIMIT 1
+             )",
+        )
+        .bind(retro_id)
+        .bind(participant_id)
+        .bind(card_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.voting_info(retro_id, subject).await.map_err(Into::into)
     }
 
     pub async fn cluster_board(&self, retro_id: Uuid) -> Result<Vec<ClusterRecord>, ClusterError> {
@@ -637,6 +924,214 @@ impl RetroRepository {
         Ok(clusters)
     }
 
+    pub async fn cluster_cards(&self, input: ClusterCardsInput) -> Result<ClusterRecord, ClusterError> {
+        if input.card_id == input.target_card_id {
+            return Err(ClusterError::Invalid("cannot cluster a card with itself".to_owned()));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let retro = sqlx::query_as::<_, ClusteringRetro>(
+            "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1",
+        )
+        .bind(input.retro_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if retro.phase == "completed" {
+            return Err(ClusterError::Invalid(
+                "manual clustering is unavailable after completion".to_owned(),
+            ));
+        }
+
+        let participant_id = self
+            .ensure_participant(input.retro_id, &input.subject, &input.display_name)
+            .await?;
+
+        let cards = sqlx::query_as::<_, ClusterCardTarget>(
+            "SELECT c.id, c.column_id, c.cluster_id, c.parent_card_id, COALESCE(c.body_text, c.gif_alt_text, '') AS text
+             FROM cards c
+             JOIN participants p ON p.id = c.author_participant_id
+             WHERE c.retro_id = $1
+               AND c.id IN ($2, $3)
+               AND (
+                   c.state = 'revealed'
+                   OR ($5 = 'writing' AND c.state = 'draft' AND p.external_subject = $4)
+               )",
+        )
+        .bind(input.retro_id)
+        .bind(input.card_id)
+        .bind(input.target_card_id)
+        .bind(&input.subject)
+        .bind(&retro.phase)
+        .fetch_all(&mut *tx)
+        .await?;
+        if cards.len() != 2 {
+            return Err(ClusterError::Invalid("cluster target is not available".to_owned()));
+        }
+
+        let source = cards
+            .iter()
+            .find(|card| card.id == input.card_id)
+            .ok_or_else(|| ClusterError::Invalid("cluster source is not available".to_owned()))?;
+        let target = cards
+            .iter()
+            .find(|card| card.id == input.target_card_id)
+            .ok_or_else(|| ClusterError::Invalid("cluster target is not available".to_owned()))?;
+
+        let source_is_group_card = source.cluster_id.is_some() && source.parent_card_id.is_none();
+        let (cluster_id, cluster_parent_id) = if target.parent_card_id.is_some() || target.cluster_id.is_some() {
+            let parent_id = target.parent_card_id.unwrap_or(target.id);
+            let cluster_id = target
+                .cluster_id
+                .ok_or_else(|| ClusterError::Invalid("cluster target is unavailable".to_owned()))?;
+            (cluster_id, parent_id)
+        } else {
+            let title = manual_cluster_title(&source.text, &target.text);
+            let row = sqlx::query_as::<_, ClusterRow>(
+                "INSERT INTO card_clusters (retro_id, title, category, tags)
+                 VALUES ($1, $2, 'manual', $3)
+                 RETURNING id, retro_id, title, category, tags",
+            )
+            .bind(input.retro_id)
+            .bind(&title)
+            .bind(Json(vec!["manual".to_owned()]))
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let parent_card_id = sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO cards (retro_id, column_id, author_participant_id, cluster_id, body_text, gif_url, gif_alt_text, state, position)
+                 VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    NULL,
+                    NULL,
+                    'revealed',
+                    (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
+                 )
+                 RETURNING id",
+            )
+            .bind(input.retro_id)
+            .bind(target.column_id)
+            .bind(participant_id)
+            .bind(row.id)
+            .bind(title)
+            .fetch_one(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE cards
+                 SET parent_card_id = $1,
+                     column_id = $2,
+                     cluster_id = $3,
+                     updated_at = NOW()
+                 WHERE retro_id = $4 AND id = $5",
+            )
+            .bind(parent_card_id)
+            .bind(target.column_id)
+            .bind(row.id)
+            .bind(input.retro_id)
+            .bind(target.id)
+            .execute(&mut *tx)
+            .await?;
+
+            (row.id, parent_card_id)
+        };
+
+        if source_is_group_card {
+            sqlx::query(
+                "WITH RECURSIVE descendants AS (
+                    SELECT id
+                    FROM cards
+                    WHERE retro_id = $4 AND parent_card_id = $5
+                    UNION ALL
+                    SELECT child.id
+                    FROM cards child
+                    JOIN descendants parent ON child.parent_card_id = parent.id
+                    WHERE child.retro_id = $4
+                 ),
+                 group_cards AS (
+                    SELECT DISTINCT parent.id
+                    FROM descendants parent
+                    JOIN cards child ON child.parent_card_id = parent.id
+                 ),
+                 leaf_cards AS (
+                    SELECT descendants.id
+                    FROM descendants
+                    LEFT JOIN group_cards ON group_cards.id = descendants.id
+                    WHERE group_cards.id IS NULL
+                 )
+                 UPDATE cards
+                 SET cluster_id = $1,
+                     parent_card_id = $2,
+                     column_id = $3,
+                     updated_at = NOW()
+                 WHERE id IN (SELECT id FROM leaf_cards)",
+            )
+            .bind(cluster_id)
+            .bind(cluster_parent_id)
+            .bind(target.column_id)
+            .bind(input.retro_id)
+            .bind(source.id)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "WITH RECURSIVE descendants AS (
+                    SELECT id
+                    FROM cards
+                    WHERE retro_id = $2 AND parent_card_id = $1
+                    UNION ALL
+                    SELECT child.id
+                    FROM cards child
+                    JOIN descendants parent ON child.parent_card_id = parent.id
+                    WHERE child.retro_id = $2
+                 ),
+                 group_cards AS (
+                    SELECT DISTINCT parent.id
+                    FROM descendants parent
+                    JOIN cards child ON child.parent_card_id = parent.id
+                 )
+                 DELETE FROM cards
+                 WHERE retro_id = $2 AND (id = $1 OR id IN (SELECT id FROM group_cards))",
+            )
+                .bind(source.id)
+                .bind(input.retro_id)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query(
+                "UPDATE cards
+                 SET cluster_id = $1,
+                     parent_card_id = $5,
+                     column_id = $6,
+                     updated_at = NOW()
+                 WHERE retro_id = $2 AND id = $3",
+            )
+            .bind(cluster_id)
+            .bind(input.retro_id)
+            .bind(input.card_id)
+            .bind(input.target_card_id)
+            .bind(cluster_parent_id)
+            .bind(target.column_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let cluster = sqlx::query_as::<_, ClusterRow>(
+            "SELECT id, retro_id, title, category, tags
+             FROM card_clusters
+             WHERE id = $1",
+        )
+        .bind(cluster_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(cluster.into())
+    }
+
     pub async fn start_action_discussion(
         &self,
         retro_id: Uuid,
@@ -645,26 +1140,69 @@ impl RetroRepository {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET phase = 'action_discussion'
-             WHERE id = $1 AND phase = 'voting'
+             WHERE id = $1 AND phase IN ('discussion', 'voting')
              RETURNING id, title, phase, vote_limit, action_discussion_limit",
         )
         .bind(retro_id)
         .fetch_one(&mut *tx)
         .await?;
 
-        let candidates = sqlx::query_as::<_, ActionCandidate>(
-            "SELECT c.id, COALESCE(c.body_text, c.gif_alt_text, 'Untitled card') AS title, COALESCE(SUM(v.count), 0)::BIGINT AS vote_count
-             FROM cards c
-             LEFT JOIN votes v ON v.target_card_id = c.id
-             WHERE c.retro_id = $1 AND c.state = 'revealed'
-             GROUP BY c.id
-             ORDER BY vote_count DESC, c.created_at ASC
-             LIMIT $2",
-        )
-        .bind(retro_id)
-        .bind(retro.action_discussion_limit as i64)
-        .fetch_all(&mut *tx)
-        .await?;
+        let action_column_id = if retro.action_discussion_limit > 0 {
+            Some(
+                sqlx::query_scalar::<_, Uuid>(
+                "SELECT id
+                 FROM retro_columns
+                 WHERE retro_id = $1 AND LOWER(title) LIKE '%action%'
+                 ORDER BY position ASC
+                 LIMIT 1",
+                )
+                .bind(retro_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| ActionError::Invalid("action column unavailable".to_owned()))?,
+            )
+        } else {
+            None
+        };
+
+        let candidates = if retro.vote_limit > 0 && retro.action_discussion_limit > 0 {
+            let action_column_id =
+                action_column_id.ok_or_else(|| ActionError::Invalid("action column unavailable".to_owned()))?;
+            sqlx::query_as::<_, ActionCandidate>(
+                "SELECT c.id, COALESCE(c.body_text, c.gif_alt_text, 'Untitled card') AS title, COALESCE(SUM(v.count), 0)::BIGINT AS vote_count
+                 FROM cards c
+                 LEFT JOIN votes v ON v.target_card_id = c.id
+                 WHERE c.retro_id = $1 AND c.state = 'revealed' AND c.column_id <> $2
+                 GROUP BY c.id
+                 HAVING COALESCE(SUM(v.count), 0) > 0
+                 ORDER BY vote_count DESC, c.created_at ASC
+                 LIMIT $3",
+            )
+            .bind(retro_id)
+            .bind(action_column_id)
+            .bind(retro.action_discussion_limit as i64)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
+
+        if let Some(action_column_id) = action_column_id {
+            for candidate in &candidates {
+                sqlx::query(
+                    "UPDATE cards
+                     SET column_id = $2,
+                         position = (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2),
+                         updated_at = NOW()
+                     WHERE id = $3 AND retro_id = $1",
+                )
+                .bind(retro_id)
+                .bind(action_column_id)
+                .bind(candidate.id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
 
         for (position, candidate) in candidates.iter().enumerate() {
             let tags = action_tags(&candidate.title);
@@ -929,6 +1467,33 @@ impl RetroRepository {
         Ok(row.map(Into::into))
     }
 
+    pub async fn create_action(
+        &self,
+        input: CreateActionInput,
+    ) -> Result<ActionItemRecord, sqlx::Error> {
+        let tags = action_tags(&input.title);
+        let row = sqlx::query_as::<_, ActionItemRow>(
+            "INSERT INTO action_items (retro_id, title, details, status, position, tags)
+             VALUES (
+                $1,
+                $2,
+                $3,
+                'confirmed',
+                (SELECT COALESCE(MAX(position) + 1, 0) FROM action_items WHERE retro_id = $1),
+                $4
+             )
+             RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position, tags",
+        )
+        .bind(input.retro_id)
+        .bind(input.title.trim())
+        .bind(input.details.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+        .bind(Json(tags))
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.into())
+    }
+
     pub async fn set_action_status(
         &self,
         retro_id: Uuid,
@@ -937,7 +1502,7 @@ impl RetroRepository {
     ) -> Result<Option<ActionItemRecord>, sqlx::Error> {
         let row = sqlx::query_as::<_, ActionItemRow>(
             "UPDATE action_items
-             SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN NOW() ELSE confirmed_at END
+             SET status = $3, confirmed_at = CASE WHEN $3 IN ('confirmed', 'done') THEN COALESCE(confirmed_at, NOW()) ELSE NULL END
              WHERE id = $1 AND retro_id = $2
              RETURNING id, retro_id, source_card_id, source_cluster_id, title, details, status, position, tags",
         )
@@ -972,6 +1537,25 @@ impl RetroRepository {
         Ok(record.id)
     }
 
+    async fn record_retro_access(
+        &self,
+        retro_id: Uuid,
+        participant_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO retro_accesses (retro_id, participant_id, opened_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (retro_id, participant_id) DO UPDATE
+             SET opened_at = EXCLUDED.opened_at",
+        )
+        .bind(retro_id)
+        .bind(participant_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn fetch_cards_for_user(
         &self,
         retro_id: Uuid,
@@ -998,6 +1582,8 @@ impl RetroRepository {
                 c.state,
                 c.position,
                 c.cluster_id,
+                c.parent_card_id,
+                c.cluster_details,
                 cc.title AS cluster_title,
                 cc.category AS cluster_category,
                 COALESCE(SUM(v.count), 0)::BIGINT AS vote_count,
@@ -1204,6 +1790,7 @@ pub struct RetroColumnRecord {
     pub title: String,
     pub position: i32,
     pub order_direction: String,
+    pub accent_color: Option<String>,
     #[serde(default)]
     pub cards: Vec<CardRecord>,
 }
@@ -1216,6 +1803,7 @@ struct RetroColumnRow {
     title: String,
     position: i32,
     order_direction: String,
+    accent_color: Option<String>,
 }
 
 impl From<RetroColumnRow> for RetroColumnRecord {
@@ -1227,6 +1815,7 @@ impl From<RetroColumnRow> for RetroColumnRecord {
             title: row.title,
             position: row.position,
             order_direction: row.order_direction,
+            accent_color: row.accent_color,
             cards: Vec::new(),
         }
     }
@@ -1244,11 +1833,37 @@ pub struct CardRecord {
     pub state: String,
     pub position: i32,
     pub cluster_id: Option<Uuid>,
+    pub parent_card_id: Option<Uuid>,
+    pub cluster_details: Option<String>,
     pub cluster_title: Option<String>,
     pub cluster_category: Option<String>,
     pub vote_count: i64,
     pub current_user_vote_count: i64,
     pub hidden: bool,
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub cluster_members: Vec<ClusterMemberRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ClusterMemberRecord {
+    pub id: Uuid,
+    pub body_text: Option<String>,
+    pub gif_url: Option<String>,
+    pub gif_alt_text: Option<String>,
+    pub hidden: bool,
+}
+
+impl From<&CardRecord> for ClusterMemberRecord {
+    fn from(card: &CardRecord) -> Self {
+        Self {
+            id: card.id,
+            body_text: card.body_text.clone(),
+            gif_url: card.gif_url.clone(),
+            gif_alt_text: card.gif_alt_text.clone(),
+            hidden: card.hidden,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1482,10 +2097,21 @@ pub struct RetroSummary {
     pub phase: String,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
+    pub created_at: String,
+    pub last_activity_at: String,
+    pub last_opened_at: Option<String>,
     pub participant_count: i64,
     pub column_count: i64,
     pub unresolved_action_count: i64,
     pub recurring_tags: Vec<String>,
+    pub open_actions: Vec<RetroActionSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RetroActionSummary {
+    pub id: Uuid,
+    pub title: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -1495,10 +2121,14 @@ struct RetroSummaryRow {
     phase: String,
     vote_limit: i32,
     action_discussion_limit: i32,
+    created_at: String,
+    last_activity_at: String,
+    last_opened_at: Option<String>,
     participant_count: i64,
     column_count: i64,
     unresolved_action_count: i64,
     recurring_tags: Json<Vec<String>>,
+    open_actions: Json<Vec<RetroActionSummary>>,
 }
 
 impl From<RetroSummaryRow> for RetroSummary {
@@ -1509,10 +2139,14 @@ impl From<RetroSummaryRow> for RetroSummary {
             phase: row.phase,
             vote_limit: row.vote_limit,
             action_discussion_limit: row.action_discussion_limit,
+            created_at: row.created_at,
+            last_activity_at: row.last_activity_at,
+            last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
             column_count: row.column_count,
             unresolved_action_count: row.unresolved_action_count,
             recurring_tags: row.recurring_tags.0,
+            open_actions: row.open_actions.0,
         }
     }
 }
@@ -1531,6 +2165,7 @@ pub struct CreateRetroInput {
     pub template: RetroTemplate,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
+    pub column_colors: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1587,6 +2222,15 @@ pub struct CastVoteInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct ClusterCardsInput {
+    pub retro_id: Uuid,
+    pub card_id: Uuid,
+    pub target_card_id: Uuid,
+    pub subject: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct UpdateActionInput {
     pub retro_id: Uuid,
     pub action_id: Uuid,
@@ -1594,9 +2238,17 @@ pub struct UpdateActionInput {
     pub details: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CreateActionInput {
+    pub retro_id: Uuid,
+    pub title: String,
+    pub details: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ActionError {
     Sqlx(sqlx::Error),
+    Invalid(String),
 }
 
 impl From<sqlx::Error> for ActionError {
@@ -1643,6 +2295,15 @@ struct ClusterCandidate {
     text: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ClusterCardTarget {
+    id: Uuid,
+    column_id: Uuid,
+    cluster_id: Option<Uuid>,
+    parent_card_id: Option<Uuid>,
+    text: String,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct ActionCandidate {
     id: Uuid,
@@ -1676,7 +2337,7 @@ pub enum RetroTemplate {
 impl RetroTemplate {
     fn column_titles(&self) -> Vec<String> {
         match self {
-            Self::Standard => ["Mood", "Went well", "Went wrong", "Actions"]
+            Self::Standard => ["How are you feeling?", "Went well", "To improve"]
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect(),
@@ -1713,6 +2374,27 @@ fn column_key(title: &str, position: usize) -> String {
     }
 }
 
+fn column_accent_color(title: &str, position: usize) -> &'static str {
+    let title = title.to_lowercase();
+    if title.contains("action") {
+        "#8757b6"
+    } else if title.contains("well") || title.contains("liked") {
+        "#2f9469"
+    } else if title.contains("wrong") || title.contains("lacked") || title.contains("improve") {
+        "#cf4f4f"
+    } else if title.contains("learned") {
+        "#0f5f72"
+    } else if title.contains("longed") {
+        "#cf8a3f"
+    } else if title.contains("feeling") {
+        "#0f5f72"
+    } else if title.contains("mood") {
+        "#cf8a3f"
+    } else {
+        ["#cf8a3f", "#2f9469", "#cf4f4f", "#8757b6"][position % 4]
+    }
+}
+
 fn cluster_key(text: &str) -> Option<String> {
     text.split_whitespace()
         .map(|word| {
@@ -1722,6 +2404,13 @@ fn cluster_key(text: &str) -> Option<String> {
                 .collect::<String>()
         })
         .find(|word| word.len() >= 4)
+}
+
+fn manual_cluster_title(source: &str, target: &str) -> String {
+    let key = cluster_key(source)
+        .or_else(|| cluster_key(target))
+        .unwrap_or_else(|| "cards".to_owned());
+    format!("Grouped: {key}")
 }
 
 fn action_tags(text: &str) -> Vec<String> {
@@ -1758,6 +2447,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -1770,10 +2460,10 @@ mod tests {
                 .iter()
                 .map(|column| column.title.as_str())
                 .collect::<Vec<_>>(),
-            ["Mood", "Went well", "Went wrong", "Actions"]
+            ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
-        let overview = repo.list_retros().await.unwrap();
+        let overview = repo.list_retros("user-123").await.unwrap();
         assert_eq!(overview.active.len(), 1);
         assert_eq!(overview.completed.len(), 0);
         assert_eq!(overview.active[0].participant_count, 1);
@@ -1795,11 +2485,11 @@ mod tests {
                         "Friction".to_owned(),
                         "Ideas".to_owned(),
                         "Questions".to_owned(),
-                        "Actions".to_owned(),
                     ],
                 },
                 vote_limit: 5,
                 action_discussion_limit: 2,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -1828,6 +2518,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -1881,6 +2572,29 @@ mod tests {
             lee_board.columns[0].cards[1].body_text.as_deref(),
             Some("Lee private draft")
         );
+
+        let late_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Added during discussion".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(late_card.state, "revealed");
+        let lee_board = repo
+            .fetch_board_for_user(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            lee_board.columns[0].cards[2].body_text.as_deref(),
+            Some("Added during discussion")
+        );
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
@@ -1894,6 +2608,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -1924,6 +2639,7 @@ mod tests {
                 Some("now with words"),
                 Some("https://media.example/thumbs-up.gif"),
                 Some("thumbs up"),
+                None,
             )
             .await
             .unwrap()
@@ -1935,7 +2651,7 @@ mod tests {
         );
 
         let removed = repo
-            .update_draft_card(card.id, "ava", Some("text only now"), None, None)
+            .update_draft_card(card.id, "ava", Some("text only now"), None, None, None)
             .await
             .unwrap()
             .unwrap();
@@ -1974,6 +2690,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -1992,14 +2709,14 @@ mod tests {
             .unwrap();
 
         let moved = repo
-            .move_draft_card(created.retro.id, card.id, created.columns[1].id, "ava")
+            .move_draft_card(created.retro.id, card.id, created.columns[1].id, None, "ava")
             .await
             .unwrap()
             .unwrap();
         assert_eq!(moved.column_id, created.columns[1].id);
 
         let lee_attempt = repo
-            .move_draft_card(created.retro.id, card.id, created.columns[2].id, "lee")
+            .move_draft_card(created.retro.id, card.id, created.columns[2].id, None, "lee")
             .await
             .unwrap();
         assert!(lee_attempt.is_none());
@@ -2016,6 +2733,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2051,6 +2769,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2121,6 +2840,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2144,6 +2864,11 @@ mod tests {
         }
 
         repo.reveal_board(created.retro.id).await.unwrap();
+        sqlx::query("UPDATE retros SET clustering_mode = 'auto_on_vote_start' WHERE id = $1")
+            .bind(created.retro.id)
+            .execute(&repo.pool)
+            .await
+            .unwrap();
         let clusters = repo.cluster_board(created.retro.id).await.unwrap();
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].category.as_deref(), Some("deploy"));
@@ -2171,7 +2896,154 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
-    async fn action_discussion_creates_editable_top_voted_actions(pool: PgPool) {
+    async fn manual_clustering_groups_cards_during_voting(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Manual cluster retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Manual cluster one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Manual cluster two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        let cluster = repo
+            .cluster_cards(ClusterCardsInput {
+                retro_id: created.retro.id,
+                card_id: first.id,
+                target_card_id: second.id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(cluster.category.as_deref(), Some("manual"));
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.columns[0].cards.len(), 1);
+        let group_card = &board.columns[0].cards[0];
+        assert_eq!(group_card.cluster_id, Some(cluster.id));
+        assert_eq!(group_card.cluster_title.as_deref(), Some("Grouped: manual"));
+        assert_eq!(
+            group_card
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![first.id, second.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn manual_clustering_across_columns_moves_source_to_target_column(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Cross column cluster retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let source = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Source card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let target = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Target card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        let cluster = repo
+            .cluster_cards(ClusterCardsInput {
+                retro_id: created.retro.id,
+                card_id: source.id,
+                target_card_id: target.id,
+                subject: "ava".to_owned(),
+                display_name: "Ava".to_owned(),
+            })
+            .await
+            .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(board.columns[0].cards.is_empty());
+        assert_eq!(board.columns[1].cards.len(), 1);
+        let group_card = &board.columns[1].cards[0];
+        assert_eq!(group_card.column_id, created.columns[1].id);
+        assert_eq!(group_card.cluster_id, Some(cluster.id));
+        assert_eq!(
+            group_card
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![source.id, target.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn action_discussion_moves_top_voted_cards_to_actions_column(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
             .create_retro(CreateRetroInput {
@@ -2181,6 +3053,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 2,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2232,6 +3105,34 @@ mod tests {
         assert_eq!(actions[1].source_card_id, Some(cards[1].id));
         assert!(actions[0].tags.contains(&"topvoted".to_owned()));
 
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let action_column = board
+            .columns
+            .iter()
+            .find(|column| column.title == "Actions")
+            .unwrap();
+        assert_eq!(
+            action_column
+                .cards
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![cards[0].id, cards[1].id]
+        );
+        assert!(
+            board.columns
+                .iter()
+                .find(|column| column.id == created.columns[0].id)
+                .unwrap()
+                .cards
+                .iter()
+                .any(|card| card.id == cards[2].id)
+        );
+
         let edited = repo
             .update_action(UpdateActionInput {
                 retro_id: created.retro.id,
@@ -2265,7 +3166,7 @@ mod tests {
             .unwrap();
         assert_eq!(completed.phase, "completed");
 
-        let overview = repo.list_retros().await.unwrap();
+        let overview = repo.list_retros("ava").await.unwrap();
         assert_eq!(overview.active.len(), 0);
         assert_eq!(overview.completed.len(), 1);
         assert_eq!(overview.completed[0].unresolved_action_count, 1);
@@ -2287,6 +3188,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2376,6 +3278,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2445,6 +3348,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
@@ -2496,6 +3400,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 1,
+                column_colors: Vec::new(),
             })
             .await
             .unwrap();
