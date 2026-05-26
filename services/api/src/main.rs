@@ -1,35 +1,46 @@
-use std::{
-    collections::HashMap,
-    env,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{
-        FromRef, Path, Query, State,
+        FromRef, Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::{delete, get, patch, post},
 };
 use clap::{Parser, Subcommand};
+use contracts::{
+    AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDeliveryRequest,
+    CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest, HealthResponse,
+    IngestItemRequest, MoveDraftCardRequest, SessionResponse, StartAiJobRequest,
+    UpdateActionRequest, UpdateDraftCardRequest,
+};
+use error::ApiError;
+use events::{BoardEvent, BoardEventHub};
+use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
+#[cfg(test)]
+use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
+use retro_core::{
+    AiArtifactKind, CardBody, DeliveryKind, DomainError, IngestedItemPlacement, IngestionSource,
+};
 use retro_db::{
     AcceptDeckItemInput, ActionError, CastVoteInput, ClusterCardsInput, ClusterError,
     CreateMeetingNoteInput, CreateRetroInput, DraftCardInput, IngestItemInput, RetroOverview,
     RetroRepository, RetroTemplate, UpdateActionInput, VotingError,
 };
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
-const HEADER_USER_SUBJECT: &str = "x-spillio-user-subject";
-const HEADER_USER_NAME: &str = "x-spillio-user-name";
+mod contracts;
+mod error;
+mod events;
+mod identity;
+mod media;
 
 #[derive(Parser, Debug)]
 #[command(name = "spillio-api")]
@@ -57,26 +68,11 @@ enum Command {
     },
 }
 
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-    service: &'static str,
-}
-
 #[derive(Clone, Default)]
 struct AppState {
     access_policy: LinkAccessPolicy,
     repository: Option<RetroRepository>,
     event_hub: BoardEventHub,
-}
-
-#[derive(Clone, Default)]
-struct LinkAccessPolicy;
-
-impl LinkAccessPolicy {
-    fn can_edit_retro_link(&self, retro_id: &str) -> bool {
-        !retro_id.trim().is_empty()
-    }
 }
 
 impl FromRef<AppState> for LinkAccessPolicy {
@@ -94,272 +90,6 @@ impl FromRef<AppState> for Option<RetroRepository> {
 impl FromRef<AppState> for BoardEventHub {
     fn from_ref(state: &AppState) -> Self {
         state.event_hub.clone()
-    }
-}
-
-#[derive(Clone, Default)]
-struct BoardEventHub {
-    channels: Arc<Mutex<HashMap<Uuid, broadcast::Sender<BoardEvent>>>>,
-}
-
-impl BoardEventHub {
-    fn subscribe(&self, retro_id: Uuid) -> broadcast::Receiver<BoardEvent> {
-        let sender = self.sender(retro_id);
-        let receiver = sender.subscribe();
-        let _ = sender.send(BoardEvent::BoardSnapshot { retro_id });
-        receiver
-    }
-
-    fn publish(&self, event: BoardEvent) {
-        let sender = self.sender(event.retro_id());
-        let _ = sender.send(event);
-    }
-
-    fn sender(&self, retro_id: Uuid) -> broadcast::Sender<BoardEvent> {
-        let mut channels = self
-            .channels
-            .lock()
-            .expect("board event hub mutex poisoned");
-        channels
-            .entry(retro_id)
-            .or_insert_with(|| {
-                let (sender, _) = broadcast::channel(128);
-                sender
-            })
-            .clone()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum BoardEvent {
-    BoardSnapshot { retro_id: Uuid },
-    CardChanged { retro_id: Uuid },
-    ReadyChanged { retro_id: Uuid },
-    PhaseChanged { retro_id: Uuid },
-}
-
-impl BoardEvent {
-    fn retro_id(&self) -> Uuid {
-        match self {
-            Self::BoardSnapshot { retro_id }
-            | Self::CardChanged { retro_id }
-            | Self::ReadyChanged { retro_id }
-            | Self::PhaseChanged { retro_id } => *retro_id,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct SessionResponse {
-    user: CurrentUser,
-    access_model: AccessModel,
-}
-
-#[derive(Serialize)]
-struct CurrentUser {
-    subject: String,
-    display_name: String,
-}
-
-impl CurrentUser {
-    fn from_headers(headers: &HeaderMap) -> Result<Self, ApiError> {
-        let subject = required_header(headers, HEADER_USER_SUBJECT)?;
-        let display_name =
-            optional_header(headers, HEADER_USER_NAME).unwrap_or_else(|| subject.clone());
-
-        Ok(Self {
-            subject,
-            display_name,
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct AccessModel {
-    kind: &'static str,
-    can_edit_with_link: bool,
-}
-
-#[derive(Deserialize)]
-struct CreateRetroRequest {
-    title: String,
-    template: String,
-    #[serde(default)]
-    columns: Vec<String>,
-    #[serde(default)]
-    column_colors: Vec<String>,
-    #[serde(default = "default_vote_limit")]
-    vote_limit: i32,
-    #[serde(default = "default_action_discussion_limit")]
-    action_discussion_limit: i32,
-}
-
-#[derive(Deserialize)]
-struct CreateDraftCardRequest {
-    column_id: Uuid,
-    body_text: Option<String>,
-    gif_url: Option<String>,
-    gif_alt_text: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct UpdateDraftCardRequest {
-    body_text: Option<String>,
-    gif_url: Option<String>,
-    gif_alt_text: Option<String>,
-    cluster_details: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct MoveDraftCardRequest {
-    column_id: Uuid,
-    before_card_id: Option<Uuid>,
-}
-
-#[derive(Deserialize)]
-struct ClusterCardsRequest {
-    target_card_id: Uuid,
-}
-
-#[derive(Deserialize)]
-struct CastVoteRequest {
-    card_id: Uuid,
-    #[serde(default = "default_vote_count")]
-    count: i32,
-}
-
-#[derive(Deserialize)]
-struct UpdateActionRequest {
-    title: String,
-    details: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct IngestItemRequest {
-    source: String,
-    placement: String,
-    target_column_id: Option<Uuid>,
-    suggested_text: Option<String>,
-    gif_url: Option<String>,
-    idempotency_key: Option<String>,
-    #[serde(default)]
-    source_metadata: serde_json::Value,
-    #[serde(default)]
-    raw_payload: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-struct AcceptDeckItemRequest {
-    column_id: Uuid,
-}
-
-#[derive(Deserialize)]
-struct StartAiJobRequest {
-    kind: String,
-    #[serde(default)]
-    fail: bool,
-}
-
-#[derive(Deserialize)]
-struct CreateMeetingNoteRequest {
-    title: Option<String>,
-    body_text: String,
-}
-
-#[derive(Deserialize)]
-struct CreateDeliveryRequest {
-    kind: String,
-    #[serde(default)]
-    fail: bool,
-}
-
-#[derive(Deserialize)]
-struct GifSearchQuery {
-    q: Option<String>,
-    #[serde(default)]
-    page: usize,
-    kind: Option<String>,
-}
-
-#[derive(Serialize)]
-struct GifSearchResponse {
-    results: Vec<GifResult>,
-    degraded: bool,
-}
-
-#[derive(Serialize)]
-struct GifResult {
-    id: String,
-    url: String,
-    preview_url: String,
-    alt_text: String,
-    media_type: String,
-    kind: String,
-}
-
-#[derive(Serialize)]
-struct ErrorBody {
-    error: ErrorDetail,
-}
-
-#[derive(Serialize)]
-struct ErrorDetail {
-    code: &'static str,
-    message: String,
-}
-
-#[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: String,
-}
-
-impl ApiError {
-    fn unauthorized(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: "unauthorized",
-            message: message.into(),
-        }
-    }
-
-    fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            code: "not_found",
-            message: message.into(),
-        }
-    }
-
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "bad_request",
-            message: message.into(),
-        }
-    }
-
-    fn internal(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "internal_error",
-            message: message.into(),
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let body = ErrorBody {
-            error: ErrorDetail {
-                code: self.code,
-                message: self.message,
-            },
-        };
-
-        (self.status, Json(body)).into_response()
     }
 }
 
@@ -387,7 +117,7 @@ fn app_with_state(state: AppState) -> Router {
 fn api_router() -> Router<AppState> {
     Router::new()
         .route("/session", get(session))
-        .route("/gifs/search", get(search_gifs))
+        .route("/gifs/search", get(media::search_gifs))
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro))
         .route("/retros/{retro_id}/events", get(board_events))
@@ -1155,27 +885,6 @@ async fn board_event_socket(mut socket: WebSocket, event_hub: BoardEventHub, ret
     }
 }
 
-async fn search_gifs(Query(query): Query<GifSearchQuery>) -> Json<GifSearchResponse> {
-    let provider = GifProvider;
-    match provider
-        .search(
-            query.q.as_deref().unwrap_or_default(),
-            query.page,
-            MediaSearchKind::from_query(query.kind.as_deref()),
-        )
-        .await
-    {
-        Ok(results) => Json(GifSearchResponse {
-            results,
-            degraded: false,
-        }),
-        Err(()) => Json(GifSearchResponse {
-            results: Vec::new(),
-            degraded: true,
-        }),
-    }
-}
-
 struct CardBodyPayload {
     body_text: Option<String>,
     gif_url: Option<String>,
@@ -1190,62 +899,50 @@ fn card_body_payload(
     let body_text = optional_non_empty(body_text);
     let gif_url = optional_non_empty(gif_url);
     let gif_alt_text = optional_non_empty(gif_alt_text);
-
-    if body_text.is_none() && gif_url.is_none() {
-        return Err(ApiError::bad_request("card requires text or gif"));
-    }
+    let body = CardBody::from_payload(body_text, gif_url, gif_alt_text).map_err(domain_error)?;
 
     Ok(CardBodyPayload {
-        body_text,
-        gif_url,
-        gif_alt_text,
+        body_text: body.text().map(ToOwned::to_owned),
+        gif_url: body.gif_url().map(ToOwned::to_owned),
+        gif_alt_text: body.gif_alt_text().map(ToOwned::to_owned),
     })
 }
 
 fn validate_source(source: &str) -> Result<(), ApiError> {
-    matches!(source, "pi" | "claude_code" | "upload" | "other")
-        .then_some(())
-        .ok_or_else(|| ApiError::bad_request("source must be pi, claude_code, upload, or other"))
+    IngestionSource::try_from(source)
+        .map(|_| ())
+        .map_err(domain_error)
 }
 
 fn validate_placement(request: &IngestItemRequest) -> Result<(), ApiError> {
-    match request.placement.as_str() {
-        "user_deck" => Ok(()),
-        "retro_draft" if request.target_column_id.is_some() => Ok(()),
-        "retro_draft" => Err(ApiError::bad_request(
+    match IngestedItemPlacement::try_from(request.placement.as_str()).map_err(domain_error)? {
+        IngestedItemPlacement::UserDeck => Ok(()),
+        IngestedItemPlacement::RetroDraft if request.target_column_id.is_some() => Ok(()),
+        IngestedItemPlacement::RetroDraft => Err(ApiError::bad_request(
             "retro_draft placement requires target_column_id",
-        )),
-        _ => Err(ApiError::bad_request(
-            "placement must be user_deck or retro_draft",
         )),
     }?;
 
-    if optional_non_empty(request.suggested_text.clone()).is_none()
-        && optional_non_empty(request.gif_url.clone()).is_none()
-    {
-        return Err(ApiError::bad_request("ingested item requires text or gif"));
-    }
+    CardBody::from_payload(
+        optional_non_empty(request.suggested_text.clone()),
+        optional_non_empty(request.gif_url.clone()),
+        None,
+    )
+    .map_err(domain_error)?;
 
     Ok(())
 }
 
 fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {
-    matches!(
-        kind,
-        "gif_suggestions" | "clustering" | "action_suggestions" | "summary" | "mood" | "tagging"
-    )
-    .then_some(())
-    .ok_or_else(|| {
-        ApiError::bad_request(
-            "kind must be gif_suggestions, clustering, action_suggestions, summary, mood, or tagging",
-        )
-    })
+    AiArtifactKind::try_from(kind)
+        .map(|_| ())
+        .map_err(domain_error)
 }
 
 fn validate_delivery_kind(kind: &str) -> Result<(), ApiError> {
-    matches!(kind, "summary_export" | "external_action_link")
-        .then_some(())
-        .ok_or_else(|| ApiError::bad_request("kind must be summary_export or external_action_link"))
+    DeliveryKind::try_from(kind)
+        .map(|_| ())
+        .map_err(domain_error)
 }
 
 async fn ai_input_with_requested_failure(
@@ -1297,246 +994,6 @@ fn optional_non_empty(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
-}
-
-struct GifProvider;
-
-impl GifProvider {
-    async fn search(
-        &self,
-        query: &str,
-        page: usize,
-        kind: MediaSearchKind,
-    ) -> Result<Vec<GifResult>, ()> {
-        let query = query.trim();
-        if query.eq_ignore_ascii_case("fail") {
-            return Err(());
-        }
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        match search_klipy(query, page, kind).await {
-            Ok(results) if !results.is_empty() => return Ok(results),
-            Ok(_) | Err(()) => Err(()),
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MediaSearchKind {
-    All,
-    Gif,
-    Sticker,
-    Clip,
-}
-
-impl MediaSearchKind {
-    fn from_query(value: Option<&str>) -> Self {
-        match value {
-            Some("gif") => Self::Gif,
-            Some("sticker") => Self::Sticker,
-            Some("clip") => Self::Clip,
-            _ => Self::All,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Gif => "gif",
-            Self::Sticker => "sticker",
-            Self::Clip => "clip",
-        }
-    }
-}
-
-async fn search_klipy(
-    query: &str,
-    page: usize,
-    kind: MediaSearchKind,
-) -> Result<Vec<GifResult>, ()> {
-    match kind {
-        MediaSearchKind::Gif => search_klipy_typed(query, page, "gifs", kind).await,
-        MediaSearchKind::Sticker => search_klipy_typed(query, page, "stickers", kind).await,
-        MediaSearchKind::All | MediaSearchKind::Clip => {
-            search_klipy_unified(query, page, kind).await
-        }
-    }
-}
-
-async fn search_klipy_unified(
-    query: &str,
-    page: usize,
-    kind: MediaSearchKind,
-) -> Result<Vec<GifResult>, ()> {
-    let api_key = env::var("SPILLIO_KLIPY_API_KEY").map_err(|_| ())?;
-    let client = reqwest::Client::new();
-    let mut pos: Option<String> = None;
-    let mut response = None;
-
-    for _ in 0..=page {
-        let mut request = client.get("https://api.klipy.com/v2/search").query(&[
-            ("q", query.to_owned()),
-            ("key", api_key.clone()),
-            ("limit", "8".to_owned()),
-        ]);
-        if let Some(pos) = &pos {
-            request = request.query(&[("pos", pos)]);
-        }
-        let search = request.send().await.map_err(|_| ())?;
-        if !search.status().is_success() {
-            return Err(());
-        }
-        let search = search.json::<KlipySearchResponse>().await.map_err(|_| ())?;
-        pos = search.next.clone();
-        response = Some(search);
-    }
-
-    Ok(response
-        .ok_or(())?
-        .results
-        .into_iter()
-        .filter_map(|result| {
-            let formats = &result.media_formats;
-            let image =
-                select_klipy_media(formats, &["gif", "mediumgif", "tinygif", "nanogif", "webp"]);
-            let video = select_klipy_media(
-                formats,
-                &["mp4", "webm", "loopedmp4", "tinymp4", "tinywebm"],
-            );
-            let media = if kind == MediaSearchKind::Clip {
-                video.or(image)
-            } else {
-                image.or(video)
-            }?;
-            let preview = select_klipy_media(formats, &["gifpreview", "nanogif", "tinygif"])
-                .map(|media| media.url.clone())
-                .unwrap_or_else(|| media.url.clone());
-            Some(GifResult {
-                id: format!("klipy-{}", result.id),
-                url: media.url.clone(),
-                preview_url: preview,
-                alt_text: if result.title.trim().is_empty() {
-                    format!("{query} GIF")
-                } else {
-                    result.title
-                },
-                media_type: if kind == MediaSearchKind::Clip && video.is_some() {
-                    "video"
-                } else {
-                    "image"
-                }
-                .to_owned(),
-                kind: kind.as_str().to_owned(),
-            })
-        })
-        .collect())
-}
-
-async fn search_klipy_typed(
-    query: &str,
-    page: usize,
-    endpoint: &str,
-    kind: MediaSearchKind,
-) -> Result<Vec<GifResult>, ()> {
-    let api_key = env::var("SPILLIO_KLIPY_API_KEY").map_err(|_| ())?;
-    let response = reqwest::Client::new()
-        .get(format!("https://api.klipy.com/v2/{endpoint}/search"))
-        .query(&[
-            ("q", query.to_owned()),
-            ("key", api_key),
-            ("limit", "8".to_owned()),
-            ("offset", (page * 8).to_string()),
-        ])
-        .send()
-        .await
-        .map_err(|_| ())?;
-    if !response.status().is_success() {
-        return Err(());
-    }
-    let response = response
-        .json::<KlipyTypedSearchResponse>()
-        .await
-        .map_err(|_| ())?;
-    Ok(response
-        .data
-        .into_iter()
-        .filter_map(|result| {
-            let original = result.images.original?;
-            let url = original.fallback_url.clone();
-            Some(GifResult {
-                id: format!("klipy-{}", result.id),
-                url: url.clone(),
-                preview_url: original.webp.or(original.mp4).unwrap_or(url),
-                alt_text: if result.title.trim().is_empty() {
-                    format!("{query} {}", kind.as_str())
-                } else {
-                    result.title
-                },
-                media_type: "image".to_owned(),
-                kind: kind.as_str().to_owned(),
-            })
-        })
-        .collect())
-}
-
-#[derive(Deserialize)]
-struct KlipySearchResponse {
-    #[serde(default)]
-    results: Vec<KlipyResult>,
-    next: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct KlipyResult {
-    id: String,
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    media_formats: HashMap<String, KlipyMedia>,
-}
-
-#[derive(Deserialize)]
-struct KlipyMedia {
-    url: String,
-}
-
-#[derive(Deserialize)]
-struct KlipyTypedSearchResponse {
-    #[serde(default)]
-    data: Vec<KlipyTypedResult>,
-}
-
-#[derive(Deserialize)]
-struct KlipyTypedResult {
-    id: String,
-    #[serde(default)]
-    title: String,
-    images: KlipyImages,
-}
-
-#[derive(Deserialize)]
-struct KlipyImages {
-    original: Option<KlipyOriginalImage>,
-}
-
-#[derive(Deserialize)]
-struct KlipyOriginalImage {
-    #[serde(rename = "url")]
-    fallback_url: String,
-    webp: Option<String>,
-    mp4: Option<String>,
-}
-
-fn select_klipy_media<'a>(
-    formats: &'a HashMap<String, KlipyMedia>,
-    preferred_formats: &[&str],
-) -> Option<&'a KlipyMedia> {
-    preferred_formats
-        .iter()
-        .find_map(|format| formats.get(*format))
-        .or_else(|| formats.values().next())
 }
 
 async fn api_not_found() -> ApiError {
@@ -1599,10 +1056,6 @@ fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError
     }
 }
 
-fn default_vote_count() -> i32 {
-    1
-}
-
 fn voting_error(error: VotingError) -> ApiError {
     match error {
         VotingError::Sqlx(error) => ApiError::internal(format!("voting failed: {error}")),
@@ -1626,26 +1079,15 @@ fn action_error(error: ActionError) -> ApiError {
     }
 }
 
-fn default_vote_limit() -> i32 {
-    3
-}
-
-fn default_action_discussion_limit() -> i32 {
-    3
-}
-
-fn required_header(headers: &HeaderMap, name: &'static str) -> Result<String, ApiError> {
-    optional_header(headers, name)
-        .ok_or_else(|| ApiError::unauthorized(format!("missing required header {name}")))
-}
-
-fn optional_header(headers: &HeaderMap, name: &'static str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
+fn domain_error(error: DomainError) -> ApiError {
+    match error {
+        DomainError::EmptyCardBody => ApiError::bad_request("card requires text or gif"),
+        DomainError::EmptyText => ApiError::bad_request("text cannot be empty"),
+        DomainError::InvalidDomainValue { domain, value } => {
+            ApiError::bad_request(format!("invalid {domain}: {value}"))
+        }
+        other => ApiError::bad_request(format!("domain validation failed: {other:?}")),
+    }
 }
 
 async fn run_server(addr: SocketAddr, database_url: &str) -> anyhow::Result<()> {

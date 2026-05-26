@@ -1640,6 +1640,7 @@ dependencies = [
  "axum",
  "clap",
  "reqwest",
+ "retro-core",
  "retro-db",
  "serde",
  "serde_json",

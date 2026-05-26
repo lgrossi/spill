@@ -5,6 +5,12 @@ use serde_json::Value;
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
+use domain_mapping::{
+    action_tags, cluster_key, column_accent_color, column_key, manual_cluster_title,
+};
+
+mod domain_mapping;
+
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Clone)]
@@ -27,7 +33,9 @@ impl RetroRepository {
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
         let mut columns = input.template.column_titles();
         if input.action_discussion_limit > 0
-            && !columns.iter().any(|column| column.trim().eq_ignore_ascii_case("actions"))
+            && !columns
+                .iter()
+                .any(|column| column.trim().eq_ignore_ascii_case("actions"))
         {
             columns.push("Actions".to_owned());
         }
@@ -552,11 +560,13 @@ impl RetroRepository {
                 .await?;
         }
 
-        sqlx::query("UPDATE cards SET column_id = $1, updated_at = NOW() WHERE parent_card_id = $2")
-            .bind(column_id)
-            .bind(card_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE cards SET column_id = $1, updated_at = NOW() WHERE parent_card_id = $2",
+        )
+        .bind(column_id)
+        .bind(card_id)
+        .execute(&mut *tx)
+        .await?;
 
         let moved = sqlx::query_as::<_, CardRecord>(
             "SELECT c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden
@@ -816,7 +826,9 @@ impl RetroRepository {
         subject: &str,
         display_name: &str,
     ) -> Result<VotingInfo, VotingError> {
-        let participant_id = self.ensure_participant(retro_id, subject, display_name).await?;
+        let participant_id = self
+            .ensure_participant(retro_id, subject, display_name)
+            .await?;
         let retro = self
             .fetch_retro(retro_id)
             .await?
@@ -842,7 +854,9 @@ impl RetroRepository {
         .execute(&self.pool)
         .await?;
 
-        self.voting_info(retro_id, subject).await.map_err(Into::into)
+        self.voting_info(retro_id, subject)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn cluster_board(&self, retro_id: Uuid) -> Result<Vec<ClusterRecord>, ClusterError> {
@@ -924,9 +938,14 @@ impl RetroRepository {
         Ok(clusters)
     }
 
-    pub async fn cluster_cards(&self, input: ClusterCardsInput) -> Result<ClusterRecord, ClusterError> {
+    pub async fn cluster_cards(
+        &self,
+        input: ClusterCardsInput,
+    ) -> Result<ClusterRecord, ClusterError> {
         if input.card_id == input.target_card_id {
-            return Err(ClusterError::Invalid("cannot cluster a card with itself".to_owned()));
+            return Err(ClusterError::Invalid(
+                "cannot cluster a card with itself".to_owned(),
+            ));
         }
 
         let mut tx = self.pool.begin().await?;
@@ -966,7 +985,9 @@ impl RetroRepository {
         .fetch_all(&mut *tx)
         .await?;
         if cards.len() != 2 {
-            return Err(ClusterError::Invalid("cluster target is not available".to_owned()));
+            return Err(ClusterError::Invalid(
+                "cluster target is not available".to_owned(),
+            ));
         }
 
         let source = cards
@@ -979,7 +1000,9 @@ impl RetroRepository {
             .ok_or_else(|| ClusterError::Invalid("cluster target is not available".to_owned()))?;
 
         let source_is_group_card = source.cluster_id.is_some() && source.parent_card_id.is_none();
-        let (cluster_id, cluster_parent_id) = if target.parent_card_id.is_some() || target.cluster_id.is_some() {
+        let (cluster_id, cluster_parent_id) = if target.parent_card_id.is_some()
+            || target.cluster_id.is_some()
+        {
             let parent_id = target.parent_card_id.unwrap_or(target.id);
             let cluster_id = target
                 .cluster_id
@@ -1096,10 +1119,10 @@ impl RetroRepository {
                  DELETE FROM cards
                  WHERE retro_id = $2 AND (id = $1 OR id IN (SELECT id FROM group_cards))",
             )
-                .bind(source.id)
-                .bind(input.retro_id)
-                .execute(&mut *tx)
-                .await?;
+            .bind(source.id)
+            .bind(input.retro_id)
+            .execute(&mut *tx)
+            .await?;
         } else {
             sqlx::query(
                 "UPDATE cards
@@ -1150,7 +1173,7 @@ impl RetroRepository {
         let action_column_id = if retro.action_discussion_limit > 0 {
             Some(
                 sqlx::query_scalar::<_, Uuid>(
-                "SELECT id
+                    "SELECT id
                  FROM retro_columns
                  WHERE retro_id = $1 AND LOWER(title) LIKE '%action%'
                  ORDER BY position ASC
@@ -1166,8 +1189,8 @@ impl RetroRepository {
         };
 
         let candidates = if retro.vote_limit > 0 && retro.action_discussion_limit > 0 {
-            let action_column_id =
-                action_column_id.ok_or_else(|| ActionError::Invalid("action column unavailable".to_owned()))?;
+            let action_column_id = action_column_id
+                .ok_or_else(|| ActionError::Invalid("action column unavailable".to_owned()))?;
             sqlx::query_as::<_, ActionCandidate>(
                 "SELECT c.id, COALESCE(c.body_text, c.gif_alt_text, 'Untitled card') AS title, COALESCE(SUM(v.count), 0)::BIGINT AS vote_count
                  FROM cards c
@@ -2351,86 +2374,6 @@ impl RetroTemplate {
     }
 }
 
-fn column_key(title: &str, position: usize) -> String {
-    let slug = title
-        .chars()
-        .filter_map(|character| {
-            if character.is_ascii_alphanumeric() {
-                Some(character.to_ascii_lowercase())
-            } else if character.is_whitespace() || character == '-' || character == '_' {
-                Some('_')
-            } else {
-                None
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_owned();
-
-    if slug.is_empty() {
-        format!("column_{position}")
-    } else {
-        format!("{position}_{slug}")
-    }
-}
-
-fn column_accent_color(title: &str, position: usize) -> &'static str {
-    let title = title.to_lowercase();
-    if title.contains("action") {
-        "#8757b6"
-    } else if title.contains("well") || title.contains("liked") {
-        "#2f9469"
-    } else if title.contains("wrong") || title.contains("lacked") || title.contains("improve") {
-        "#cf4f4f"
-    } else if title.contains("learned") {
-        "#0f5f72"
-    } else if title.contains("longed") {
-        "#cf8a3f"
-    } else if title.contains("feeling") {
-        "#0f5f72"
-    } else if title.contains("mood") {
-        "#cf8a3f"
-    } else {
-        ["#cf8a3f", "#2f9469", "#cf4f4f", "#8757b6"][position % 4]
-    }
-}
-
-fn cluster_key(text: &str) -> Option<String> {
-    text.split_whitespace()
-        .map(|word| {
-            word.chars()
-                .filter(|character| character.is_ascii_alphanumeric())
-                .flat_map(char::to_lowercase)
-                .collect::<String>()
-        })
-        .find(|word| word.len() >= 4)
-}
-
-fn manual_cluster_title(source: &str, target: &str) -> String {
-    let key = cluster_key(source)
-        .or_else(|| cluster_key(target))
-        .unwrap_or_else(|| "cards".to_owned());
-    format!("Grouped: {key}")
-}
-
-fn action_tags(text: &str) -> Vec<String> {
-    let mut tags = text
-        .split_whitespace()
-        .map(|word| {
-            word.chars()
-                .filter(|character| character.is_ascii_alphanumeric())
-                .flat_map(char::to_lowercase)
-                .collect::<String>()
-        })
-        .filter(|word| word.len() >= 4)
-        .take(3)
-        .collect::<Vec<_>>();
-    if !tags.iter().any(|tag| tag == "topvoted") {
-        tags.push("topvoted".to_owned());
-    }
-    tags
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2709,14 +2652,26 @@ mod tests {
             .unwrap();
 
         let moved = repo
-            .move_draft_card(created.retro.id, card.id, created.columns[1].id, None, "ava")
+            .move_draft_card(
+                created.retro.id,
+                card.id,
+                created.columns[1].id,
+                None,
+                "ava",
+            )
             .await
             .unwrap()
             .unwrap();
         assert_eq!(moved.column_id, created.columns[1].id);
 
         let lee_attempt = repo
-            .move_draft_card(created.retro.id, card.id, created.columns[2].id, None, "lee")
+            .move_draft_card(
+                created.retro.id,
+                card.id,
+                created.columns[2].id,
+                None,
+                "lee",
+            )
             .await
             .unwrap();
         assert!(lee_attempt.is_none());
@@ -3124,7 +3079,8 @@ mod tests {
             vec![cards[0].id, cards[1].id]
         );
         assert!(
-            board.columns
+            board
+                .columns
                 .iter()
                 .find(|column| column.id == created.columns[0].id)
                 .unwrap()

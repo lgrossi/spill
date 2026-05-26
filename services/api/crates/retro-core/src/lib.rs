@@ -1,6 +1,32 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+macro_rules! domain_string_enum {
+    ($name:ident, $domain:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
+        impl $name {
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+        }
+
+        impl TryFrom<&str> for $name {
+            type Error = DomainError;
+
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    other => Err(DomainError::InvalidDomainValue {
+                        domain: $domain,
+                        value: other.to_owned(),
+                    }),
+                }
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetroPhase {
@@ -32,6 +58,14 @@ impl RetroPhase {
     }
 }
 
+domain_string_enum!(RetroPhase, "retro_phase", {
+    Writing => "writing",
+    Discussion => "discussion",
+    Voting => "voting",
+    ActionDiscussion => "action_discussion",
+    Completed => "completed",
+});
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CardState {
@@ -39,12 +73,22 @@ pub enum CardState {
     Revealed,
 }
 
+domain_string_enum!(CardState, "card_state", {
+    Draft => "draft",
+    Revealed => "revealed",
+});
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ColumnOrder {
     Chronological,
     ReverseChronological,
 }
+
+domain_string_enum!(ColumnOrder, "column_order", {
+    Chronological => "chronological",
+    ReverseChronological => "reverse_chronological",
+});
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Retro(
@@ -150,6 +194,39 @@ impl CardBody {
             .then_some(Self { text, gif })
             .ok_or(DomainError::EmptyCardBody)
     }
+
+    pub fn from_payload(
+        text: Option<String>,
+        gif_url: Option<String>,
+        gif_alt_text: Option<String>,
+    ) -> Result<Self, DomainError> {
+        let text = text.map(NonEmptyText::new).transpose()?;
+        let gif = gif_url
+            .map(|url| {
+                Ok(GifAttachment {
+                    url: NonEmptyText::new(url)?,
+                    alt_text: gif_alt_text.map(NonEmptyText::new).transpose()?,
+                })
+            })
+            .transpose()?;
+
+        Self::new(text, gif)
+    }
+
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_ref().map(NonEmptyText::as_str)
+    }
+
+    pub fn gif_url(&self) -> Option<&str> {
+        self.gif.as_ref().map(|gif| gif.url.as_str())
+    }
+
+    pub fn gif_alt_text(&self) -> Option<&str> {
+        self.gif
+            .as_ref()
+            .and_then(|gif| gif.alt_text.as_ref())
+            .map(NonEmptyText::as_str)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,7 +296,15 @@ pub enum ActionStatus {
     Proposed,
     Confirmed,
     Rejected,
+    Done,
 }
+
+domain_string_enum!(ActionStatus, "action_status", {
+    Proposed => "proposed",
+    Confirmed => "confirmed",
+    Rejected => "rejected",
+    Done => "done",
+});
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IngestedItem(pub Uuid, pub Uuid, pub IngestedItemPlacement, pub CardBody);
@@ -230,6 +315,27 @@ pub enum IngestedItemPlacement {
     UserDeck,
     RetroDraft,
 }
+
+domain_string_enum!(IngestedItemPlacement, "ingested_item_placement", {
+    UserDeck => "user_deck",
+    RetroDraft => "retro_draft",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IngestionSource {
+    Pi,
+    ClaudeCode,
+    Upload,
+    Other,
+}
+
+domain_string_enum!(IngestionSource, "ingestion_source", {
+    Pi => "pi",
+    ClaudeCode => "claude_code",
+    Upload => "upload",
+    Other => "other",
+});
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiArtifact(pub Uuid, pub AiArtifactKind, pub JobStatus);
@@ -245,6 +351,15 @@ pub enum AiArtifactKind {
     Tagging,
 }
 
+domain_string_enum!(AiArtifactKind, "ai_artifact_kind", {
+    GifSuggestions => "gif_suggestions",
+    Clustering => "clustering",
+    ActionSuggestions => "action_suggestions",
+    Summary => "summary",
+    Mood => "mood",
+    Tagging => "tagging",
+});
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
@@ -254,12 +369,31 @@ pub enum JobStatus {
     Failed,
 }
 
+domain_string_enum!(JobStatus, "job_status", {
+    Pending => "pending",
+    Running => "running",
+    Succeeded => "succeeded",
+    Failed => "failed",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryKind {
+    SummaryExport,
+    ExternalActionLink,
+}
+
+domain_string_enum!(DeliveryKind, "delivery_kind", {
+    SummaryExport => "summary_export",
+    ExternalActionLink => "external_action_link",
+});
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NonEmptyText(String);
 
 impl NonEmptyText {
     pub fn new(value: impl Into<String>) -> Result<Self, DomainError> {
-        let value = value.into();
+        let value = value.into().trim().to_owned();
         (!value.trim().is_empty())
             .then_some(Self(value))
             .ok_or(DomainError::EmptyText)
@@ -269,12 +403,13 @@ impl NonEmptyText {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     EmptyCardBody,
     EmptyText,
     EmptyVote,
     InvalidActionDiscussionLimit(u16),
+    InvalidDomainValue { domain: &'static str, value: String },
     InvalidPhaseTransition { from: RetroPhase, to: RetroPhase },
     InvalidVoteLimit(u16),
     ReadyUnsupportedPhase(RetroPhase),
