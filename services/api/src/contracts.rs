@@ -143,3 +143,35 @@ fn default_vote_limit() -> i32 {
 fn default_action_discussion_limit() -> i32 {
     3
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    #[test]
+    fn frontend_contract_mirrors_core_rust_contract_names() {
+        let frontend_contracts = fs::read_to_string("../../apps/web/app/lib/contracts.ts")
+            .expect("frontend contract file");
+        for contract_name in [
+            "RetroPhase",
+            "RetroSummary",
+            "RetroOverview",
+            "RetroColumn",
+            "RetroCard",
+            "GifResult",
+            "GifSearchResponse",
+            "RetroBoard",
+            "RetroActionItem",
+            "IngestedItem",
+            "AiArtifact",
+            "MeetingNote",
+            "Delivery",
+            "CreateRetroPayload",
+        ] {
+            assert!(
+                frontend_contracts.contains(&format!("export type {contract_name}")),
+                "frontend contract is missing {contract_name}"
+            );
+        }
+    }
+}

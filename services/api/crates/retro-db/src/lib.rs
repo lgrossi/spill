@@ -5,10 +5,12 @@ use serde_json::Value;
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
+use board_read_model::attach_cards_to_columns;
 use domain_mapping::{
     action_tags, cluster_key, column_accent_color, column_key, manual_cluster_title,
 };
 
+mod board_read_model;
 mod domain_mapping;
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -150,29 +152,7 @@ impl RetroRepository {
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
         let meeting_notes = self.fetch_meeting_notes(id).await?;
         let deliveries = self.fetch_deliveries(id).await?;
-        let mut member_cards = std::collections::BTreeMap::<Uuid, Vec<ClusterMemberRecord>>::new();
-        let mut top_level_cards = Vec::new();
-        for card in cards {
-            if let Some(parent_card_id) = card.parent_card_id {
-                member_cards
-                    .entry(parent_card_id)
-                    .or_default()
-                    .push(ClusterMemberRecord::from(&card));
-            } else {
-                top_level_cards.push(card);
-            }
-        }
-        for card in &mut top_level_cards {
-            card.cluster_members = member_cards.remove(&card.id).unwrap_or_default();
-        }
-
-        for column in &mut columns {
-            column.cards = top_level_cards
-                .iter()
-                .filter(|card| card.column_id == column.id)
-                .cloned()
-                .collect();
-        }
+        attach_cards_to_columns(&mut columns, cards);
         let ready = self.ready_info(id, subject).await?;
         let voting = self.voting_info(id, subject).await?;
         Ok(Some(RetroBoard {
