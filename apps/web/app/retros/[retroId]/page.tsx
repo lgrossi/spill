@@ -44,6 +44,17 @@ import { BoardMedia } from "./media-card";
 import { GifDraftProvider, GifSearchPicker, GifSelectedPreview } from "./gif-search-picker";
 import { ComposerSubmit } from "./composer-submit";
 import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
+import {
+  actionVoteCount,
+  authorColorForCard,
+  authorForCard,
+  cardLabel,
+  columnSemantic,
+  isActionsColumn,
+  presenceForPhase,
+  sortedCards,
+  voteLabel,
+} from "./board-presentation";
 
 type BoardSearchParams = {
   addColumn?: string;
@@ -582,81 +593,10 @@ function WrappedBoardCard({ card }: { card: RetroCard }) {
   );
 }
 
-function actionVoteCount(action: RetroBoard["actions"][number], cards: RetroCard[]) {
-  if (action.source_card_id) {
-    return cards.find((card) => card.id === action.source_card_id)?.vote_count ?? 0;
-  }
-  if (action.source_cluster_id) {
-    return cards.find((card) => card.cluster_id === action.source_cluster_id && card.parent_card_id === null)?.vote_count ?? 0;
-  }
-  return 0;
-}
-
-function voteLabel(votes: number) {
-  if (votes === 0) return "no votes";
-  return votes === 1 ? "1 vote" : `${votes} votes`;
-}
-
 function actionCheckClass(checked: boolean) {
   return `grid h-7 w-7 place-items-center rounded-[7px] border text-[13px] font-extrabold leading-none transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)] ${
     checked ? "border-spill-well bg-spill-well text-white" : "border-[var(--line-2)] bg-white text-transparent hover:border-spill-well hover:text-spill-well"
   }`;
-}
-
-function sortedCards(cards: RetroCard[], phase: string) {
-  const visible = [...cards];
-  if (phase === "voting") {
-    visible.sort((a, b) => b.vote_count - a.vote_count);
-  }
-  return visible;
-}
-
-function columnSemantic(column: RetroBoard["columns"][number], index: number): { kind: ColumnAccent; label: string; color: string } {
-  const title = column.title.toLowerCase();
-  const savedColor = column.accent_color || undefined;
-  if (isActionsColumn(column) || title.includes("action")) return { kind: "action", label: column.title.toLowerCase(), color: spillColors.action };
-  if (title.includes("feeling")) return { kind: "mood", label: column.title.toLowerCase(), color: savedColor ?? "#0f5f72" };
-  if (title.includes("mood") || title.includes("mad") || title.includes("sad") || title.includes("glad")) return { kind: "mood", label: column.title.toLowerCase(), color: savedColor ?? spillColors.mood };
-  if (title.includes("well") || title.includes("liked") || title.includes("learned") || title.includes("wind") || title.includes("continue") || title.includes("glad")) return { kind: "well", label: column.title.toLowerCase(), color: savedColor ?? spillColors.well };
-  if (title.includes("wrong") || title.includes("lacked") || title.includes("improve") || title.includes("anchor") || title.includes("rocks") || title.includes("stop") || title.includes("mad") || title.includes("sad")) return { kind: "wrong", label: column.title.toLowerCase(), color: savedColor ?? spillColors.wrong };
-  const fallback = [
-    { kind: "mood" as const, color: spillColors.mood },
-    { kind: "well" as const, color: spillColors.well },
-    { kind: "wrong" as const, color: spillColors.wrong },
-    { kind: "action" as const, color: spillColors.action },
-  ][index % 4];
-  return { ...fallback, color: savedColor ?? fallback.color, label: column.title.toLowerCase() };
-}
-
-function isActionsColumn(column: RetroBoard["columns"][number]) {
-  return column.column_key === "actions" || column.title.toLowerCase().includes("action");
-}
-
-function cardLabel(card: RetroCard) {
-  return card.body_text || card.gif_alt_text || "media card";
-}
-
-function authorForCard(id: string) {
-  return TEAM[Math.abs(hash(id)) % TEAM.length].k;
-}
-
-function authorColorForCard(id: string) {
-  return TEAM[Math.abs(hash(id)) % TEAM.length].color;
-}
-
-function hash(value: string) {
-  let result = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    result = (result << 5) - result + value.charCodeAt(index);
-    result |= 0;
-  }
-  return result;
-}
-
-function presenceForPhase(phase: RetroBoard["retro"]["phase"]) {
-  if (phase === "voting") return "voting" as const;
-  if (phase === "completed" || phase === "action_discussion") return "ready" as const;
-  return "writing" as const;
 }
 
 function phaseLabel(phase: RetroBoard["retro"]["phase"]) {
@@ -687,176 +627,4 @@ async function loadBoard(retroId: string) {
   } catch {
     return null;
   }
-}
-
-function demoBoard(retroId: string): RetroBoard {
-  const phase =
-    retroId.includes("cluster") ? "discussion"
-    : retroId.includes("voting") ? "voting"
-    : retroId.includes("action") ? "action_discussion"
-    : retroId.includes("wrapped") ? "completed"
-    : "writing";
-
-  const columns = [
-    {
-      id: "demo-col-mood",
-      retro_id: retroId,
-      column_key: "mood",
-      title: "mood",
-      position: 0,
-      order_direction: "asc",
-      cards: [
-        demoCard(retroId, "demo-mood-1", "demo-col-mood", "tired but alive", 0),
-        demoCard(retroId, "demo-mood-2", "demo-col-mood", "caffeinated chaos", 0, phase === "writing"),
-        demoCard(retroId, "demo-mood-3", "demo-col-mood", "wired but ok", 0),
-      ],
-    },
-    {
-      id: "demo-col-well",
-      retro_id: retroId,
-      column_key: "well",
-      title: "went well",
-      position: 1,
-      order_direction: "asc",
-      cards: phase === "writing"
-        ? [
-            demoCard(retroId, "demo-well-1", "demo-col-well", "deploy gate landed ahead of plan - months of work", 2),
-            demoCard(retroId, "demo-well-hidden", "demo-col-well", "private well draft", 0, true),
-            demoCard(retroId, "demo-well-3", "demo-col-well", "paired with nat on the migrator. learned more than the last 3 sprints combined.", 1),
-          ]
-        : [
-            demoCard(retroId, "demo-well-1", "demo-col-well", "deploy gate landed ahead of plan - months of work", 2, false, "demo-cluster-deploys", "DEPLOYS"),
-            demoCard(retroId, "demo-well-2", "demo-col-well", "shipped 3 days early", 1, false, "demo-cluster-deploys", "DEPLOYS"),
-            demoCard(retroId, "demo-well-3", "demo-col-well", "paired with nat on the migrator. learned more than the last 3 sprints combined.", 1),
-            demoCard(retroId, "demo-well-4", "demo-col-well", "customer demo went well", 0),
-          ],
-    },
-    {
-      id: "demo-col-wrong",
-      retro_id: retroId,
-      column_key: "wrong",
-      title: "went wrong",
-      position: 2,
-      order_direction: "asc",
-      cards: phase === "writing"
-        ? [
-            demoCard(retroId, "demo-wrong-1", "demo-col-wrong", "e2e flake. again. friday afternoon.", 4, false, null, null, "demo-gif"),
-            demoCard(retroId, "demo-wrong-hidden", "demo-col-wrong", "private wrong draft", 0, true),
-          ]
-        : [
-            demoCard(retroId, "demo-wrong-1", "demo-col-wrong", "e2e flake AGAIN friday - lost the afternoon", 4, false, "demo-cluster-flake", "THE FLAKE", "demo-gif"),
-            demoCard(retroId, "demo-wrong-2", "demo-col-wrong", "stage timeouts cost me 30m", 0, false, "demo-cluster-flake", "THE FLAKE"),
-            demoCard(retroId, "demo-wrong-3", "demo-col-wrong", "flake suite still red. it never went green.", 0, false, "demo-cluster-flake", "THE FLAKE"),
-            demoCard(retroId, "demo-wrong-4", "demo-col-wrong", "onboarding doc still empty", 1),
-          ],
-    },
-  ];
-
-  return {
-    retro: {
-      id: retroId,
-      title: "Sprint 42 . platform",
-      phase,
-      vote_limit: 3,
-      action_discussion_limit: 3,
-    },
-    columns,
-    ready: {
-      participant_count: 4,
-      ready_count: 2,
-      current_user_ready: false,
-    },
-    voting: {
-      vote_limit: 3,
-      votes_used: phase === "voting" ? 1 : 0,
-      votes_remaining: phase === "voting" ? 2 : 3,
-    },
-    clusters: phase === "writing" ? [] : [
-      {
-        id: "demo-cluster-deploys",
-        retro_id: retroId,
-        title: "DEPLOYS",
-        category: "well",
-        tags: ["deploys"],
-      },
-      {
-        id: "demo-cluster-flake",
-        retro_id: retroId,
-        title: "THE FLAKE",
-        category: "wrong",
-        tags: ["flake"],
-      },
-    ],
-    actions: phase === "writing" || phase === "discussion" || phase === "voting" ? [] : [
-      {
-        id: "demo-action-1",
-        retro_id: retroId,
-        source_card_id: "demo-wrong-1",
-        source_cluster_id: "demo-cluster-flake",
-        title: "quarantine flake suite, kill next sprint",
-        details: "Owner: Lucas. Due fri 5/30.",
-        status: "confirmed",
-        position: 0,
-        tags: ["flake"],
-      },
-      {
-        id: "demo-action-2",
-        retro_id: retroId,
-        source_card_id: "demo-wrong-4",
-        source_cluster_id: null,
-        title: "flake counter on deploy gate",
-        details: "Show test instability before merge.",
-        status: "proposed",
-        position: 1,
-        tags: ["deploy"],
-      },
-      {
-        id: "demo-action-3",
-        retro_id: retroId,
-        source_card_id: "demo-wrong-4",
-        source_cluster_id: null,
-        title: "own the onboarding doc",
-        details: "Nat to publish a first pass.",
-        status: "proposed",
-        position: 2,
-        tags: ["docs"],
-      },
-    ],
-    deck: [],
-    ai_artifacts: [],
-    meeting_notes: [],
-    deliveries: [],
-  };
-}
-
-function demoCard(
-  retroId: string,
-  id: string,
-  columnId: string,
-  text: string,
-  votes: number,
-  hidden = false,
-  clusterId: string | null = null,
-  clusterTitle: string | null = null,
-  gifUrl: string | null = null,
-): RetroCard {
-  return {
-    id,
-    retro_id: retroId,
-    column_id: columnId,
-    body_text: text,
-    gif_url: gifUrl,
-    gif_alt_text: gifUrl ? "animated reaction" : null,
-    state: hidden ? "draft" : "revealed",
-    position: 0,
-    hidden,
-    vote_count: votes,
-    current_user_vote_count: 0,
-    cluster_id: clusterId,
-    parent_card_id: null,
-    cluster_details: null,
-    cluster_title: clusterTitle,
-    cluster_category: null,
-    cluster_members: [],
-  };
 }
