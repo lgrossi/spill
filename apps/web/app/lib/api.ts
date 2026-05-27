@@ -293,7 +293,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
+async function apiRequest(path: string, init: RequestInit): Promise<Response> {
   const identityHeaders = await apiIdentityHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -309,22 +309,13 @@ async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
     throw new ApiError(message, response.status);
   }
 
-  return response.json() as Promise<T>;
+  return response;
+}
+
+async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
+  return (await apiRequest(path, init)).json() as Promise<T>;
 }
 
 async function apiFetchNoJson(path: string, init: RequestInit): Promise<void> {
-  const identityHeaders = await apiIdentityHeaders();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      ...identityHeaders,
-      ...init.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const message = body?.error?.message ?? `SpillItOut API request failed with ${response.status}`;
-    throw new ApiError(message, response.status);
-  }
+  await apiRequest(path, init);
 }
