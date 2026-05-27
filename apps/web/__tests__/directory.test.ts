@@ -46,7 +46,7 @@ describe('searchDirectory', () => {
   });
 
   it('calls the right URL with the encoded query param', async () => {
-    process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com';
+    process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com/api/v1';
     fetchSpy.mockResolvedValue(
       okResponse([{ email: 'alice@example.com', name: 'Alice' }]),
     );
