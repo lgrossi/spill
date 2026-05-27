@@ -51,7 +51,7 @@ export async function searchDirectory(query: string): Promise<DirectoryUser[]> {
       headers['proxy-authorization'] = `Bearer ${token}`;
     }
 
-    const url = `${baseUrl}/api/v1/users?emails=${encodeURIComponent(query)}*`;
+    const url = `${baseUrl}/users?emails=${encodeURIComponent(query)}*`;
     const res = await fetch(url, { headers, cache: 'no-store' });
     if (!res.ok) {
       console.warn(`[directory] search failed: ${res.status} ${res.statusText}`);
