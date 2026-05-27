@@ -37,6 +37,8 @@ impl RetroWorkflow {
         user: CurrentUser,
         request: CreateRetroRequest,
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
+        let invitees = request.invitees;
+        let creator_email_lc = user.email.to_lowercase();
         let board = self
             .repository
             .create_retro(CreateRetroInput {
@@ -54,6 +56,18 @@ impl RetroWorkflow {
             })
             .await
             .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
+
+        let retro_id = board.retro.id;
+        for email_raw in invitees {
+            let email = email_raw.trim().to_lowercase();
+            if email.is_empty() || !email.contains('@') || email == creator_email_lc {
+                continue;
+            }
+            self.repository
+                .add_board_grant(retro_id, &email, "member")
+                .await
+                .map_err(|e| ApiError::internal(format!("failed to add invitee grant: {e}")))?;
+        }
 
         Ok((StatusCode::CREATED, board))
     }
