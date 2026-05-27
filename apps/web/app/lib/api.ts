@@ -5,6 +5,7 @@ export type {
   Delivery,
   GifResult,
   GifSearchResponse,
+  Grant,
   IngestedItem,
   MeetingNote,
   RetroActionItem,
@@ -22,6 +23,7 @@ import type {
   CreateRetroPayload,
   Delivery,
   GifSearchResponse,
+  Grant,
   MeetingNote,
   RetroActionItem,
   RetroBoard,
@@ -255,6 +257,28 @@ export async function createDelivery(retroId: string, kind: Delivery["kind"], fa
 export async function retryDelivery(retroId: string, deliveryId: string): Promise<Delivery> {
   return apiFetch(`/api/retros/${retroId}/deliveries/${deliveryId}/retry`, {
     method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function listGrants(retroId: string): Promise<Grant[]> {
+  return apiFetch(`/api/retros/${retroId}/grants`, { cache: "no-store" });
+}
+
+export async function addGrant(retroId: string, email: string): Promise<void> {
+  await apiFetchNoJson(`/api/retros/${retroId}/grants`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function removeGrant(retroId: string, email: string): Promise<void> {
+  await apiFetchNoJson(`/api/retros/${retroId}/grants/remove`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
 }

@@ -8,13 +8,31 @@ import {
 } from "../../lib/actions";
 import type { RetroBoard } from "../../lib/contracts";
 import { Btn, PhaseBadge, Pill, StageIndicator, spillColors } from "../../components/spill-ui";
+import { BoardInviteButton } from "../../components/board-invite-button";
 
-export function PhaseControls({ board }: { board: RetroBoard }) {
+export function PhaseControls({
+  board,
+  isHost = false,
+  currentUserEmail = "",
+}: {
+  board: RetroBoard;
+  isHost?: boolean;
+  currentUserEmail?: string;
+}) {
+  const inviteButton =
+    isHost && currentUserEmail ? (
+      <BoardInviteButton
+        retroId={board.retro.id}
+        currentUserEmail={currentUserEmail}
+      />
+    ) : null;
+
   if (board.retro.phase === "writing") {
     const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
     return (
       <>
         <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
+        {inviteButton}
         <Pill tone="soft" accent={spillColors.mood}>
           <span className="sp-live-dot h-1.5 w-1.5 bg-spill-mood" />
           writing
@@ -35,6 +53,7 @@ export function PhaseControls({ board }: { board: RetroBoard }) {
     return (
       <>
         <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
+        {inviteButton}
         <Pill tone="soft" accent={spillColors.action}>review</Pill>
         <form action={startVotingAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
@@ -54,6 +73,7 @@ export function PhaseControls({ board }: { board: RetroBoard }) {
     return (
       <>
         <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
+        {inviteButton}
         <form action={startActionDiscussionAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
           <Btn kind="primary" type="submit" disabled={board.retro.action_discussion_limit <= 0}>act -&gt;</Btn>
@@ -66,6 +86,7 @@ export function PhaseControls({ board }: { board: RetroBoard }) {
     return (
       <>
         <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
+        {inviteButton}
         <Pill tone="soft" accent={spillColors.action}>action</Pill>
         <form action={completeRetroAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />

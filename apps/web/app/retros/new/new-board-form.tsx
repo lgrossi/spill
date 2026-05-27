@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "../../components/spill-ui";
 import { createRetroAction } from "../../lib/actions";
+import { InvitePanel } from "../../components/invite-panel";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -27,6 +28,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [customColors, setCustomColors] = useState(defaultCustomColors);
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
+  const [invitees, setInvitees] = useState<string[]>([]);
 
   function updateColumn(index: number, value: string) {
     setCustomColumns((columns) => columns.map((column, columnIndex) => (columnIndex === index ? value : column)));
@@ -160,14 +162,10 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <StepNum n="4" />
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
-          <Tile className="flex flex-wrap items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-[8px] border border-spill-line bg-[var(--paper)] text-[15px] font-extrabold text-spill-wrong">↗</div>
-            <div className="min-w-[220px] flex-1">
-              <p className="text-[13.5px] font-bold text-spill-fg">Invite your crew after pinning.</p>
-              <p className="mt-0.5 text-[12px] text-spill-muted">You'll be the host. Share the link only with people you've invited — board access is grant-based.</p>
-            </div>
-            <Btn kind="secondary" disabled>invite after pinning</Btn>
-          </Tile>
+          <InvitePanel mode="create" onInviteesChange={setInvitees} />
+          {invitees.map((email) => (
+            <input key={email} name="invitee" type="hidden" value={email} />
+          ))}
         </div>
       </section>
 

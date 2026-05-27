@@ -15,6 +15,10 @@ export async function createRetroCommand(formData: FormData) {
     .map((column) => String(column).trim())
     .filter(Boolean);
   const customColumnColors = formData.getAll("custom_column_color").map((color) => String(color).trim());
+  const invitees = formData
+    .getAll("invitee")
+    .map((v) => String(v).trim().toLowerCase())
+    .filter((v) => v.includes("@"));
 
   const payload = retroPayload({
     actionDiscussionEnabled,
@@ -24,6 +28,7 @@ export async function createRetroCommand(formData: FormData) {
     template,
     title,
     voteLimit,
+    invitees,
   });
 
   const board = await createRetro(payload);
@@ -38,6 +43,7 @@ function retroPayload({
   template,
   title,
   voteLimit,
+  invitees,
 }: {
   actionDiscussionEnabled: boolean;
   actionDiscussionLimit: number;
@@ -46,6 +52,7 @@ function retroPayload({
   template: string;
   title: string;
   voteLimit: number;
+  invitees: string[];
 }): CreateRetroPayload {
   const standard = withActionColumn({
     actionDiscussionEnabled,
@@ -64,21 +71,21 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit);
+    return customPayload(title, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "ssc") {
-    return customPayload(title, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit);
+    return customPayload(title, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "msg") {
-    return customPayload(title, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit);
+    return customPayload(title, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "4ls") {
-    return customPayload(title, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit);
+    return customPayload(title, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "custom") {
-    return customPayload(title, custom.columns, custom.colors, voteLimit, actionDiscussionLimit);
+    return customPayload(title, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
   }
-  return customPayload(title, standard.columns, standard.colors, voteLimit, actionDiscussionLimit);
+  return customPayload(title, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
 }
 
 function customPayload(
@@ -87,6 +94,7 @@ function customPayload(
   columnColors: string[] | undefined,
   voteLimit: number,
   actionDiscussionLimit: number,
+  invitees: string[],
 ): CreateRetroPayload {
   return {
     title,
@@ -95,6 +103,7 @@ function customPayload(
     column_colors: columnColors,
     vote_limit: voteLimit,
     action_discussion_limit: actionDiscussionLimit,
+    invitees,
   };
 }
 

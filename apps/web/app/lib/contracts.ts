@@ -178,6 +178,7 @@ export type CreateRetroPayload =
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
+      invitees?: string[];
     }
   | {
       title: string;
@@ -186,4 +187,12 @@ export type CreateRetroPayload =
       column_colors?: string[];
       vote_limit: number;
       action_discussion_limit: number;
+      invitees?: string[];
     };
+
+export type Grant = {
+  id: string;
+  retro_id: string;
+  principal_email: string;
+  role: "host" | "member";
+};

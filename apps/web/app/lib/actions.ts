@@ -32,6 +32,9 @@ import {
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
 import { clearLocalIdentity, setLocalIdentity } from "./identity";
+import { addGrant, listGrants, removeGrant, type Grant } from "./api";
+
+export type { Grant };
 
 export async function setIdentityAction(formData: FormData) {
   const email = String(formData.get("email") ?? "");
@@ -139,4 +142,16 @@ export async function retryDeliveryAction(formData: FormData) {
 
 export async function searchDirectoryAction(query: string): Promise<DirectoryUser[]> {
   return searchDirectory(query);
+}
+
+export async function listGrantsAction(retroId: string): Promise<Grant[]> {
+  return listGrants(retroId);
+}
+
+export async function addGrantAction(retroId: string, email: string): Promise<void> {
+  return addGrant(retroId, email);
+}
+
+export async function removeGrantAction(retroId: string, email: string): Promise<void> {
+  return removeGrant(retroId, email);
 }

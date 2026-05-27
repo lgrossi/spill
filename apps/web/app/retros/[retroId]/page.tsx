@@ -5,6 +5,7 @@ import { BoardAccessDenied } from "../../components/identity-gate";
 import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "../../components/spill-ui";
 import { ApiError, getRetro, type RetroBoard } from "../../lib/api";
 import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
+import { listGrantsAction } from "../../lib/actions";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
@@ -40,9 +41,26 @@ export default async function RetroBoardPage({
     notFound();
   }
 
+  const currentUserEmail = identity.email ?? "";
+  let isHost = false;
+  try {
+    const grants = await listGrantsAction(retroId);
+    isHost = grants.some(
+      (g) => g.principal_email === currentUserEmail && g.role === "host",
+    );
+  } catch {
+    // treat as non-host if grant check fails
+  }
+
   return (
     <AppChrome
-      actions={<PhaseControls board={board} />}
+      actions={
+        <PhaseControls
+          board={board}
+          isHost={isHost}
+          currentUserEmail={currentUserEmail}
+        />
+      }
       presence={<ParticipantStack board={board} />}
       subtitle={phaseSubtitle(board)}
       title={board.retro.title}
