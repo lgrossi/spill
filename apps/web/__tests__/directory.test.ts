@@ -18,6 +18,8 @@ const okResponse = (users: object[]) =>
 const errResponse = (status = 500) =>
   ({ ok: false, status, statusText: 'Error' }) as unknown as Response;
 
+const emptyGroups = okResponse([]);
+
 describe('searchDirectory', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
@@ -47,9 +49,9 @@ describe('searchDirectory', () => {
 
   it('calls the right URL with the encoded query param', async () => {
     process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com/api/v1';
-    fetchSpy.mockResolvedValue(
-      okResponse([{ email: 'alice@example.com', name: 'Alice' }]),
-    );
+    fetchSpy
+      .mockResolvedValueOnce(okResponse([{ email: 'alice@example.com', name: 'Alice' }]))
+      .mockResolvedValueOnce(emptyGroups);
 
     const result = await searchDirectory('ali');
 
@@ -62,9 +64,9 @@ describe('searchDirectory', () => {
 
   it('strips extra fields from the API response (groups etc.)', async () => {
     process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com';
-    fetchSpy.mockResolvedValue(
-      okResponse([{ email: 'bob@example.com', name: 'Bob', groups: ['eng'] }]),
-    );
+    fetchSpy
+      .mockResolvedValueOnce(okResponse([{ email: 'bob@example.com', name: 'Bob', groups: ['eng'] }]))
+      .mockResolvedValueOnce(emptyGroups);
 
     const result = await searchDirectory('bo');
     expect(result).toEqual([{ email: 'bob@example.com', name: 'Bob' }]);
@@ -72,7 +74,7 @@ describe('searchDirectory', () => {
 
   it('returns [] gracefully when fetch throws', async () => {
     process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com';
-    fetchSpy.mockRejectedValue(new Error('network failure'));
+    fetchSpy.mockRejectedValue(new Error('network failure')); // both calls throw
 
     const result = await searchDirectory('al');
     expect(result).toEqual([]);
@@ -80,9 +82,22 @@ describe('searchDirectory', () => {
 
   it('returns [] gracefully when the API responds with an error status', async () => {
     process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com';
-    fetchSpy.mockResolvedValue(errResponse(503));
+    fetchSpy.mockResolvedValue(errResponse(503)); // both calls return error
 
     const result = await searchDirectory('al');
     expect(result).toEqual([]);
+  });
+
+  it('expands group members into results', async () => {
+    process.env.SPILLIO_DIRECTORY_URL = 'https://dir.example.com/api/v1';
+    fetchSpy
+      .mockResolvedValueOnce(okResponse([]))
+      .mockResolvedValueOnce(
+        okResponse([{ email: 'tm-eng@example.com', name: 'Engineering', users: ['alice@example.com', 'bob@example.com'] }]),
+      );
+
+    const result = await searchDirectory('tm-eng');
+
+    expect(result.map((u) => u.email)).toEqual(['alice@example.com', 'bob@example.com']);
   });
 });
