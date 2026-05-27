@@ -29,9 +29,11 @@ function CreateInvitePanel({
 }) {
   const [picked, setPicked] = useState<Picked[]>([]);
 
-  function handlePick(u: Picked) {
-    if (picked.some((p) => p.email === u.email)) return;
-    const next = [...picked, u];
+  function handlePick(users: Picked[]) {
+    const next = [...picked];
+    for (const u of users) {
+      if (!next.some((p) => p.email === u.email)) next.push(u);
+    }
     setPicked(next);
     onInviteesChange(next.map((p) => p.email));
   }
@@ -89,9 +91,9 @@ function BoardInvitePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retroId]);
 
-  async function handlePick(u: Picked) {
+  async function handlePick(users: Picked[]) {
     try {
-      await addGrantAction(retroId, u.email);
+      await Promise.all(users.map((u) => addGrantAction(retroId, u.email)));
       await reload();
     } catch {
       setError("Could not add member.");

@@ -84,7 +84,7 @@ describe('UserAutocomplete', () => {
     await waitFor(() => screen.getByText('Alice'));
     fireEvent.click(screen.getByText('Alice'));
 
-    expect(onPick).toHaveBeenCalledWith({ email: 'alice@example.com', name: 'Alice' });
+    expect(onPick).toHaveBeenCalledWith([{ email: 'alice@example.com', name: 'Alice' }]);
     expect(input).toHaveValue('');
   });
 

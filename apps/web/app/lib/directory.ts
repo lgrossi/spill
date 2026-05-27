@@ -2,6 +2,7 @@ import gcpMetadata from 'gcp-metadata';
 import { GoogleAuth } from 'google-auth-library';
 
 export type DirectoryUser = { email: string; name: string };
+export type DirectoryEntry = DirectoryUser & { members?: string[] };
 
 type DirectoryApiUser = { email: string; name: string; groups?: string[] };
 
@@ -37,7 +38,7 @@ async function fetchIapToken(audience: string): Promise<string> {
   return token;
 }
 
-export async function searchDirectory(query: string): Promise<DirectoryUser[]> {
+export async function searchDirectory(query: string): Promise<DirectoryEntry[]> {
   const baseUrl = process.env.SPILLIO_DIRECTORY_URL;
   if (!baseUrl || query.length < 2) return [];
 
@@ -67,30 +68,24 @@ export async function searchDirectory(query: string): Promise<DirectoryUser[]> {
     if (!usersRes.ok) console.warn(`[directory] users search failed: ${usersRes.status}`);
     if (!groupsRes.ok) console.warn(`[directory] groups search failed: ${groupsRes.status}`);
 
-    // Build email→name index from the users result for fast name resolution.
-    const nameByEmail = new Map(users.map((u) => [u.email, u.name]));
-
-    // Expand each matched group into its member list, resolving names where known.
-    const memberEmails = new Set<string>();
+    // Collect matched groups as single selectable entries with their member lists.
+    const groups: DirectoryEntry[] = [];
     if (groupsRes.ok) {
-      const groups: { email: string; name: string; users: string[] }[] = await groupsRes.json();
-      for (const group of groups) {
-        for (const memberEmail of group.users) {
-          memberEmails.add(memberEmail);
-        }
+      const raw: { email: string; name: string; users: string[] }[] = await groupsRes.json();
+      for (const g of raw) {
+        groups.push({ email: g.email, name: g.name, members: g.users });
       }
     }
 
-    // Merge: start with direct user hits, then add any group members not already present.
+    // Users first, then groups — deduplicated by email.
     const seen = new Set(users.map((u) => u.email));
-    const merged: DirectoryUser[] = [...users];
-    for (const email of memberEmails) {
-      if (!seen.has(email)) {
-        merged.push({ email, name: nameByEmail.get(email) ?? email });
-        seen.add(email);
+    const merged: DirectoryEntry[] = [...users];
+    for (const group of groups) {
+      if (!seen.has(group.email)) {
+        merged.push(group);
+        seen.add(group.email);
       }
     }
-
     return merged;
   } catch (err) {
     console.warn('[directory] search error:', err);

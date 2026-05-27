@@ -1,15 +1,15 @@
 'use client';
 
 import { useTransition, useState, useRef, useEffect } from 'react';
-import { searchDirectoryAction } from '../lib/actions';
-import type { DirectoryUser } from '../lib/directory';
+import { searchDirectoryAction } from '@/lib/actions';
+import type { DirectoryEntry } from '@/lib/directory';
 import { Tile, fieldControlClass, Avatar, avatarInitials, avatarColorForSeed } from './spill-ui';
 
 export type Picked = { email: string; name: string };
 
-export function UserAutocomplete({ onPick }: { onPick: (u: Picked) => void }) {
+export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<DirectoryUser[]>([]);
+  const [results, setResults] = useState<DirectoryEntry[]>([]);
   const [isPending, startTransition] = useTransition();
   const latestQuery = useRef('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,8 +36,12 @@ export function UserAutocomplete({ onPick }: { onPick: (u: Picked) => void }) {
     setQuery(q);
   }
 
-  function pick(user: DirectoryUser) {
-    onPick({ email: user.email, name: user.name });
+  function pick(entry: DirectoryEntry) {
+    if (entry.members && entry.members.length > 0) {
+      onPick(entry.members.map((email) => ({ email, name: email })));
+    } else {
+      onPick([{ email: entry.email, name: entry.name }]);
+    }
     setQuery('');
     setResults([]);
   }
@@ -67,7 +71,9 @@ export function UserAutocomplete({ onPick }: { onPick: (u: Picked) => void }) {
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[12.5px] font-semibold text-spill-fg">{user.name}</div>
-                <div className="truncate text-[11px] text-spill-muted">{user.email}</div>
+                <div className="truncate text-[11px] text-spill-muted">
+                  {user.members ? `Group · ${user.members.length} member${user.members.length === 1 ? '' : 's'}` : user.email}
+                </div>
               </div>
             </button>
           ))}

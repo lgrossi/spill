@@ -98,6 +98,9 @@ describe('searchDirectory', () => {
 
     const result = await searchDirectory('tm-eng');
 
-    expect(result.map((u) => u.email)).toEqual(['alice@example.com', 'bob@example.com']);
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('tm-eng@example.com');
+    expect(result[0].name).toBe('Engineering');
+    expect(result[0].members).toEqual(['alice@example.com', 'bob@example.com']);
   });
 });
