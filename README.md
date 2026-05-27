@@ -4,6 +4,9 @@
 
 **Invite-only retro boards for teams that want the truth without the ceremony.**
 
+Spill. it. out. Turn honest async reflection into decisions your team can
+actually act on.
+
 Spill. is a board-first retrospective app that lets teams write privately,
 reveal together, vote, turn the highest-signal pain points into actions, and
 keep a searchable history of what keeps coming back.
