@@ -5,10 +5,10 @@ import {
   startActionDiscussionAction,
   startVotingAction,
   unmarkReadyAction,
-} from "../../lib/actions";
-import type { RetroBoard } from "../../lib/contracts";
-import { Btn, PhaseBadge, Pill, StageIndicator, spillColors } from "../../components/spill-ui";
-import { BoardInviteButton } from "../../components/board-invite-button";
+} from "@/lib/actions";
+import type { RetroBoard } from "@/lib/contracts";
+import { Btn, PhaseBadge, Pill, StageIndicator, spillColors } from "@/components/spill-ui";
+import { BoardInviteButton } from "@/components/board-invite-button";
 
 export function PhaseControls({
   board,

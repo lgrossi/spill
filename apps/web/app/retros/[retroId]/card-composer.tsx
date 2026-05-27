@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { CardComposer, type ColumnAccent } from "../../components/spill-ui";
-import type { RetroBoard, RetroCard } from "../../lib/api";
-import { createDraftCardAction, updateDraftCardAction } from "../../lib/actions";
+import { CardComposer, type ColumnAccent } from "@/components/spill-ui";
+import type { RetroBoard, RetroCard } from "@/lib/api";
+import { createDraftCardAction, updateDraftCardAction } from "@/lib/actions";
 import { ComposerSubmit } from "./composer-submit";
 import { GifDraftProvider, GifSelectedPreview } from "./gif-draft";
 import { GifSearchPicker } from "./gif-search-picker";

@@ -1,5 +1,5 @@
-import { spillColors, type ColumnAccent } from "../../components/spill-ui";
-import type { RetroBoard, RetroCard } from "../../lib/contracts";
+import { spillColors, type ColumnAccent } from "@/components/spill-ui";
+import type { RetroBoard, RetroCard } from "@/lib/contracts";
 
 export function sortedCards(cards: RetroCard[], phase: string) {
   const visible = [...cards];

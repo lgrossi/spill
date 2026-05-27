@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, type ColumnAccent } from "../../components/spill-ui";
-import type { RetroBoard, RetroCard } from "../../lib/api";
-import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "../../lib/actions";
+import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, type ColumnAccent } from "@/components/spill-ui";
+import type { RetroBoard, RetroCard } from "@/lib/api";
+import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { DraggableCard } from "./board-dnd";
 import { DraftCardEditor } from "./card-composer";

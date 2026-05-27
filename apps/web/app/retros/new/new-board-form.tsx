@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "../../components/spill-ui";
-import { createRetroAction } from "../../lib/actions";
-import { InvitePanel } from "../../components/invite-panel";
+import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
+import { createRetroAction } from "@/lib/actions";
+import { InvitePanel } from "@/components/invite-panel";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 

@@ -1,4 +1,4 @@
-import { setIdentityAction } from "../lib/actions";
+import { setIdentityAction } from "@/lib/actions";
 import { AppChrome, Btn, Tile, spillColors } from "./spill-ui";
 
 export function IdentityGate({ returnTo = "/" }: { returnTo?: string }) {

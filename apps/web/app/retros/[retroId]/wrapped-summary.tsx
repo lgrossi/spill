@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Pill, Tile } from "../../components/spill-ui";
-import type { RetroBoard, RetroCard } from "../../lib/api";
-import { completeActionItemAction, confirmActionItemAction } from "../../lib/actions";
+import { Pill, Tile } from "@/components/spill-ui";
+import type { RetroBoard, RetroCard } from "@/lib/api";
+import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 

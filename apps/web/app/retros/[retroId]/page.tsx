@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
-import { IdentityGate, IdentityUnavailable } from "../../components/identity-gate";
-import { BoardAccessDenied } from "../../components/identity-gate";
-import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "../../components/spill-ui";
-import { ApiError, getRetro, type RetroBoard } from "../../lib/api";
-import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
-import { listGrantsAction } from "../../lib/actions";
+import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
+import { BoardAccessDenied } from "@/components/identity-gate";
+import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
+import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
+import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
+import { listGrantsAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";

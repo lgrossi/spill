@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { moveBoardCard } from "../../../../../../lib/board-commands";
-import { assertSameOrigin } from "../../../../../../lib/csrf";
+import { moveBoardCard } from "@/lib/board-commands";
+import { assertSameOrigin } from "@/lib/csrf";
 
 export async function PATCH(
   request: Request,

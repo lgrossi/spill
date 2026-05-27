@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ColumnHeader, Pill, columnIcons } from "../../components/spill-ui";
-import type { RetroBoard } from "../../lib/api";
+import { ColumnHeader, Pill, columnIcons } from "@/components/spill-ui";
+import type { RetroBoard } from "@/lib/api";
 import { DropColumn, DropEndMarker } from "./board-dnd";
 import { CardView } from "./card-view";
 import { InlineComposer } from "./card-composer";

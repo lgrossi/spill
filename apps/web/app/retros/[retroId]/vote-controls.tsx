@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import { cardButtonClass } from "../../components/spill-ui";
-import type { RetroBoard, RetroCard } from "../../lib/api";
-import { castVoteAction, removeVoteAction } from "../../lib/actions";
+import { cardButtonClass } from "@/components/spill-ui";
+import type { RetroBoard, RetroCard } from "@/lib/api";
+import { castVoteAction, removeVoteAction } from "@/lib/actions";
 
 export function VoteControls({ board, card, color }: { board: RetroBoard; card: RetroCard; color: string }) {
   return (

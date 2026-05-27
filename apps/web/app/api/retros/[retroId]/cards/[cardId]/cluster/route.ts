@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { clusterBoardCard } from "../../../../../../lib/board-commands";
-import { assertSameOrigin } from "../../../../../../lib/csrf";
+import { clusterBoardCard } from "@/lib/board-commands";
+import { assertSameOrigin } from "@/lib/csrf";
 
 export async function PATCH(
   request: Request,

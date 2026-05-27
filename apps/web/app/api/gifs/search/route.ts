@@ -1,4 +1,4 @@
-import type { GifSearchResponse } from "../../../lib/contracts";
+import type { GifSearchResponse } from "@/lib/contracts";
 
 const API_BASE_URL = process.env.SPILLIO_API_URL ?? "http://127.0.0.1:4000";
 

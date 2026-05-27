@@ -1,4 +1,4 @@
-import { AppChrome, Btn } from "../../components/spill-ui";
+import { AppChrome, Btn } from "@/components/spill-ui";
 import { NewBoardForm, type TemplateId } from "./new-board-form";
 
 export default async function NewRetroPage({

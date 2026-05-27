@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RetroSummary } from "../lib/api";
+import type { RetroSummary } from "@/lib/api";
 import { fieldControlClass, phaseColor } from "./spill-ui";
 
 const pageSize = 5;
