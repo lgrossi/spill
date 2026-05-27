@@ -27,7 +27,7 @@ use retro_db::{BoardGrant, RetroOverview, RetroRepository};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing_subscriber::prelude::*;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use uuid::Uuid;
 
 mod contracts;
@@ -99,7 +99,9 @@ fn app_with_state(state: AppState) -> Router {
         .route("/health", get(health))
         .nest("/api", api_router())
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
+        // DefaultMakeSpan creates spans at DEBUG by default; INFO keeps them
+        // visible through the EnvFilter and lets tracing-opentelemetry export them.
+        .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)))
 }
 
 fn api_router() -> Router<AppState> {
