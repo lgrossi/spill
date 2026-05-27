@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { searchDirectory, type DirectoryUser } from "./directory";
 import {
   createDraftCardCommand,
   deleteDraftCardCommand,
@@ -134,4 +135,8 @@ export async function createDeliveryAction(formData: FormData) {
 
 export async function retryDeliveryAction(formData: FormData) {
   return retryDeliveryCommand(formData);
+}
+
+export async function searchDirectoryAction(query: string): Promise<DirectoryUser[]> {
+  return searchDirectory(query);
 }
