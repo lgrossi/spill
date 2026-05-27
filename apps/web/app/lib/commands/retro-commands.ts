@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRetro, type CreateRetroPayload } from "../api";
+import { createRetro, type CreateRetroPayload } from "@/lib/api";
 
 export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createDelivery, createMeetingNote, retryDelivery, type Delivery } from "../api";
+import { createDelivery, createMeetingNote, retryDelivery, type Delivery } from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function createMeetingNoteCommand(formData: FormData) {

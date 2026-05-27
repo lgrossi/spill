@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { completeActionItem, confirmActionItem, proposeActionItem, rejectActionItem, updateActionItem } from "../api";
+import { completeActionItem, confirmActionItem, proposeActionItem, rejectActionItem, updateActionItem } from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function updateActionItemCommand(formData: FormData) {

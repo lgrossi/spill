@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createDraftCard, deleteDraftCard, removeClusterMember, updateDraftCard } from "../api";
+import { createDraftCard, deleteDraftCard, removeClusterMember, updateDraftCard } from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function createDraftCardCommand(formData: FormData) {

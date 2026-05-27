@@ -11,7 +11,7 @@ import {
   startActionDiscussion,
   startVoting,
   unmarkReady,
-} from "../api";
+} from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function markReadyCommand(formData: FormData) {
