@@ -1,9 +1,28 @@
 # Spill.
 
-Spill. is a board-first retrospective app for teams that want a lightweight retro
-that still works end to end: write privately, reveal together, vote, turn the
-highest-signal pain points into actions, and keep a searchable history of what
-keeps coming back.
+![Spill. product banner](docs/assets/readme/spill-hero.svg)
+
+**Invite-only retro boards for teams that want the truth without the ceremony.**
+
+Spill. is a board-first retrospective app that lets teams write privately,
+reveal together, vote, turn the highest-signal pain points into actions, and
+keep a searchable history of what keeps coming back.
+
+![Spill. live retro board](docs/assets/readme/spill-board.png)
+
+## Why Spill.
+
+- **Private first:** drafts stay private until reveal.
+- **Real collaboration:** participants, authors, ready state, votes, and live
+  board updates are backed by the API.
+- **Invite-only access:** email-backed ACLs decide who can see and mutate a
+  board.
+- **Actions, not theatre:** top-voted friction turns into action candidates the
+  team can confirm, reject, edit, and complete.
+- **Expressive by default:** GIF search and card media are part of the retro,
+  not decorative afterthoughts.
+
+![Spill. board history](docs/assets/readme/spill-home.png)
 
 The repo/package name is `spillio`.
 
@@ -25,13 +44,11 @@ Spill. is in a stable MVP shape:
 AI and external delivery integrations are intentionally still placeholder seams
 where the product needs provider-specific wiring.
 
-## Product
+## How the retro works
 
 Spill. is not an "AI runs your retro" tool. The core product is the board.
 AI can help organize, summarize, or propose follow-up, but humans own the
 retro content and decisions.
-
-### Retro flow
 
 1. **Writing**
    - Participants add private cards.
@@ -54,7 +71,7 @@ retro content and decisions.
    - Completed boards stay available from history.
    - Recurring tags and open actions are surfaced across boards.
 
-### Board capabilities
+## What ships in the MVP
 
 - standard and custom templates
 - private draft visibility before reveal

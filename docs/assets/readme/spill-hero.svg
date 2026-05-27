@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="420" viewBox="0 0 1400 420" role="img" aria-labelledby="title desc">
+  <title id="title">Spill. product banner</title>
+  <desc id="desc">Spill mug logo with a warm cork-board product tagline.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fbf3df"/>
+      <stop offset="1" stop-color="#f3e8cf"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#cf4f4f"/>
+      <stop offset="1" stop-color="#a83232"/>
+    </linearGradient>
+    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M16 0H0v16" fill="none" stroke="#d9c89e" stroke-width="0.7" opacity="0.3"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#4a3414" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="1400" height="420" rx="34" fill="url(#paper)"/>
+  <rect width="1400" height="420" rx="34" fill="url(#grid)" opacity="0.8"/>
+  <path d="M0 338 C 220 284, 344 386, 530 330 S 876 260, 1072 324 S 1276 384, 1400 328 V420 H0 Z" fill="#cf4f4f" opacity="0.08"/>
+
+  <g transform="translate(112 82)" filter="url(#shadow)">
+    <rect x="0" y="0" width="246" height="246" rx="44" fill="#fbf3df" stroke="#d9c89e" stroke-width="3"/>
+    <g transform="translate(43 42) scale(5.2)">
+      <g transform="rotate(-22 15 16)">
+        <rect x="6" y="8" width="14" height="13" rx="2" fill="#f3e8cf" stroke="#1f1812" stroke-width="1.6"/>
+        <path d="M20 11 q 4 0 4 4 q 0 4 -4 4" fill="none" stroke="#1f1812" stroke-width="1.6"/>
+        <ellipse cx="13" cy="8" rx="7" ry="1.4" fill="#1f1812"/>
+      </g>
+      <ellipse cx="22" cy="24" rx="6" ry="2" fill="url(#red)" stroke="#1f1812" stroke-width="0.9"/>
+      <circle cx="17" cy="21" r="1.4" fill="url(#red)" stroke="#1f1812" stroke-width="0.6"/>
+      <circle cx="26" cy="20" r="1" fill="url(#red)" stroke="#1f1812" stroke-width="0.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(420 92)">
+    <text x="0" y="64" fill="#1f1812" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="900" letter-spacing="-5">Spill.</text>
+    <text x="0" y="120" fill="#5f4a2a" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">Invite-only retro boards for teams that want the truth without the ceremony.</text>
+    <g transform="translate(0 168)">
+      <rect x="0" y="0" width="180" height="48" rx="12" fill="#cf4f4f"/>
+      <text x="90" y="31" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900" letter-spacing="1.6">WRITE</text>
+      <rect x="198" y="0" width="180" height="48" rx="12" fill="#2f9469"/>
+      <text x="288" y="31" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900" letter-spacing="1.6">REVEAL</text>
+      <rect x="396" y="0" width="180" height="48" rx="12" fill="#8757b6"/>
+      <text x="486" y="31" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900" letter-spacing="1.6">VOTE</text>
+      <rect x="594" y="0" width="180" height="48" rx="12" fill="#cf8a3f"/>
+      <text x="684" y="31" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900" letter-spacing="1.6">ACT</text>
+    </g>
+    <text x="0" y="276" fill="#6d5a38" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="650">Private drafts. Real participants. Live sync. Email-backed ACLs. GIFs when words are not enough.</text>
+  </g>
+</svg>
