@@ -4,10 +4,10 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RetroSummary } from "@/lib/api";
+import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 
 const pageSize = 5;
-const systemRecurringTags = new Set(["topvoted", "auto-clustered"]);
 const phaseOptions = [
   ["all", "all statuses"],
   ["writing", "writing"],
@@ -190,7 +190,7 @@ export function BoardHistory({
 function filterBoards(boards: RetroSummary[], query: string, status: string) {
   const q = query.trim().toLowerCase();
   return boards.filter((board) => {
-    const tags = board.recurring_tags.filter((tag) => !systemRecurringTags.has(tag.toLowerCase()));
+    const tags = board.recurring_tags.filter((tag) => !SYSTEM_RECURRING_TAGS.has(tag.toLowerCase()));
     const matchesQuery = !q || board.title.toLowerCase().includes(q) || tags.some((tag) => tag.toLowerCase().includes(q));
     const matchesStatus = status === "all" || board.phase === status;
     return matchesQuery && matchesStatus;

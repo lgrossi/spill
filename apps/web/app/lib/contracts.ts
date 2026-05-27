@@ -196,3 +196,6 @@ export type Grant = {
   principal_email: string;
   role: "host" | "member";
 };
+
+/** Tag values injected automatically by the system; filter these before showing user-facing tag counts. */
+export const SYSTEM_RECURRING_TAGS = new Set(["topvoted", "auto-clustered"]);

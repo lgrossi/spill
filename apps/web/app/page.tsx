@@ -4,6 +4,7 @@ import { BoardHistory } from "@/components/board-history";
 import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, phaseLabel, spillColors } from "@/components/spill-ui";
 import { listRetros, type RetroOverview, type RetroSummary } from "@/lib/api";
+import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { clearIdentityAction, completeActionItemAction } from "@/lib/actions";
 import { currentIdentity, localIdentityEnabled, type SpillIdentity } from "@/lib/identity";
 
@@ -217,10 +218,8 @@ function topRecurringTag(boards: RetroSummary[]) {
   return { tag, count };
 }
 
-const systemRecurringTags = new Set(["topvoted", "auto-clustered"]);
-
 function meaningfulRecurringTags(board: RetroSummary) {
-  return board.recurring_tags.filter((tag) => !systemRecurringTags.has(tag.toLowerCase()));
+  return board.recurring_tags.filter((tag) => !SYSTEM_RECURRING_TAGS.has(tag.toLowerCase()));
 }
 
 async function loadOverview(): Promise<{ ok: true; overview: RetroOverview } | { ok: false; message: string }> {
