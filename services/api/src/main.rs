@@ -26,6 +26,7 @@ use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
 use retro_db::{RetroOverview, RetroRepository};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
+use tracing_subscriber::prelude::*;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
@@ -722,17 +723,23 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    let tracer = init_tracer();
+    tracing_subscriber::registry()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(tracing_subscriber::fmt::layer().json())
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "spillio_api=info,tower_http=info".into()),
         )
         .init();
 
-    match Cli::parse().command {
+    let result = match Cli::parse().command {
         Command::Serve { addr } => run_server(addr).await,
         Command::Migrate {} => run_migrations().await,
-    }
+    };
+    // Flush in-flight spans to the DD agent before the process exits.
+    opentelemetry::global::shutdown_tracer_provider();
+    result
 }
 
 #[cfg(test)]
