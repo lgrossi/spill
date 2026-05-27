@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ColumnHeader, Pill, columnIcons } from "@/components/spill-ui";
+import { ColumnHeader, Pill } from "@/components/spill-ui";
 import type { RetroBoard } from "@/lib/api";
 import { DropColumn, DropEndMarker } from "./board-dnd";
 import { CardView } from "./card-view";
@@ -39,7 +39,6 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
                   <ColumnHeader
                     accent={semantic.color}
                     count={column.cards.length || "-"}
-                    icon={columnIcons[semantic.kind]}
                     name={semantic.label}
                     sub={semantic.kind === "mood" ? ". one per person" : semantic.kind === "action" ? ". action items" : undefined}
                   />

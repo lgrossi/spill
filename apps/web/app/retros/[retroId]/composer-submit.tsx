@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGifDraftStatus } from "./gif-draft";
 
 export function ComposerSubmit({ className, existingGif }: { className: string; existingGif?: boolean }) {

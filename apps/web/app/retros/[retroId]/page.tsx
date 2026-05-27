@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
-import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
-import { BoardAccessDenied } from "@/components/identity-gate";
+import { BoardAccessDenied, IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
 import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";

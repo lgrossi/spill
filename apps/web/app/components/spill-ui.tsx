@@ -15,13 +15,6 @@ export const spillColors = {
 
 export type ColumnAccent = "mood" | "well" | "wrong" | "action";
 
-export const columnIcons: Record<ColumnAccent, string> = {
-  mood: "M",
-  well: "W",
-  wrong: "R",
-  action: "A",
-};
-
 export function AppChrome({
   title,
   subtitle,
@@ -215,10 +208,6 @@ export function Pill({
   );
 }
 
-export function StatusPill(props: Parameters<typeof Pill>[0]) {
-  return <Pill {...props} />;
-}
-
 export function Avatar({
   k,
   color = spillColors.muted,
@@ -393,13 +382,11 @@ export function ColumnHeader({
   name,
   count,
   accent,
-  icon,
   sub,
 }: {
   name: string;
   count: ReactNode;
   accent: string;
-  icon?: string;
   sub?: string;
 }) {
   return (
