@@ -1,8 +1,6 @@
-# cargo audit configuration
-
-[[advisories.ignore]]
+[advisories]
 # RUSTSEC-2023-0071: Marvin Attack timing side-channel in rsa 0.9.x
 # Pulled in transitively via sqlx-macros-core -> sqlx-mysql -> rsa.
-# We do not use MySQL; no fixed version is available. Tracked upstream:
+# We do not use MySQL; no fixed version is available upstream:
 # https://github.com/launchbadge/sqlx/issues/3263
-id = "RUSTSEC-2023-0071"
+ignore = ["RUSTSEC-2023-0071"]
