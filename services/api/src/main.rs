@@ -711,6 +711,17 @@ async fn add_grant(
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::bad_request("invalid email address"));
     }
+    if email == user.email.trim().to_lowercase() {
+        let grants = repository
+            .list_board_grants(retro_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("failed to fetch grants: {e}")))?;
+        let grant = grants
+            .into_iter()
+            .find(|g| g.principal_email.eq_ignore_ascii_case(&email))
+            .ok_or_else(|| ApiError::not_found("own grant not found"))?;
+        return Ok((StatusCode::OK, Json(grant)));
+    }
     let grant = repository
         .add_board_grant(retro_id, &email, "member")
         .await
@@ -747,15 +758,31 @@ async fn require_host(
     if email.is_empty() {
         return Err(ApiError::unauthorized("email required"));
     }
+    let email_lc = email.to_lowercase();
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to fetch retro: {e}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    let is_creator = !retro.creator_email.is_empty() && retro.creator_email == email_lc;
     let grants = repository
         .list_board_grants(retro_id)
         .await
         .map_err(|e| ApiError::internal(format!("failed to check host: {e}")))?;
-    let is_host = grants.iter().any(|g| {
-        g.principal_email.eq_ignore_ascii_case(email) && g.role == "host"
-    });
-    if !is_host {
+    let grant_role = grants
+        .iter()
+        .find(|g| g.principal_email.eq_ignore_ascii_case(email))
+        .map(|g| g.role.as_str());
+    let is_host = grant_role == Some("host");
+    if !is_host && !is_creator {
         return Err(ApiError::forbidden("only the board host can manage grants"));
+    }
+    // Creator whose grant is missing or demoted — restore it
+    if is_creator && !is_host {
+        repository
+            .add_board_grant(retro_id, &email_lc, "host")
+            .await
+            .map_err(|e| ApiError::internal(format!("failed to repair host grant: {e}")))?;
     }
     Ok(())
 }

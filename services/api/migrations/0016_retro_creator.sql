@@ -1,0 +1,1 @@
+ALTER TABLE retros ADD COLUMN creator_email TEXT NOT NULL DEFAULT '';

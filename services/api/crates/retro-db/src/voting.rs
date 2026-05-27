@@ -52,7 +52,7 @@ impl RetroRepository {
             "UPDATE retros
              SET phase = 'discussion'
              WHERE id = $1 AND phase = 'writing'
-             RETURNING id, title, phase, vote_limit, action_discussion_limit",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
         )
         .bind(retro_id)
         .fetch_one(&mut *tx)
@@ -72,7 +72,7 @@ impl RetroRepository {
             "UPDATE retros
              SET phase = 'voting'
              WHERE id = $1 AND phase = 'discussion' AND vote_limit > 0
-             RETURNING id, title, phase, vote_limit, action_discussion_limit",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
         )
         .bind(retro_id)
         .fetch_one(&self.pool)

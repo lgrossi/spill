@@ -20,14 +20,16 @@ pub(super) async fn create_retro(
     }
     let mut tx = pool.begin().await?;
 
+    let creator_email = input.creator_email.trim().to_lowercase();
     let retro = sqlx::query_as::<_, RetroRecord>(
-        "INSERT INTO retros (title, vote_limit, action_discussion_limit, clustering_mode)
-         VALUES ($1, $2, $3, 'disabled')
-         RETURNING id, title, phase, vote_limit, action_discussion_limit",
+        "INSERT INTO retros (title, vote_limit, action_discussion_limit, clustering_mode, creator_email)
+         VALUES ($1, $2, $3, 'disabled', $4)
+         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
     )
     .bind(input.title.trim())
     .bind(input.vote_limit)
     .bind(input.action_discussion_limit)
+    .bind(&creator_email)
     .fetch_one(&mut *tx)
     .await?;
 

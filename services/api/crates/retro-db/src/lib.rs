@@ -30,7 +30,7 @@ impl RetroRepository {
     }
 
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
-        sqlx::query_as::<_, RetroRecord>("SELECT id, title, phase, vote_limit, action_discussion_limit FROM retros WHERE id = $1")
+        sqlx::query_as::<_, RetroRecord>("SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email FROM retros WHERE id = $1")
         .bind(id)
         .fetch_optional(&self.pool)
         .await
@@ -195,7 +195,8 @@ impl RetroRepository {
         sqlx::query_as::<_, BoardGrant>(
             "INSERT INTO board_grants (retro_id, principal_email, role)
              VALUES ($1, lower($2), $3)
-             ON CONFLICT (retro_id, principal_email) DO UPDATE SET role = EXCLUDED.role
+             ON CONFLICT (retro_id, principal_email) DO UPDATE
+               SET role = CASE WHEN board_grants.role = 'host' THEN board_grants.role ELSE EXCLUDED.role END
              RETURNING id, retro_id, principal_email, role",
         )
         .bind(retro_id)
@@ -498,6 +499,7 @@ pub struct RetroRecord {
     pub phase: String,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
+    pub creator_email: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1115,6 +1117,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Sprint 43".to_owned(),
                 creator_subject: "user-123".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1150,6 +1153,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Team pulse".to_owned(),
                 creator_subject: "user-456".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Lee".to_owned(),
                 template: RetroTemplate::Custom {
                     columns: vec![
@@ -1186,6 +1190,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Privacy retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1276,6 +1281,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "GIF retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1358,6 +1364,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Move retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1413,6 +1420,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Ready retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1449,6 +1457,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Voting retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1520,6 +1529,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Cluster retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1586,6 +1596,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Manual cluster retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1660,6 +1671,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Cross column cluster retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1733,6 +1745,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Actions retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1869,6 +1882,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Ingest retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1959,6 +1973,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "AI retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2029,6 +2044,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Notes retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2081,6 +2097,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Delivery retro".to_owned(),
                 creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
