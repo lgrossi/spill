@@ -32,7 +32,7 @@ import {
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
 import { clearLocalIdentity, setLocalIdentity } from "./identity";
-import { addGrant, listGrants, removeGrant } from "./api";
+import { addGrant, listGrants, removeGrant, type Grant } from "./api";
 
 export async function setIdentityAction(formData: FormData) {
   const email = String(formData.get("email") ?? "");
