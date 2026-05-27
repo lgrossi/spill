@@ -36,6 +36,7 @@ mod events;
 mod identity;
 mod jobs;
 mod media;
+mod telemetry;
 mod workflow;
 
 #[derive(Parser, Debug)]
@@ -832,7 +833,11 @@ async fn main() -> anyhow::Result<()> {
     let tracer = init_tracer();
     tracing_subscriber::registry()
         .with(tracing_opentelemetry::layer().with_tracer(tracer))
-        .with(tracing_subscriber::fmt::layer().json())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(telemetry::DdMakeWriter(std::io::stdout)),
+        )
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "spillio_api=info,tower_http=info".into()),
