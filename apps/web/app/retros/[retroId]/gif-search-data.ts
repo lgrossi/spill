@@ -1,18 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-export type GifResult = {
-  id: string;
-  url: string;
-  preview_url: string;
-  alt_text: string;
-};
-
-type GifSearchResponse = {
-  results: GifResult[];
-  degraded: boolean;
-};
+import type { GifResult, GifSearchResponse } from "@/lib/contracts";
 
 export function useGifSearch(open: boolean) {
   const [query, setQuery] = useState("");
