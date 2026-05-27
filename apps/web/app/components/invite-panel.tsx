@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addGrantAction, listGrantsAction, removeGrantAction, type Grant } from "../lib/actions";
+import { addGrantAction, listGrantsAction, removeGrantAction } from "../lib/actions";
+import { type Grant } from "../lib/api";
 import { Avatar, avatarColorForSeed, avatarInitials } from "./spill-ui";
 import { UserAutocomplete, type Picked } from "./user-autocomplete";
 
