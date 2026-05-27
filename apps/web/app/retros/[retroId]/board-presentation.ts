@@ -40,13 +40,6 @@ export function presenceForPhase(phase: RetroBoard["retro"]["phase"]) {
   return "writing" as const;
 }
 
-export function phaseLabel(phase: RetroBoard["retro"]["phase"]) {
-  if (phase === "discussion") return "review";
-  if (phase === "action_discussion") return "action";
-  if (phase === "completed") return "done";
-  return phase.replaceAll("_", " ");
-}
-
 export function actionVoteCount(action: RetroBoard["actions"][number], cards: RetroCard[]) {
   if (action.source_card_id) {
     return cards.find((card) => card.id === action.source_card_id)?.vote_count ?? 0;

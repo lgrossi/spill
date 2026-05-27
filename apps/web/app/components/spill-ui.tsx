@@ -574,6 +574,13 @@ export function phaseColor(phase: string) {
   return spillColors.muted;
 }
 
+export function phaseLabel(phase: string) {
+  if (phase === "discussion") return "review";
+  if (phase === "action_discussion") return "action";
+  if (phase === "completed") return "done";
+  return phase.replaceAll("_", " ");
+}
+
 export function shade(hex: string, percent: number) {
   const c = hex.replace("#", "");
   const num = Number.parseInt(c, 16);

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { BoardHistory } from "@/components/board-history";
 import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
-import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, spillColors } from "@/components/spill-ui";
+import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, phaseLabel, spillColors } from "@/components/spill-ui";
 import { listRetros, type RetroOverview, type RetroSummary } from "@/lib/api";
 import { clearIdentityAction, completeActionItemAction } from "@/lib/actions";
 import { currentIdentity, localIdentityEnabled, type SpillIdentity } from "@/lib/identity";
@@ -258,11 +258,4 @@ function UserAvatar({ identity, status }: { identity: SpillIdentity; status: "re
       status={status}
     />
   );
-}
-
-function phaseLabel(phase: string) {
-  if (phase === "discussion") return "review";
-  if (phase === "action_discussion") return "action";
-  if (phase === "completed") return "done";
-  return phase.replaceAll("_", " ");
 }

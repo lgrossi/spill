@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RetroSummary } from "@/lib/api";
-import { fieldControlClass, phaseColor } from "./spill-ui";
+import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 
 const pageSize = 5;
 const systemRecurringTags = new Set(["topvoted", "auto-clustered"]);
@@ -220,11 +220,4 @@ function formatBoardDate(value: string) {
 
 function normalizeStatus(status: string) {
   return phaseOptions.some(([value]) => value === status) ? status : "all";
-}
-
-function phaseLabel(phase: string) {
-  if (phase === "discussion") return "review";
-  if (phase === "action_discussion") return "action";
-  if (phase === "completed") return "done";
-  return phase.replaceAll("_", " ");
 }
