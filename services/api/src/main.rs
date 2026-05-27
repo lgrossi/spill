@@ -41,7 +41,7 @@ mod workflow;
 
 #[derive(Parser, Debug)]
 #[command(name = "spillio-api")]
-#[command(about = "SpillItOut API service")]
+#[command(about = "Spill. API service")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

@@ -1,4 +1,4 @@
-# SpillItOut - MVP Implementation Plan
+# Spill. - MVP Implementation Plan
 
 ## Status
 
@@ -14,7 +14,7 @@ Source artifacts:
 
 ## Chosen direction
 
-Build SpillItOut as a board-first collaborative retrospective web app:
+Build Spill. as a board-first collaborative retrospective web app:
 
 - Rust Axum/Tokio/SQLx backend
 - Next.js frontend
@@ -80,7 +80,7 @@ AI comes after the board loop works. GIF support comes early because it is core,
 
 No task records have been created yet. This plan should be reviewed first, then converted into implementation tasks.
 
-### Epic: SpillItOut MVP
+### Epic: Spill. MVP
 
 Deliver a deployable internal MVP where a team can create and complete a retro end to end, with private writing, GIF cards, voting, action discussion, history, connector ingestion, and optional AI helpers.
 
@@ -174,14 +174,14 @@ Scope:
 
 - add Axum HTTP route structure
 - add platform-header identity abstraction for first internal deployment
-- add link-based retro access model
+- add invite-based retro access model
 - define API contract strategy between Rust and Next.js
 - add basic error response format
 
 Acceptance criteria:
 
 - frontend can load current user identity through backend/API path
-- retro access can be checked from a link/id
+- retro access can be checked from email grants
 - routes have structured errors
 - contract-sharing approach is documented and used by at least one endpoint
 
@@ -970,7 +970,7 @@ Mitigation:
 
 Recommended created task set after review:
 
-- Epic: SpillItOut MVP
+- Epic: Spill. MVP
 - 19 vertical slice tasks matching the slices above
 - HITL gates:
   - Slice 5 board shell review

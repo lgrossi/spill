@@ -1,4 +1,4 @@
-# SpillItOut deployment notes
+# Spill. deployment notes
 
 Slice 18 adds production-ish service packaging and operational seams. This is not a managed production runbook; it is the minimum deployable shape for the MVP.
 
@@ -20,10 +20,14 @@ API:
 Web:
 
 - `SPILLIO_API_URL`
-- `SPILLIO_DEV_USER_SUBJECT`
-- `SPILLIO_DEV_USER_NAME`
+- `NEXT_PUBLIC_SPILLIO_API_URL`
+- `SPILLIO_AUTH_MODE`
+- `SPILLIO_AUTH_EMAIL_HEADER`
+- `SPILLIO_AUTH_NAME_HEADER`
 
-The `SPILLIO_DEV_*` values are still a deployment placeholder for the MVP header identity abstraction.
+Production deployments should run with `SPILLIO_AUTH_MODE=proxy` behind a trusted
+identity layer such as Google IAP or oauth2-proxy. Local development can use
+`SPILLIO_AUTH_MODE=local`.
 
 ## Local production-ish run
 

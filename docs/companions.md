@@ -1,4 +1,4 @@
-# SpillItOut companions
+# Spill. companions
 
 Slice 14 adds first-party companion tooling for Pi and Claude Code. The companion does not write to a retro by default.
 

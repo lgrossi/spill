@@ -1,4 +1,4 @@
-# SpillItOut - MVP Product Doc
+# Spill. - MVP Product Doc
 
 ## Status
 
@@ -10,7 +10,7 @@ The MVP is coherent and bounded: a board-first retrospective tool with GIF suppo
 
 Teams need a lightweight retrospective tool that remains expressive and simple while supporting remote/hybrid work. Existing tools either removed important expressive features, put useful capabilities behind paid plans, or overcomplicate the meeting.
 
-SpillItOut should let a team:
+Spill. should let a team:
 
 - write privately before reveal
 - discuss together without the tool fighting for attention
@@ -24,8 +24,8 @@ SpillItOut should let a team:
 
 These decisions are treated as product constraints for MVP:
 
-- Product name: **SpillItOut**
-- Developer/project nickname: **spillio**
+- Product name: **Spill.**
+- Repo/package name: **spillio**
 - Project folder: `/home/lgrossi/projects/spillio`
 - Core app works without AI or integrations
 - GIF support is core, not optional polish
@@ -121,9 +121,9 @@ Wants past boards, unresolved actions, repeated pain, and lightweight team mood 
 
 ### Connector / personal AI producer
 
-External harness/skill/tool that helps a user prepare cards and sends approved output to SpillItOut.
+External harness/skill/tool that helps a user prepare cards and sends approved output to Spill.
 
-For MVP, this is outside the web app, but it should still be first-party. SpillItOut should provide at least a Pi companion and a Claude Code companion so the first personal AI workflow is usable without waiting for external ecosystem adoption.
+For MVP, this is outside the web app, but it should still be first-party. Spill. should provide at least a Pi companion and a Claude Code companion so the first personal AI workflow is usable without waiting for external ecosystem adoption.
 
 ## Core concepts
 
@@ -400,7 +400,7 @@ Companion responsibilities:
   - wins/cheers
   - pains
 - avoid workflow nitpicks and personal productivity judgments
-- require user approval before sending anything to SpillItOut
+- require user approval before sending anything to Spill.
 - send approved items through the ingestion API
 
 Suggested default companion prompt shape:
@@ -416,15 +416,15 @@ Prepare concise draft cards for:
 Do not score me.
 Do not mention tool usage trivia, command counts, time spent, or productivity metrics.
 Prefer project situations, collaboration friction, decisions, blockers, accomplishments, and support needs.
-Keep outputs editable and suitable for me to approve before sending to SpillItOut.
+Keep outputs editable and suitable for me to approve before sending to Spill.
 ```
 
 Acceptance criteria:
 
 - Given a Pi user has opted into a retro context window, when they run the Pi companion, then it produces reviewable mood/win/pain suggestions.
 - Given a Claude Code user has opted into allowed session logs, when they run the Claude companion, then it produces reviewable mood/win/pain suggestions.
-- Given a user approves suggestions, when the companion sends them, then SpillItOut receives them as private draft or user deck items.
-- Given a user rejects suggestions, then nothing is sent to SpillItOut.
+- Given a user approves suggestions, when the companion sends them, then Spill. receives them as private draft or user deck items.
+- Given a user rejects suggestions, then nothing is sent to Spill.
 - Given companion output is generated, then the user can see the source category/time window before sending.
 
 ## AI requirements
@@ -616,7 +616,7 @@ Backend owns:
 - connector ingestion API
 - board phase/domain invariants
 
-Rust is a strong fit for SpillItOut because the domain has constrained rules:
+Rust is a strong fit for Spill. because the domain has constrained rules:
 
 - phase transitions
 - draft card visibility
@@ -640,7 +640,7 @@ Frontend owns:
 - realtime state subscription
 - phase transitions and board controls
 
-Next.js fits common hosted Node.js SSR environments and has strong AI/code-generation coverage for the UI patterns SpillItOut needs.
+Next.js fits common hosted Node.js SSR environments and has strong AI/code-generation coverage for the UI patterns Spill. needs.
 
 #### Database: Postgres via SQLx
 
@@ -773,8 +773,8 @@ The API should validate payloads strictly and reject malformed/oversized input.
 Preferred first auth model:
 
 - use platform-provided identity headers in the first internal deployment
-- no complex role/permission model in MVP
-- link-based board access: if you have the retro link, you can view/edit the board
+- email-backed board grants for host/member ACL
+- invite-only board access
 
 The auth layer must be abstracted cleanly so the initial identity provider can be swapped out when the tool is open-sourced or deployed elsewhere.
 

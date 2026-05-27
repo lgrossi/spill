@@ -1,8 +1,8 @@
-# SpillItOut - Tech Stack Design Discussion
+# Spill. - Tech Stack Design Discussion
 
 ## Current state
 
-SpillItOut (project nickname: spillio) is a greenfield cooperative retrospective web tool. No code exists yet. The first deployment target is an internal tool-hosting environment, and the product is expected to be vibe-coded. That makes AI training-data coverage of the chosen stack a primary selection criterion alongside deployment fit.
+Spill. (project nickname: spillio) is a greenfield cooperative retrospective web tool. No code exists yet. The first deployment target is an internal tool-hosting environment, and the product is expected to be vibe-coded. That makes AI training-data coverage of the chosen stack a primary selection criterion alongside deployment fit.
 
 ## Desired end state
 
@@ -27,7 +27,7 @@ The backend owns:
 - connector ingestion API
 - board phase/domain invariants
 
-Rust is a good fit for SpillItOut because the domain has constrained rules:
+Rust is a good fit for Spill. because the domain has constrained rules:
 
 - phase transitions
 - draft card visibility
@@ -111,7 +111,7 @@ Deployment/onboarding documentation must capture Rust stack ownership explicitly
 
 ## Open questions
 
-- Auth: use platform-provided identity headers in the first internal deployment, with link-based board access. Auth must be abstracted cleanly so the internal identity provider can be swapped out for open-source deployments.
+- Auth: use platform-provided identity headers in the first internal deployment, with invite-based board access. Auth must be abstracted cleanly so the internal identity provider can be swapped out for open-source deployments.
 - GIF provider: Giphy, Tenor, or self-hosted proxy.
 - AI provider abstraction: single provider for MVP or provider-agnostic interface from day one.
 - WebSocket scale: define what triggers a move from single-instance Axum fanout to Redis pub/sub or equivalent.

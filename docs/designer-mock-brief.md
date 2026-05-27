@@ -1,8 +1,8 @@
-# SpillItOut - Designer HTML Mock Brief
+# Spill. - Designer HTML Mock Brief
 
 ## Goal
 
-Produce a detailed HTML mock package that shows how SpillItOut works across its main phases, major states, and AI-assisted behaviors.
+Produce a detailed HTML mock package that shows how Spill. works across its main phases, major states, and AI-assisted behaviors.
 
 The mock should be realistic enough to review product flow, information architecture, and UX behavior before implementation planning.
 

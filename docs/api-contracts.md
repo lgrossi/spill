@@ -1,4 +1,4 @@
-# SpillItOut API Contracts
+# Spill. API Contracts
 
 ## Purpose
 
@@ -16,9 +16,10 @@ Rules:
 - Breaking response changes require updating this file and the matching frontend type.
 - Generated OpenAPI or generated TypeScript can be added later, but is not required for Slice 3.
 
-## Identity contract
+## Identity and access contract
 
-The first internal deployment uses platform-provided request headers. The auth layer is intentionally abstracted so another provider can replace it later.
+Production uses platform-provided request headers. The web app normalizes those
+headers and forwards Spill identity to the Rust API.
 
 Required header:
 
@@ -27,18 +28,22 @@ Required header:
 Optional header:
 
 - `x-spillio-user-name`
+- `x-spillio-user-email`
 
 If the display name header is absent, the API uses the subject as display name.
 
-## Link access model
+Email is the board ownership and ACL key. The subject is the stable participant
+identity used inside a board.
 
-MVP access is link-based:
+## Board access model
 
-- if a participant has the retro link, they can view/edit the board
-- no complex role/permission model in MVP
-- this is represented as an access policy seam in the API service, not hard-coded into frontend routes
+MVP access is invite-based:
 
-Host/member roles can still exist as retro participant metadata for future UX behavior.
+- board creators receive a `host` grant
+- invitees receive `member` grants
+- uninvited users cannot open the board
+- hosts can add and remove member grants
+- every mutation is authorized against the board participant/grant model
 
 ## Current session endpoint
 
@@ -50,6 +55,7 @@ Success:
 {
   "user": {
     "subject": "user-123",
+    "email": "ava@example.com",
     "display_name": "Ava"
   },
   "access_model": {

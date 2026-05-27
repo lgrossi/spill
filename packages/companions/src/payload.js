@@ -2,7 +2,7 @@ export const CARD_KINDS = new Set(["mood", "wentWell", "wentWrong"]);
 export const SOURCES = new Set(["pi", "claude_code"]);
 export const PLACEMENTS = new Set(["user_deck", "retro_draft"]);
 
-export const DEFAULT_PERSONAL_RETRO_PROMPT = `You are preparing private retrospective notes for SpillItOut.
+export const DEFAULT_PERSONAL_RETRO_PROMPT = `You are preparing private retrospective notes for Spill.
 
 Write short, concrete cards in these buckets:
 - mood: how the work felt

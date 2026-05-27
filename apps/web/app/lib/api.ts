@@ -305,7 +305,7 @@ async function apiRequest(path: string, init: RequestInit): Promise<Response> {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const message = body?.error?.message ?? `SpillItOut API request failed with ${response.status}`;
+    const message = body?.error?.message ?? `Spill. API request failed with ${response.status}`;
     throw new ApiError(message, response.status);
   }
 

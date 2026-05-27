@@ -1,8 +1,8 @@
-# SpillItOut - Product Overview
+# Spill. - Product Overview
 
 ## Product summary
 
-SpillItOut is a cooperative retrospective tool for teams that want a simple board first, with optional AI assistance layered on top.
+Spill. is a cooperative retrospective tool for teams that want a simple board first, with optional AI assistance layered on top.
 
 It is not an "AI writes your retro for you" product. It is a board for writing, discussing, voting, deciding actions, and closing the loop, with AI used to help teams organize, summarize, and follow through.
 
