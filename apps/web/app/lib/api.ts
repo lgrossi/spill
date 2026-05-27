@@ -259,6 +259,16 @@ export async function retryDelivery(retroId: string, deliveryId: string): Promis
   });
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
   const identityHeaders = await apiIdentityHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -272,7 +282,7 @@ async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const message = body?.error?.message ?? `SpillItOut API request failed with ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -291,6 +301,6 @@ async function apiFetchNoJson(path: string, init: RequestInit): Promise<void> {
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const message = body?.error?.message ?? `SpillItOut API request failed with ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 }

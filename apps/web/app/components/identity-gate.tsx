@@ -58,3 +58,19 @@ export function IdentityUnavailable() {
     </AppChrome>
   );
 }
+
+export function BoardAccessDenied() {
+  return (
+    <AppChrome>
+      <div className="flex flex-1 items-center justify-center p-6">
+        <Tile className="w-full max-w-lg border-spill-wrong/60 bg-spill-wrong/10">
+          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-wrong">access denied</p>
+          <h1 className="mt-3 text-[28px] font-extrabold tracking-[-0.03em] text-spill-fg">You're not on the guest list.</h1>
+          <p className="mt-2 text-[13.5px] leading-6 text-[var(--fg-2)]">
+            This board is invite-only. Ask the host to add you, then try again.
+          </p>
+        </Tile>
+      </div>
+    </AppChrome>
+  );
+}

@@ -163,8 +163,8 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
           <Tile className="flex flex-wrap items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-[8px] border border-spill-line bg-[var(--paper)] text-[15px] font-extrabold text-spill-wrong">↗</div>
             <div className="min-w-[220px] flex-1">
-              <p className="text-[13.5px] font-bold text-spill-fg">Share the board link after creation.</p>
-              <p className="mt-0.5 text-[12px] text-spill-muted">Anyone with the link can join this local board. Participant management comes later.</p>
+              <p className="text-[13.5px] font-bold text-spill-fg">Invite your crew after pinning.</p>
+              <p className="mt-0.5 text-[12px] text-spill-muted">You'll be the host. Share the link only with people you've invited — board access is grant-based.</p>
             </div>
             <Btn kind="secondary" disabled>invite after pinning</Btn>
           </Tile>
@@ -177,7 +177,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <Tile className="border-spill-action/60 bg-spill-action/10">
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.1em] text-spill-action">how it works</p>
-          <p className="mt-2 text-[12.5px] leading-6 text-[var(--fg-2)]">Board opens in writing mode. Drafts stay private until everyone marks ready. Anyone with the link can pin a card up.</p>
+          <p className="mt-2 text-[12.5px] leading-6 text-[var(--fg-2)]">Board opens in writing mode. Drafts stay private until everyone marks ready. Board access is invite-only. The host grants access before sharing the link.</p>
         </Tile>
 
         <Tile>

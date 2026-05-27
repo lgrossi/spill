@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { IdentityGate, IdentityUnavailable } from "../../components/identity-gate";
+import { BoardAccessDenied } from "../../components/identity-gate";
 import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "../../components/spill-ui";
-import { getRetro, type RetroBoard } from "../../lib/api";
+import { ApiError, getRetro, type RetroBoard } from "../../lib/api";
 import { currentIdentity, localIdentityEnabled } from "../../lib/identity";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
@@ -30,6 +31,10 @@ export default async function RetroBoardPage({
   }
 
   const board = await loadBoard(retroId);
+
+  if (board === "forbidden") {
+    return <BoardAccessDenied />;
+  }
 
   if (!board) {
     notFound();
@@ -90,10 +95,11 @@ function phaseSubtitle(board: RetroBoard): ReactNode {
   return "completed. wrapped recap";
 }
 
-async function loadBoard(retroId: string) {
+async function loadBoard(retroId: string): Promise<RetroBoard | "forbidden" | null> {
   try {
     return await getRetro(retroId);
-  } catch {
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) return "forbidden";
     return null;
   }
 }
