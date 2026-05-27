@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { completeActionItem, confirmActionItem, proposeActionItem, rejectActionItem, updateActionItem } from "../api";
+import { field } from "./form-utils";
 
 export async function updateActionItemCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
@@ -44,8 +45,4 @@ export async function proposeActionItemCommand(formData: FormData) {
 
   await proposeActionItem(retroId, actionId);
   revalidatePath(`/retros/${retroId}`);
-}
-
-function field(formData: FormData, name: string) {
-  return String(formData.get(name) ?? "");
 }

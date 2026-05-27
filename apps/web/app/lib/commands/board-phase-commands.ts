@@ -12,6 +12,7 @@ import {
   startVoting,
   unmarkReady,
 } from "../api";
+import { field } from "./form-utils";
 
 export async function markReadyCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
@@ -70,8 +71,4 @@ export async function completeRetroCommand(formData: FormData) {
   await completeRetro(retroId);
   revalidatePath("/history");
   redirect(`/retros/${retroId}`);
-}
-
-function field(formData: FormData, name: string) {
-  return String(formData.get(name) ?? "");
 }

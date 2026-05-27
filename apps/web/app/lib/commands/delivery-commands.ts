@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createDelivery, createMeetingNote, retryDelivery, type Delivery } from "../api";
+import { field } from "./form-utils";
 
 export async function createMeetingNoteCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
@@ -27,8 +28,4 @@ export async function retryDeliveryCommand(formData: FormData) {
 
   await retryDelivery(retroId, deliveryId);
   revalidatePath(`/retros/${retroId}`);
-}
-
-function field(formData: FormData, name: string) {
-  return String(formData.get(name) ?? "");
 }

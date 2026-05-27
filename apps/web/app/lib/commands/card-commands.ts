@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createDraftCard, deleteDraftCard, removeClusterMember, updateDraftCard } from "../api";
+import { field } from "./form-utils";
 
 export async function createDraftCardCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
@@ -67,8 +68,4 @@ function parseGifChoice(value: string): { url: string; altText: string } | null 
     return null;
   }
   return null;
-}
-
-function field(formData: FormData, name: string) {
-  return String(formData.get(name) ?? "");
 }
