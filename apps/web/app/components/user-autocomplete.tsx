@@ -1,0 +1,78 @@
+'use client';
+
+import { useTransition, useState, useRef } from 'react';
+import { searchDirectoryAction } from '../lib/actions';
+import type { DirectoryUser } from '../lib/directory';
+import { Tile, fieldControlClass, Avatar, avatarInitials, avatarColorForSeed } from './spill-ui';
+
+export type Picked = { email: string; name: string };
+
+export function UserAutocomplete({ onPick }: { onPick: (u: Picked) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<DirectoryUser[]>([]);
+  const [isPending, startTransition] = useTransition();
+  // Track the latest query to discard stale responses
+  const latestQuery = useRef('');
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const q = e.target.value;
+    setQuery(q);
+    latestQuery.current = q;
+
+    if (q.length < 2) {
+      setResults([]);
+      return;
+    }
+
+    startTransition(async () => {
+      const snapshot = q;
+      const users = await searchDirectoryAction(snapshot);
+      if (latestQuery.current === snapshot) {
+        setResults(users);
+      }
+    });
+  }
+
+  function pick(user: DirectoryUser) {
+    onPick({ email: user.email, name: user.name });
+    setQuery('');
+    setResults([]);
+  }
+
+  return (
+    <div className="relative">
+      <input
+        className={`${fieldControlClass} w-full`}
+        onChange={handleChange}
+        placeholder="Search by name or email..."
+        type="text"
+        value={query}
+      />
+      {results.length > 0 && (
+        <Tile className="absolute left-0 right-0 top-full z-10 mt-1 flex flex-col gap-0.5 p-1">
+          {results.map((user) => (
+            <button
+              className="flex w-full items-center gap-2.5 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--panel-hi)] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+              key={user.email}
+              onClick={() => pick(user)}
+              type="button"
+            >
+              <Avatar
+                color={avatarColorForSeed(user.email)}
+                k={avatarInitials(user.name || user.email)}
+                size={24}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-semibold text-spill-fg">{user.name}</div>
+                <div className="truncate text-[11px] text-spill-muted">{user.email}</div>
+              </div>
+            </button>
+          ))}
+        </Tile>
+      )}
+      {isPending && query.length >= 2 && results.length === 0 && (
+        <div className="mt-1 text-[11px] text-spill-muted">Searching...</div>
+      )}
+    </div>
+  );
+}
