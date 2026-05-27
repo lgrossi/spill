@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition, useState, useRef } from 'react';
+import { useTransition, useState, useRef, useEffect } from 'react';
 import { searchDirectoryAction } from '../lib/actions';
 import type { DirectoryUser } from '../lib/directory';
 import { Tile, fieldControlClass, Avatar, avatarInitials, avatarColorForSeed } from './spill-ui';
@@ -11,26 +11,29 @@ export function UserAutocomplete({ onPick }: { onPick: (u: Picked) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DirectoryUser[]>([]);
   const [isPending, startTransition] = useTransition();
-  // Track the latest query to discard stale responses
   const latestQuery = useRef('');
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const q = e.target.value;
-    setQuery(q);
-    latestQuery.current = q;
-
-    if (q.length < 2) {
+  useEffect(() => {
+    if (query.length < 2) {
       setResults([]);
       return;
     }
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      const snapshot = query;
+      startTransition(async () => {
+        const users = await searchDirectoryAction(snapshot);
+        if (latestQuery.current === snapshot) setResults(users);
+      });
+    }, 300);
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+  }, [query]);
 
-    startTransition(async () => {
-      const snapshot = q;
-      const users = await searchDirectoryAction(snapshot);
-      if (latestQuery.current === snapshot) {
-        setResults(users);
-      }
-    });
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const q = e.target.value;
+    latestQuery.current = q;
+    setQuery(q);
   }
 
   function pick(user: DirectoryUser) {
