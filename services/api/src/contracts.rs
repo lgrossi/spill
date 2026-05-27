@@ -144,6 +144,16 @@ fn default_action_discussion_limit() -> i32 {
     3
 }
 
+#[derive(Deserialize)]
+pub struct AddGrantRequest {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct RemoveGrantRequest {
+    pub email: String,
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

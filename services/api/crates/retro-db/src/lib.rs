@@ -171,6 +171,67 @@ impl RetroRepository {
         Ok(true)
     }
 
+    pub async fn is_board_member(&self, retro_id: Uuid, email: &str) -> Result<bool, sqlx::Error> {
+        // The creator's email is inserted into board_grants as 'host' on retro creation.
+        // All other members are inserted when invited. One query covers both cases.
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM board_grants
+                WHERE retro_id = $1 AND principal_email = lower($2)
+            )",
+        )
+        .bind(retro_id)
+        .bind(email)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn add_board_grant(
+        &self,
+        retro_id: Uuid,
+        principal_email: &str,
+        role: &str,
+    ) -> Result<BoardGrant, sqlx::Error> {
+        sqlx::query_as::<_, BoardGrant>(
+            "INSERT INTO board_grants (retro_id, principal_email, role)
+             VALUES ($1, lower($2), $3)
+             ON CONFLICT (retro_id, principal_email) DO UPDATE SET role = EXCLUDED.role
+             RETURNING id, retro_id, principal_email, role",
+        )
+        .bind(retro_id)
+        .bind(principal_email)
+        .bind(role)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn remove_board_grant(
+        &self,
+        retro_id: Uuid,
+        principal_email: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM board_grants WHERE retro_id = $1 AND principal_email = lower($2)",
+        )
+        .bind(retro_id)
+        .bind(principal_email)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn list_board_grants(&self, retro_id: Uuid) -> Result<Vec<BoardGrant>, sqlx::Error> {
+        sqlx::query_as::<_, BoardGrant>(
+            "SELECT id, retro_id, principal_email, role
+             FROM board_grants
+             WHERE retro_id = $1
+             ORDER BY created_at ASC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     async fn ensure_participant(
         &self,
         retro_id: Uuid,
@@ -839,10 +900,19 @@ pub struct RetroOverview {
     pub completed: Vec<RetroSummary>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct BoardGrant {
+    pub id: Uuid,
+    pub retro_id: Uuid,
+    pub principal_email: String,
+    pub role: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateRetroInput {
     pub title: String,
     pub creator_subject: String,
+    pub creator_email: String,
     pub creator_display_name: String,
     pub template: RetroTemplate,
     pub vote_limit: i32,

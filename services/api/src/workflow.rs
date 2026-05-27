@@ -42,6 +42,7 @@ impl RetroWorkflow {
             .create_retro(CreateRetroInput {
                 title: require_non_empty("title", request.title)?,
                 creator_subject: user.subject,
+                creator_email: user.email,
                 creator_display_name: user.display_name,
                 template: retro_template(&request.template, request.columns)?,
                 vote_limit: require_non_negative("vote_limit", request.vote_limit)?,

@@ -5,6 +5,7 @@ use crate::error::ApiError;
 
 pub(crate) const HEADER_USER_SUBJECT: &str = "x-spillio-user-subject";
 pub(crate) const HEADER_USER_NAME: &str = "x-spillio-user-name";
+pub(crate) const HEADER_USER_EMAIL: &str = "x-spillio-user-email";
 
 #[derive(Clone, Default)]
 pub struct LinkAccessPolicy;
@@ -18,6 +19,7 @@ impl LinkAccessPolicy {
 #[derive(Serialize)]
 pub struct CurrentUser {
     pub subject: String,
+    pub email: String,
     pub display_name: String,
 }
 
@@ -26,9 +28,11 @@ impl CurrentUser {
         let subject = required_header(headers, HEADER_USER_SUBJECT)?;
         let display_name =
             optional_header(headers, HEADER_USER_NAME).unwrap_or_else(|| subject.clone());
+        let email = optional_header(headers, HEADER_USER_EMAIL).unwrap_or_default();
 
         Ok(Self {
             subject,
+            email,
             display_name,
         })
     }

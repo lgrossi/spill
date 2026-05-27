@@ -13,17 +13,17 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use contracts::{
-    AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDeliveryRequest,
-    CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest, HealthResponse,
-    IngestItemRequest, MoveDraftCardRequest, SessionResponse, StartAiJobRequest,
-    UpdateActionRequest, UpdateDraftCardRequest,
+    AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, ClusterCardsRequest,
+    CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
+    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
+    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest,
 };
 use error::ApiError;
 use events::{BoardEvent, BoardEventHub};
 use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
-use retro_db::{RetroOverview, RetroRepository};
+use retro_db::{BoardGrant, RetroOverview, RetroRepository};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing_subscriber::prelude::*;
@@ -178,6 +178,8 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/deliveries/{delivery_id}/retry",
             post(retry_delivery),
         )
+        .route("/retros/{retro_id}/grants", get(list_grants).post(add_grant))
+        .route("/retros/{retro_id}/grants/remove", post(remove_grant))
         .fallback(api_not_found)
 }
 
@@ -230,6 +232,15 @@ async fn open_retro(
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
+    if !user.email.is_empty() {
+        let allowed = repository
+            .is_board_member(retro_id, &user.email)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to check board access: {error}")))?;
+        if !allowed {
+            return Err(ApiError::forbidden("not a member of this board"));
+        }
+    }
     repository
         .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
         .await
@@ -660,6 +671,101 @@ fn job_workflow(
         configured_repository(repository)?,
         event_hub,
     ))
+}
+
+async fn list_grants(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<Vec<BoardGrant>>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to list grants: {e}")))?;
+    // Only the host grant holder can manage grants.
+    let is_host = grants.iter().any(|g| {
+        g.principal_email.eq_ignore_ascii_case(&user.email) && g.role == "host"
+    });
+    if !is_host {
+        return Err(ApiError::forbidden("only the board host can manage grants"));
+    }
+    Ok(Json(grants))
+}
+
+async fn add_grant(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<AddGrantRequest>,
+) -> Result<(StatusCode, Json<BoardGrant>), ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    require_host(&repository, retro_id, &user.email).await?;
+    let email = request.email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return Err(ApiError::bad_request("invalid email address"));
+    }
+    let grant = repository
+        .add_board_grant(retro_id, &email, "member")
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to add grant: {e}")))?;
+    Ok((StatusCode::CREATED, Json(grant)))
+}
+
+async fn remove_grant(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<RemoveGrantRequest>,
+) -> Result<StatusCode, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    require_host(&repository, retro_id, &user.email).await?;
+    let email = request.email.trim().to_lowercase();
+    // Prevent host from revoking their own grant.
+    if email.eq_ignore_ascii_case(&user.email) {
+        return Err(ApiError::bad_request("cannot remove your own host grant"));
+    }
+    repository
+        .remove_board_grant(retro_id, &email)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to remove grant: {e}")))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn require_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<(), ApiError> {
+    if email.is_empty() {
+        return Err(ApiError::unauthorized("email required"));
+    }
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to check host: {e}")))?;
+    let is_host = grants.iter().any(|g| {
+        g.principal_email.eq_ignore_ascii_case(email) && g.role == "host"
+    });
+    if !is_host {
+        return Err(ApiError::forbidden("only the board host can manage grants"));
+    }
+    Ok(())
+}
+
+
+fn init_tracer() -> opentelemetry_sdk::trace::Tracer {
+    let dd_agent = std::env::var("DD_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let service = std::env::var("DD_SERVICE").unwrap_or_else(|_| "spillio-api".into());
+    opentelemetry_datadog::new_pipeline()
+        .with_service_name(service)
+        .with_agent_endpoint(format!("http://{}:8126", dd_agent))
+        .with_api_version(opentelemetry_datadog::ApiVersion::Version05)
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .expect("failed to initialise Datadog tracer")
 }
 
 async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {

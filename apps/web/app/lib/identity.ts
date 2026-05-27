@@ -48,6 +48,7 @@ export async function apiIdentityHeaders() {
   return {
     "x-spillio-user-subject": identity.subject,
     "x-spillio-user-name": identity.displayName,
+    ...(identity.email ? { "x-spillio-user-email": identity.email } : {}),
   };
 }
 

@@ -31,6 +31,18 @@ pub(super) async fn create_retro(
     .fetch_one(&mut *tx)
     .await?;
 
+    if !input.creator_email.trim().is_empty() {
+        sqlx::query(
+            "INSERT INTO board_grants (retro_id, principal_email, role)
+             VALUES ($1, lower($2), 'host')
+             ON CONFLICT (retro_id, principal_email) DO NOTHING",
+        )
+        .bind(retro.id)
+        .bind(input.creator_email.trim())
+        .execute(&mut *tx)
+        .await?;
+    }
+
     let participant = sqlx::query_as::<_, ParticipantRecord>(
         "INSERT INTO participants (retro_id, external_subject, display_name, role)
          VALUES ($1, $2, $3, 'host')
