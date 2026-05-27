@@ -685,12 +685,13 @@ async fn list_grants(
         .list_board_grants(retro_id)
         .await
         .map_err(|e| ApiError::internal(format!("failed to list grants: {e}")))?;
-    // Only the host grant holder can manage grants.
-    let is_host = grants.iter().any(|g| {
-        g.principal_email.eq_ignore_ascii_case(&user.email) && g.role == "host"
+    // Any board member may list grants — the frontend uses the response to
+    // determine the current user's role and show/hide invite controls.
+    let is_member = grants.iter().any(|g| {
+        g.principal_email.eq_ignore_ascii_case(&user.email)
     });
-    if !is_host {
-        return Err(ApiError::forbidden("only the board host can manage grants"));
+    if !user.email.is_empty() && !is_member {
+        return Err(ApiError::forbidden("not a member of this board"));
     }
     Ok(Json(grants))
 }
