@@ -65,30 +65,50 @@
   --card-inset-lo: inset 0 -1px 0 rgba(0,0,0,0.08);
 }
 
-/* Dark theme: warm espresso surfaces, paper-cream text. Accent colors
-   (mood/well/wrong/action) intentionally stay the same — cards stay
-   vivid in both themes and only the chrome swaps. */
+/* Dark theme — "candlelit" recipe.
+
+   Direction picked over warm-espresso and true-dark mocks: deep paper
+   with a sepia vignette at the top (the page reads like it's lit from
+   a desk lamp), card surfaces that gradient warm-to-deep with a soft
+   amber rim highlight, and saturated accents kept intact because warm
+   ambient light makes vivid colors feel natural rather than harsh.
+
+   Accent values (mood/well/wrong/action) are NOT overridden — board
+   cards stay vivid green/red/orange/purple in both themes. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --paper: #1a1410;
-  --paper-2: #221a13;
-  --panel: #2a2017;
-  --panel-hi: #342819;
-  --line: #4a3a25;
-  --line-2: #5c4830;
+  --paper: #0b0805;
+  --paper-2: #14100a;
+  --panel: #221710;
+  --panel-hi: #2c1f12;
+  --line: #5a3a18;
+  --line-2: #7a5024;
 
-  --fg: #f3e8cf;
-  --fg-2: #d4c39a;
-  --muted: #9c8a6c;
+  --fg: #f4d9a7;
+  --fg-2: #d9bd8b;
+  --muted: #b08b5c;
 
-  --shadow-1: 0 1px 0 rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.35);
-  --shadow-2: 0 1px 0 rgba(0,0,0,0.4), 0 8px 18px -4px rgba(0,0,0,0.5);
-  --shadow-3: 0 2px 0 rgba(0,0,0,0.4), 0 16px 32px -8px rgba(0,0,0,0.6);
-  --focus: 0 0 0 3px rgba(226, 101, 101, 0.35);
+  /* Card / panel lift comes from a warm amber rim + a deep drop. The
+     rim implies the desk-lamp light source; the drop carries weight. */
+  --shadow-1: inset 0 1px 0 rgba(255,200,120,0.07), 0 6px 16px -2px rgba(0,0,0,0.6);
+  --shadow-2: inset 0 1px 0 rgba(255,200,120,0.08), 0 10px 24px -4px rgba(0,0,0,0.7);
+  --shadow-3: inset 0 1px 0 rgba(255,200,120,0.08), 0 22px 44px -10px rgba(0,0,0,0.8);
+  --focus: 0 0 0 3px rgba(255, 200, 120, 0.3);
 
-  --card-inset-hi: inset 0 1px 0 rgba(255,255,255,0.10);
-  --card-inset-lo: inset 0 -1px 0 rgba(0,0,0,0.25);
+  --card-inset-hi: inset 0 1px 0 rgba(255,200,120,0.10);
+  --card-inset-lo: inset 0 -1px 0 rgba(0,0,0,0.32);
+}
+
+/* Override the topbar's inline white inset shadow — that highlight is
+   carved into the JSX as a Tailwind arbitrary value, so we re-stamp
+   the box-shadow here with an amber rim instead. */
+:root[data-theme="dark"] header.sp-panel-grain {
+  background-image: linear-gradient(180deg, rgba(255,200,120,0.04) 0%, transparent 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,120,0.05),
+    inset 0 -1px 0 rgba(0,0,0,0.3) !important;
+  border-bottom-color: var(--line-2);
 }
 
 * {
@@ -180,24 +200,35 @@ input[type="search"]::-webkit-search-cancel-button:hover {
     repeating-linear-gradient(35deg, rgba(180,140,80,0.025) 0 1px, transparent 1px 5px);
 }
 
-/* Dark grain: flip dark-brown dots to faint warm amber so the texture
-   still reads on the espresso paper. */
+/* Dark paper: top-vignette desk-lamp glow + faint warm dots so the
+   page reads as a lit surface rather than flat black. */
 :root[data-theme="dark"] .sp-paper {
   background-color: var(--paper);
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(232,192,128,0.025) 0 1px, transparent 2px),
-    radial-gradient(circle at 65% 35%, rgba(232,192,128,0.03) 0 1px, transparent 2px),
-    radial-gradient(circle at 85% 70%, rgba(232,192,128,0.025) 0 1px, transparent 2px),
-    radial-gradient(circle at 25% 80%, rgba(232,192,128,0.03) 0 1px, transparent 2px),
-    radial-gradient(circle at 45% 55%, rgba(232,192,128,0.02) 0 1px, transparent 2px),
-    repeating-linear-gradient(115deg, rgba(232,192,128,0.018) 0 1px, transparent 1px 6px),
-    repeating-linear-gradient(35deg, rgba(232,192,128,0.014) 0 1px, transparent 1px 5px);
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(220,160,90,0.08), transparent 60%),
+    radial-gradient(circle at 15% 20%, rgba(232,192,128,0.022) 0 1px, transparent 2px),
+    radial-gradient(circle at 65% 35%, rgba(232,192,128,0.025) 0 1px, transparent 2px),
+    radial-gradient(circle at 85% 70%, rgba(232,192,128,0.02) 0 1px, transparent 2px),
+    radial-gradient(circle at 25% 80%, rgba(232,192,128,0.022) 0 1px, transparent 2px),
+    radial-gradient(circle at 45% 55%, rgba(232,192,128,0.018) 0 1px, transparent 2px),
+    repeating-linear-gradient(115deg, rgba(232,192,128,0.014) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(35deg, rgba(232,192,128,0.012) 0 1px, transparent 1px 5px);
 }
 
 .sp-panel-grain {
   background-image:
     repeating-linear-gradient(0deg, rgba(60,40,20,0.018) 0 1px, transparent 1px 4px),
     repeating-linear-gradient(90deg, rgba(60,40,20,0.012) 0 1px, transparent 1px 4px);
+}
+
+/* Dark panel: warm-top to deep-bottom gradient so cards/tiles read
+   as lit-from-above objects rather than flat rectangles. The grain
+   threads stay so it doesn't lose its paper-fiber feel. */
+:root[data-theme="dark"] .sp-panel-grain {
+  background-image:
+    linear-gradient(180deg, rgba(255,200,120,0.05) 0%, transparent 50%, rgba(0,0,0,0.18) 100%),
+    repeating-linear-gradient(0deg, rgba(255,220,160,0.02) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255,220,160,0.012) 0 1px, transparent 1px 4px);
 }
 
 .sp-card-grain {
