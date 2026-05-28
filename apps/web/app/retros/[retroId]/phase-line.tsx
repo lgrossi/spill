@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   autoAdvanceAction,
   completeRetroAction,
+  forceRevealRetroAction,
+  startActionDiscussionAction,
   startVotingAction,
 } from "@/lib/actions";
 
@@ -69,9 +71,16 @@ function PhaseHint({
   if (gated) {
     if (participantCount === 0) return null;
     if (allReady) return <Countdown retroId={retroId} />;
+    const hostLink = isHost ? gatedHostAdvance(phase) : null;
     return (
-      <span className="text-[10px] text-spill-muted">
-        {readyCount} of {participantCount} ready
+      <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
+        <span>{readyCount} of {participantCount} ready</span>
+        {hostLink ? (
+          <>
+            <span aria-hidden="true">|</span>
+            <HostAdvanceLink retroId={retroId} action={hostLink.action} label={hostLink.label} />
+          </>
+        ) : null}
       </span>
     );
   }
@@ -82,6 +91,12 @@ function PhaseHint({
   if (phase === "action_discussion") {
     return <HostAdvanceLink retroId={retroId} action={completeRetroAction} label="finish retro" />;
   }
+  return null;
+}
+
+function gatedHostAdvance(phase: string): { action: (formData: FormData) => void | Promise<void>; label: string } | null {
+  if (phase === "writing") return { action: forceRevealRetroAction, label: "start discussing" };
+  if (phase === "voting") return { action: startActionDiscussionAction, label: "wrap up" };
   return null;
 }
 
@@ -130,7 +145,7 @@ function HostAdvanceLink({
         style={{ display: "contents" }}
       >
         <span className="text-[10px] text-spill-muted underline-offset-2 hover:text-spill-fg hover:underline cursor-pointer">
-          → {label}
+          {label} →
         </span>
       </button>
     </form>
