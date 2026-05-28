@@ -10,6 +10,7 @@ export type RetroSummary = {
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
+  ready_count: number;
   column_count: number;
   unresolved_action_count: number;
   recurring_tags: string[];

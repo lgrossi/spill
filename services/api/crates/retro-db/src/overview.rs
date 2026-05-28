@@ -36,6 +36,9 @@ pub(super) async fn list_retros(
             ) AS last_opened_at,
             COUNT(DISTINCT p.id)::BIGINT AS participant_count,
             COUNT(DISTINCT c.id)::BIGINT AS column_count,
+            COUNT(DISTINCT rm.participant_id) FILTER (
+                WHERE rm.phase = CASE WHEN r.phase = 'voting' THEN 'voting' ELSE 'writing' END
+            )::BIGINT AS ready_count,
             COUNT(DISTINCT a.id) FILTER (WHERE a.status NOT IN ('rejected', 'done'))::BIGINT AS unresolved_action_count,
             COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags,
             COALESCE(
@@ -56,6 +59,7 @@ pub(super) async fn list_retros(
          FROM retros r
          LEFT JOIN participants p ON p.retro_id = r.id
          LEFT JOIN retro_columns c ON c.retro_id = r.id
+         LEFT JOIN participant_ready_marks rm ON rm.retro_id = r.id
          LEFT JOIN action_items a ON a.retro_id = r.id
          LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
          WHERE EXISTS (

@@ -186,7 +186,10 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
       <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
       <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
       <div className="mt-auto flex items-end justify-between">
-        <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">{Math.max(1, board.participant_count)} people</span>
+        <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
+          {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
+          {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
+        </span>
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       </div>
     </Link>
@@ -194,9 +197,9 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
 }
 
 function boardSubtitle(board: RetroOverview["active"][number]) {
-  if (board.phase === "writing") return `${Math.max(1, board.participant_count)} of ${Math.max(4, board.participant_count)} ready. waiting on you`;
-  if (board.phase === "voting") return `${Math.max(1, board.vote_limit - 2)} vote left`;
-  if (board.phase === "discussion") return `${Math.max(4, board.participant_count)} people reviewing cards`;
+  if (board.phase === "writing") return `${board.ready_count} of ${board.participant_count} ready`;
+  if (board.phase === "voting") return `${board.participant_count} people voting`;
+  if (board.phase === "discussion") return `${board.participant_count} people reviewing cards`;
   if (board.phase === "action_discussion") return "turning top themes into actions";
   return "wrapped and searchable";
 }
