@@ -525,7 +525,7 @@ export function StageIndicator({ phase, retroId }: { phase: string; retroId?: st
   const activePhase = phase === "discussion" ? "voting" : phase;
   const activeIndex = Math.max(0, steps.findIndex(([key]) => key === activePhase));
   return (
-    <div className="hidden items-center gap-1 rounded-full border border-spill-line bg-[var(--panel-hi)] p-1 md:flex">
+    <div className="hidden items-center gap-0.5 md:flex">
       {steps.map(([key, label], index) => {
         const active = index === activeIndex;
         const done = index < activeIndex || phase === "completed";
@@ -534,7 +534,7 @@ export function StageIndicator({ phase, retroId }: { phase: string; retroId?: st
             {index + 1} {label}
           </>
         );
-        const className = `rounded-full px-2.5 py-1 text-[10px] font-extrabold tracking-[0.1em] ${active ? "bg-spill-wrong text-white" : done ? "text-spill-fg hover:bg-[var(--paper-2)]" : "text-spill-muted"}`;
+        const className = `rounded-full px-2.5 py-[3px] text-[10px] font-extrabold tracking-[0.1em] ${active ? "bg-spill-wrong text-white" : done ? "text-spill-fg/70" : "text-spill-muted"}`;
         const href = retroId ? `/retros/${retroId}${key === "action_discussion" ? "#actions" : "#board"}` : undefined;
         return href ? (
           <Link
