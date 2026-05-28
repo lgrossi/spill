@@ -87,8 +87,26 @@ export async function unmarkReady(retroId: string): Promise<RetroBoard> {
 export async function revealRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/reveal`, {
     method: "POST",
+    body: JSON.stringify({ force: false }),
+    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
+}
+
+export async function forceRevealRetro(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/reveal`, {
+    method: "POST",
+    body: JSON.stringify({ force: true }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function removeParticipant(retroId: string, subject: string): Promise<void> {
+  await apiFetchNoJson(
+    `/api/retros/${retroId}/participants/${encodeURIComponent(subject)}`,
+    { method: "DELETE", cache: "no-store" },
+  );
 }
 
 export async function startVoting(retroId: string): Promise<RetroBoard> {
@@ -265,10 +283,10 @@ export async function listGrants(retroId: string): Promise<Grant[]> {
   return apiFetch(`/api/retros/${retroId}/grants`, { cache: "no-store" });
 }
 
-export async function addGrant(retroId: string, email: string): Promise<void> {
+export async function addGrant(retroId: string, email: string, role?: "host" | "member"): Promise<void> {
   await apiFetchNoJson(`/api/retros/${retroId}/grants`, {
     method: "POST",
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, role }),
     headers: { "content-type": "application/json" },
     cache: "no-store",
   });

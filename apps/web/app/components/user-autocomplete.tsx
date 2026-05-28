@@ -5,7 +5,7 @@ import { searchDirectoryAction } from '@/lib/actions';
 import type { DirectoryEntry } from '@/lib/directory';
 import { Tile, fieldControlClass, Avatar, avatarInitials, avatarColorForSeed } from './spill-ui';
 
-export type Picked = { email: string; name: string };
+export type Picked = { email: string; name: string; role?: "host" | "member" };
 
 export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void }) {
   const [query, setQuery] = useState('');

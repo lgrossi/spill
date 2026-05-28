@@ -1,5 +1,6 @@
 import {
   completeRetroAction,
+  forceRevealRetroAction,
   markReadyAction,
   revealRetroAction,
   startActionDiscussionAction,
@@ -45,6 +46,12 @@ export function PhaseControls({
           <input name="retro_id" type="hidden" value={board.retro.id} />
           <Btn kind="dashed" type="submit" disabled={!allReady}>reveal -&gt;</Btn>
         </form>
+        {isHost && !allReady && (
+          <form action={forceRevealRetroAction}>
+            <input name="retro_id" type="hidden" value={board.retro.id} />
+            <Btn kind="dashed" type="submit">force reveal &#x21a6;</Btn>
+          </form>
+        )}
       </>
     );
   }

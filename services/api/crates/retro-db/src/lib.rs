@@ -10,11 +10,6 @@ use uuid::Uuid;
 use board_read_model::attach_cards_to_columns;
 mod actions;
 
-fn email_subject(email: &str) -> String {
-    let hash = hex::encode(Sha256::digest(email.trim().to_lowercase()));
-    format!("email:{hash}")
-}
-
 mod artifacts;
 mod board_read_model;
 mod cards;
@@ -24,6 +19,11 @@ mod domain_mapping;
 mod ingestion;
 mod overview;
 mod voting;
+
+fn email_subject(email: &str) -> String {
+    let hash = hex::encode(Sha256::digest(email.trim().to_lowercase()));
+    format!("email:{hash}")
+}
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 

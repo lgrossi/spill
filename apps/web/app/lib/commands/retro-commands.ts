@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createRetro, type CreateRetroPayload } from "@/lib/api";
+import type { InviteeRequest } from "@/lib/contracts";
 
 export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
@@ -15,10 +16,16 @@ export async function createRetroCommand(formData: FormData) {
     .map((column) => String(column).trim())
     .filter(Boolean);
   const customColumnColors = formData.getAll("custom_column_color").map((color) => String(color).trim());
-  const invitees = formData
-    .getAll("invitee")
-    .map((v) => String(v).trim().toLowerCase())
-    .filter((v) => v.includes("@"));
+  const inviteeEmails = formData
+    .getAll("invitee_email")
+    .map((v) => String(v).trim().toLowerCase());
+  const inviteeRoles = formData.getAll("invitee_role").map((v) => String(v).trim());
+  const invitees: InviteeRequest[] = inviteeEmails
+    .filter((v) => v.includes("@"))
+    .map((email, i) => ({
+      email,
+      role: inviteeRoles[i] === "host" ? "host" : "member",
+    }));
 
   const payload = retroPayload({
     actionDiscussionEnabled,
@@ -52,7 +59,7 @@ function retroPayload({
   template: string;
   title: string;
   voteLimit: number;
-  invitees: string[];
+  invitees: InviteeRequest[];
 }): CreateRetroPayload {
   const standard = withActionColumn({
     actionDiscussionEnabled,
@@ -94,7 +101,7 @@ function customPayload(
   columnColors: string[] | undefined,
   voteLimit: number,
   actionDiscussionLimit: number,
-  invitees: string[],
+  invitees: InviteeRequest[],
 ): CreateRetroPayload {
   return {
     title,

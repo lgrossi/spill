@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   castVote,
   completeRetro,
+  forceRevealRetro,
   markReady,
   removeVote,
   revealRetro,
@@ -32,6 +33,13 @@ export async function revealRetroCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await revealRetro(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function forceRevealRetroCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+
+  await forceRevealRetro(retroId);
   redirect(`/retros/${retroId}`);
 }
 

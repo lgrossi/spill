@@ -28,7 +28,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [customColors, setCustomColors] = useState(defaultCustomColors);
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
-  const [invitees, setInvitees] = useState<string[]>([]);
+  const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
 
   function updateColumn(index: number, value: string) {
     setCustomColumns((columns) => columns.map((column, columnIndex) => (columnIndex === index ? value : column)));
@@ -163,8 +163,11 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
           <InvitePanel mode="create" onInviteesChange={setInvitees} />
-          {invitees.map((email) => (
-            <input key={email} name="invitee" type="hidden" value={email} />
+          {invitees.map(({ email, role }) => (
+            <span key={email} style={{ display: "none" }}>
+              <input type="hidden" name="invitee_email" value={email} />
+              <input type="hidden" name="invitee_role" value={role} />
+            </span>
           ))}
         </div>
       </section>

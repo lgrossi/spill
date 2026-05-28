@@ -25,12 +25,14 @@ import {
   startVotingCommand,
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
+import { forceRevealRetroCommand } from "./commands/board-phase-commands";
 import { createRetroCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
   createMeetingNoteCommand,
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
+import { removeParticipant } from "./api";
 import { clearLocalIdentity, setLocalIdentity } from "./identity";
 import { addGrant, listGrants, removeGrant, type Grant } from "./api";
 
@@ -146,10 +148,21 @@ export async function listGrantsAction(retroId: string): Promise<Grant[]> {
   return listGrants(retroId);
 }
 
-export async function addGrantAction(retroId: string, email: string): Promise<void> {
-  return addGrant(retroId, email);
+export async function addGrantAction(retroId: string, email: string, role?: "host" | "member"): Promise<void> {
+  return addGrant(retroId, email, role);
 }
 
 export async function removeGrantAction(retroId: string, email: string): Promise<void> {
   return removeGrant(retroId, email);
+}
+
+export async function forceRevealRetroAction(formData: FormData): Promise<void> {
+  return forceRevealRetroCommand(formData);
+}
+
+export async function removeParticipantAction(
+  retroId: string,
+  subject: string,
+): Promise<void> {
+  return removeParticipant(retroId, subject);
 }

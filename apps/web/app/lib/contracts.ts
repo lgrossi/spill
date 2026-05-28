@@ -70,6 +70,7 @@ export type RetroCard = {
 export type RetroParticipant = {
   id: string;
   retro_id: string;
+  external_subject: string | null;
   display_name: string;
   role: "host" | "member";
 };
@@ -173,13 +174,18 @@ export type Delivery = {
   retry_count: number;
 };
 
+export type InviteeRequest = {
+  email: string;
+  role?: "host" | "member";
+};
+
 export type CreateRetroPayload =
   | {
       title: string;
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
-      invitees?: string[];
+      invitees?: InviteeRequest[];
     }
   | {
       title: string;
@@ -188,7 +194,7 @@ export type CreateRetroPayload =
       column_colors?: string[];
       vote_limit: number;
       action_discussion_limit: number;
-      invitees?: string[];
+      invitees?: InviteeRequest[];
     };
 
 export type Grant = {
