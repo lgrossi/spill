@@ -1,12 +1,20 @@
 use std::collections::BTreeMap;
 
+use hex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
 use board_read_model::attach_cards_to_columns;
 mod actions;
+
+fn email_subject(email: &str) -> String {
+    let hash = hex::encode(Sha256::digest(email.trim().to_lowercase()));
+    format!("email:{hash}")
+}
+
 mod artifacts;
 mod board_read_model;
 mod cards;
@@ -233,6 +241,40 @@ impl RetroRepository {
         .await
     }
 
+    /// Removes the participant row whose subject matches the given email.
+    /// Called after removing a board grant so the person is evicted from the
+    /// live session immediately.
+    pub async fn remove_participant_by_email(
+        &self,
+        retro_id: Uuid,
+        email: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let subject = email_subject(email);
+        let result = sqlx::query(
+            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn remove_participant(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn ensure_participant(
         &self,
         retro_id: Uuid,
@@ -279,7 +321,7 @@ impl RetroRepository {
         retro_id: Uuid,
     ) -> Result<Vec<ParticipantRecord>, sqlx::Error> {
         sqlx::query_as::<_, ParticipantRecord>(
-            "SELECT id, retro_id, display_name, role
+            "SELECT id, retro_id, external_subject, display_name, role
              FROM participants
              WHERE retro_id = $1
              ORDER BY CASE role WHEN 'host' THEN 0 ELSE 1 END, created_at ASC, id ASC",
@@ -521,6 +563,7 @@ pub struct RetroBoard {
 pub struct ParticipantRecord {
     pub id: Uuid,
     pub retro_id: Uuid,
+    pub external_subject: Option<String>,
     pub display_name: String,
     pub role: String,
 }

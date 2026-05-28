@@ -961,3 +961,343 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(board["deliveries"].as_array().unwrap().len(), 1);
 }
+
+// Feature 1 — uninviting a member removes their participant row immediately.
+//
+// Bob's subject is the `email:sha256(email)` value that the frontend derives
+// from "bob@spill.test". We set that directly in the subject header so the
+// participant row uses the same key that `remove_participant_by_email` targets.
+const ALICE_EMAIL: &str = "alice@spill.test";
+const ALICE_SUBJECT: &str =
+    "email:911c1a4b6e2a0f21e6b2176e7b1ee2e9d8c713b47fada7c98a565f26f93f2122";
+const BOB_EMAIL: &str = "bob@spill.test";
+const BOB_SUBJECT: &str =
+    "email:5e4ed42deade990aad0ac79434b6615d3c2dcf0ec6fb898a0e002a6206fe1396";
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    // Alice creates the retro (she's host).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_NAME, "Alice")
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Uninvite test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    // Alice grants Bob a member slot.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/grants"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(r#"{{"email":"{BOB_EMAIL}"}}"#)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Bob joins — this creates his participant row with BOB_SUBJECT.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_NAME, "Bob")
+                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board_with_bob: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board_with_bob["participants"].as_array().unwrap().len(), 2);
+
+    // Alice revokes Bob's grant — must also evict him from participants.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/grants/remove"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(r#"{{"email":"{BOB_EMAIL}"}}"#)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Alice re-opens the board — only she should appear as a participant.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board_after: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        board_after["participants"].as_array().unwrap().len(),
+        1,
+        "Bob's participant row should have been removed on uninvite"
+    );
+    assert_eq!(
+        board_after["participants"][0]["display_name"],
+        "Alice"
+    );
+}
+
+// Feature 2 — host can kick any participant, participant can self-leave;
+// host cannot kick themselves, non-host cannot kick others.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_NAME, "Alice")
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Kick test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    // Bob joins as a participant (no grant needed for this test).
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_NAME, "Bob")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Bob cannot kick Alice (non-host kicking others → 403).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Alice (host) cannot kick herself → 400.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Bob self-leaves → 204.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/retros/{retro_id}/participants/{BOB_SUBJECT}"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Second attempt on same subject → 404.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/retros/{retro_id}/participants/{BOB_SUBJECT}"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // Alice (host) can kick any remaining participant — Bob was removed, so
+    // this verifies that the ready-count event is published and the board
+    // can still be loaded.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board["participants"].as_array().unwrap().len(), 1);
+}
+
+// Feature 3 — host can force-reveal even when not all participants are ready.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_NAME, "Alice")
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Force reveal test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    // Bob joins and writes a card but does not mark ready.
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_NAME, "Bob")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"Bob's unready card"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Normal reveal without force → 400 (not everyone ready).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/reveal"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Non-host force-reveal → 403.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/reveal"))
+                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Host force-reveal → 200, board advances to discussion.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/reveal"))
+                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board["retro"]["phase"], "discussion");
+}

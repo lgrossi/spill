@@ -18,11 +18,14 @@ use contracts::{
     HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
     StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest,
 };
+use contracts::RevealBoardRequest;
 use error::ApiError;
 use events::{BoardEvent, BoardEventHub};
 use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
+#[cfg(test)]
+use identity::HEADER_USER_EMAIL;
 use retro_db::{BoardGrant, RetroOverview, RetroRepository};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
@@ -183,6 +186,10 @@ fn api_router() -> Router<AppState> {
         )
         .route("/retros/{retro_id}/grants", get(list_grants).post(add_grant))
         .route("/retros/{retro_id}/grants/remove", post(remove_grant))
+        .route(
+            "/retros/{retro_id}/participants/{subject}",
+            delete(remove_participant_from_session),
+        )
         .fallback(api_not_found)
 }
 
@@ -460,12 +467,49 @@ async fn reveal_board(
     State(event_hub): State<BoardEventHub>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
+    body: Option<Json<RevealBoardRequest>>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
+    let force = body.map(|b| b.force).unwrap_or(false);
+    if force {
+        let repo = configured_repository(repository.clone())?;
+        require_host(&repo, retro_id, &user.email).await?;
+    }
     retro_workflow(repository, event_hub)?
-        .reveal_board(user, retro_id)
+        .reveal_board(user, retro_id, force)
         .await
         .map(Json)
+}
+
+async fn remove_participant_from_session(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path((retro_id, subject)): Path<(Uuid, String)>,
+) -> Result<StatusCode, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    let is_host = check_is_host(&repository, retro_id, &user.email).await?;
+    if is_host {
+        if user.subject == subject {
+            return Err(ApiError::bad_request(
+                "cannot remove yourself from the session",
+            ));
+        }
+    } else if user.subject != subject {
+        return Err(ApiError::forbidden(
+            "only the host or the participant themselves can leave the session",
+        ));
+    }
+    let removed = repository
+        .remove_participant(retro_id, &subject)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to remove participant: {e}")))?;
+    if !removed {
+        return Err(ApiError::not_found("participant not found"));
+    }
+    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn start_voting(
@@ -711,6 +755,7 @@ async fn add_grant(
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::bad_request("invalid email address"));
     }
+        validate_role(&request.role)?;
     if email == user.email.trim().to_lowercase() {
         let grants = repository
             .list_board_grants(retro_id)
@@ -723,7 +768,7 @@ async fn add_grant(
         return Ok((StatusCode::OK, Json(grant)));
     }
     let grant = repository
-        .add_board_grant(retro_id, &email, "member")
+        .add_board_grant(retro_id, &email, &request.role)
         .await
         .map_err(|e| ApiError::internal(format!("failed to add grant: {e}")))?;
     Ok((StatusCode::CREATED, Json(grant)))
@@ -747,6 +792,11 @@ async fn remove_grant(
         .remove_board_grant(retro_id, &email)
         .await
         .map_err(|e| ApiError::internal(format!("failed to remove grant: {e}")))?;
+    // Feature 1: evict the participant row so they leave the live session immediately.
+    // Errors here are best-effort — the grant is already gone.
+    let _ = repository
+        .remove_participant_by_email(retro_id, &email)
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -777,7 +827,6 @@ async fn require_host(
     if !is_host && !is_creator {
         return Err(ApiError::forbidden("only the board host can manage grants"));
     }
-    // Creator whose grant is missing or demoted — restore it
     if is_creator && !is_host {
         repository
             .add_board_grant(retro_id, &email_lc, "host")
@@ -787,6 +836,40 @@ async fn require_host(
     Ok(())
 }
 
+async fn check_is_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<bool, ApiError> {
+    if email.is_empty() {
+        return Ok(false);
+    }
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to check host: {e}")))?;
+    let is_host = grants
+        .iter()
+        .any(|g| g.principal_email.eq_ignore_ascii_case(email) && g.role == "host");
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to fetch retro: {e}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    let is_creator = !retro.creator_email.is_empty()
+        && retro.creator_email == email.trim().to_lowercase();
+    Ok(is_host || is_creator)
+}
+
+fn validate_role(role: &str) -> Result<(), ApiError> {
+    if role == "host" || role == "member" {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "role must be \"host\" or \"member\", got: {role}"
+        )))
+    }
+}
 
 fn init_tracer() -> opentelemetry_sdk::trace::Tracer {
     let dd_agent = std::env::var("DD_AGENT_HOST").unwrap_or_else(|_| "127.0.0.1".into());

@@ -28,7 +28,7 @@ pub struct CreateRetroRequest {
     #[serde(default = "default_action_discussion_limit")]
     pub action_discussion_limit: i32,
     #[serde(default)]
-    pub invitees: Vec<String>,
+   pub invitees: Vec<InviteeRequest>,
 }
 
 #[derive(Deserialize)]
@@ -146,14 +146,33 @@ fn default_action_discussion_limit() -> i32 {
     3
 }
 
+fn default_member_role() -> String {
+    "member".to_owned()
+}
+
 #[derive(Deserialize)]
 pub struct AddGrantRequest {
     pub email: String,
+    #[serde(default = "default_member_role")]
+    pub role: String,
 }
 
 #[derive(Deserialize)]
 pub struct RemoveGrantRequest {
     pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct InviteeRequest {
+    pub email: String,
+    #[serde(default = "default_member_role")]
+    pub role: String,
+}
+
+#[derive(Deserialize, Default)]
+pub struct RevealBoardRequest {
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[cfg(test)]

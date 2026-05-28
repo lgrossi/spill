@@ -58,13 +58,18 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
 
         let retro_id = board.retro.id;
-        for email_raw in invitees {
-            let email = email_raw.trim().to_lowercase();
+        for invitee in invitees {
+            let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {
                 continue;
             }
+            if invitee.role != "host" && invitee.role != "member" {
+                return Err(ApiError::bad_request(format!(
+                    "role must be \"host\" or \"member\", got: {}", invitee.role
+                )));
+            }
             self.repository
-                .add_board_grant(retro_id, &email, "member")
+                .add_board_grant(retro_id, &email, &invitee.role)
                 .await
                 .map_err(|e| ApiError::internal(format!("failed to add invitee grant: {e}")))?;
         }
@@ -300,14 +305,18 @@ impl RetroWorkflow {
         &self,
         user: CurrentUser,
         retro_id: Uuid,
+        force: bool,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
-        let board = self.fetch_board_for_user(retro_id, &user).await?;
-        if board.retro.phase == "writing" && board.ready.ready_count < board.ready.participant_count
-        {
-            return Err(ApiError::bad_request(
-                "everyone must be ready before reveal",
-            ));
+        if !force {
+            let board = self.fetch_board_for_user(retro_id, &user).await?;
+            if board.retro.phase == "writing"
+                && board.ready.ready_count < board.ready.participant_count
+            {
+                return Err(ApiError::bad_request(
+                    "everyone must be ready before reveal",
+                ));
+            }
         }
         self.repository
             .reveal_board(retro_id)
@@ -618,5 +627,16 @@ fn domain_error(error: DomainError) -> ApiError {
             ApiError::bad_request(format!("invalid {domain}: {value}"))
         }
         other => ApiError::bad_request(format!("domain validation failed: {other:?}")),
+    }
+}
+
+fn validate_invitee_role(role: Option<&str>) -> Result<String, ApiError> {
+    let r = role.unwrap_or("member");
+    if r == "host" || r == "member" {
+        Ok(r.to_owned())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "role must be \"host\" or \"member\", got: {r}"
+        )))
     }
 }
