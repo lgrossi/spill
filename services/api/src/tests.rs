@@ -1060,6 +1060,7 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
                 .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_USER_NAME, "Alice")
                 .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
