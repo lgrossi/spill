@@ -281,7 +281,7 @@ export function avatarInitials(label: string | null | undefined) {
   return (parts[0] ?? base).slice(0, 2).toLowerCase();
 }
 
-// "Alice Grossi" -> "Alice G.", "alice.g" -> "alice g.", "alice" -> "alice"
+// "Alice Grossi" -> "Alice G.", "alice.g" -> "Alice G.", "alice" -> "Alice"
 // Used on cards to attribute the writer without burning two lines on a
 // long full name.
 export function shortAuthorName(label: string | null | undefined): string {
@@ -289,9 +289,15 @@ export function shortAuthorName(label: string | null | undefined): string {
   if (!value) return "anonymous";
   const base = value.includes("@") ? value.split("@")[0] : value;
   const parts = base.split(/[\s._-]+/).filter(Boolean);
-  if (parts.length === 1) return parts[0];
+  const first = capitalize(parts[0]);
+  if (parts.length === 1) return first;
   const last = parts[parts.length - 1];
-  return `${parts[0]} ${last[0].toUpperCase()}.`;
+  return `${first} ${last[0].toUpperCase()}.`;
+}
+
+function capitalize(value: string): string {
+  if (!value) return value;
+  return value[0].toUpperCase() + value.slice(1);
 }
 
 export function avatarColorForSeed(seed: string | null | undefined) {
