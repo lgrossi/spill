@@ -25,7 +25,7 @@ import {
   startVotingCommand,
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
-import { forceRevealRetroCommand } from "./commands/board-phase-commands";
+import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
 import { createRetroCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
@@ -158,6 +158,10 @@ export async function removeGrantAction(retroId: string, email: string): Promise
 
 export async function forceRevealRetroAction(formData: FormData): Promise<void> {
   return forceRevealRetroCommand(formData);
+}
+
+export async function autoAdvanceAction(formData: FormData): Promise<void> {
+  return autoAdvanceCommand(formData);
 }
 
 export async function removeParticipantAction(

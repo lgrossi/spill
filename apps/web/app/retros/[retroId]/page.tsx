@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { BoardAccessDenied, IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
-import { AppChrome, StageIndicator, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
+import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
 import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
 import { listGrantsAction, markReadyAction, unmarkReadyAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
-import { PhaseControls, ProceedButton, nextActionFor } from "./phase-controls";
+import { PhaseControls } from "./phase-controls";
+import { PhaseLine } from "./phase-line";
 import { WrappedSummary } from "./wrapped-summary";
 
 type BoardSearchParams = {
@@ -144,21 +145,21 @@ function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
 }
 
 function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }): ReactNode {
-  const phase = board.retro.phase;
-  const showReady = phase === "writing" || phase === "voting";
-  const next = nextActionFor(board, isHost);
+  // The completed phase swaps in WrappedSummary on its own page, so no
+  // center widget is needed there.
+  if (board.retro.phase === "completed") return null;
+  const allReady =
+    board.ready.participant_count > 0 &&
+    board.ready.ready_count >= board.ready.participant_count;
   return (
-    <div className="flex flex-col items-center gap-1">
-      <StageIndicator phase={phase} retroId={board.retro.id} />
-      <div className="flex items-center gap-2 leading-none">
-        {showReady && board.ready.participant_count > 0 ? (
-          <span className="text-[10px] text-spill-muted">
-            {board.ready.ready_count} of {board.ready.participant_count} ready
-          </span>
-        ) : null}
-        {next ? <ProceedButton retroId={board.retro.id} spec={next} /> : null}
-      </div>
-    </div>
+    <PhaseLine
+      retroId={board.retro.id}
+      phase={board.retro.phase}
+      isHost={isHost}
+      participantCount={board.ready.participant_count}
+      readyCount={board.ready.ready_count}
+      allReady={allReady}
+    />
   );
 }
 

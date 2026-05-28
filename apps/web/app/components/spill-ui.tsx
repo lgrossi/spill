@@ -529,48 +529,6 @@ export function CardComposer({
   );
 }
 
-export function StageIndicator({ phase, retroId }: { phase: string; retroId?: string }) {
-  const steps = [
-    ["writing", "WRITE"],
-    ["discussion", "DISCUSS"],
-    ["voting", "VOTE"],
-    ["action_discussion", "ACT"],
-  ];
-  const completed = phase === "completed";
-  const activeIndex = steps.findIndex(([key]) => key === phase);
-  return (
-    <div className="hidden items-center gap-0.5 md:flex">
-      {steps.map(([key, label], index) => {
-        const active = !completed && index === activeIndex;
-        const done = completed || (activeIndex >= 0 && index < activeIndex);
-        const content = (
-          <>
-            {index + 1} {label}
-          </>
-        );
-        const className = `rounded-full px-2.5 py-[3px] text-[10px] font-extrabold tracking-[0.1em] ${active ? "bg-spill-wrong text-white" : done ? "text-spill-fg/70" : "text-spill-muted"}`;
-        const href = retroId ? `/retros/${retroId}${key === "action_discussion" ? "#actions" : "#board"}` : undefined;
-        return href ? (
-          <Link
-            className={className}
-            href={href}
-            key={key}
-          >
-            {content}
-          </Link>
-        ) : (
-          <span
-            className={className}
-            key={key}
-          >
-            {content}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 export function PhaseBadge({ phase, color }: { phase: string; color?: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.09em] text-white shadow-[0_2px_4px_rgba(0,0,0,0.12)]" style={{ backgroundColor: color ?? spillColors.muted }}>

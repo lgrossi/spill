@@ -100,3 +100,27 @@ async function syncReadinessFromVotes(retroId: string) {
     // best-effort; the next page render will reflect current state
   }
 }
+
+// Fires from the AutoAdvanceCountdown after the 5s grace window.
+// Re-checks all-ready server-side so a last-second un-ready cancels the
+// transition even if the client's timer already fired. Errors (already
+// advanced, race with another client) are swallowed.
+export async function autoAdvanceCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  try {
+    const board = await getRetro(retroId);
+    const allReady =
+      board.ready.participant_count > 0 &&
+      board.ready.ready_count >= board.ready.participant_count;
+    if (allReady) {
+      if (board.retro.phase === "writing") {
+        await revealRetro(retroId);
+      } else if (board.retro.phase === "voting") {
+        await startActionDiscussion(retroId);
+      }
+      revalidatePath(`/retros/${retroId}`);
+    }
+  } catch {
+  }
+  redirect(`/retros/${retroId}`);
+}
