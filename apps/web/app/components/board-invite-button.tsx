@@ -6,9 +6,11 @@ import { InvitePanel } from "./invite-panel";
 export function BoardInviteButton({
   retroId,
   currentUserEmail,
+  isHost,
 }: {
   retroId: string;
   currentUserEmail: string;
+  isHost: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -39,10 +41,12 @@ export function BoardInviteButton({
           strokeWidth={2}
           viewBox="0 0 20 20"
         >
-          <path d="M13 6H7a4 4 0 1 0 0 8h6" strokeLinecap="round" />
-          <path d="M16 9l3 3-3 3M19 12h-7" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="8" cy="7" r="3" />
+          <path d="M2 19c0-3.314 2.686-6 6-6s6 2.686 6 6" strokeLinecap="round" />
+          <circle cx="15" cy="7" r="2.5" />
+          <path d="M19 19c0-2.761-1.791-5-4-5.5" strokeLinecap="round" />
         </svg>
-        invite
+        people
       </button>
 
       <dialog
@@ -68,6 +72,7 @@ export function BoardInviteButton({
             mode="board"
             retroId={retroId}
             currentUserEmail={currentUserEmail}
+            isHost={isHost}
           />
         </div>
       </dialog>

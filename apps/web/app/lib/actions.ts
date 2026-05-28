@@ -33,7 +33,7 @@ import {
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
 import { removeParticipant } from "./api";
-import { clearLocalIdentity, setLocalIdentity } from "./identity";
+import { clearLocalIdentity, currentIdentity, setLocalIdentity } from "./identity";
 import { addGrant, listGrants, removeGrant, type Grant } from "./api";
 
 export async function setIdentityAction(formData: FormData) {
@@ -165,4 +165,12 @@ export async function removeParticipantAction(
   subject: string,
 ): Promise<void> {
   return removeParticipant(retroId, subject);
+}
+
+export async function leaveRetroAction(retroId: string): Promise<void> {
+  const identity = await currentIdentity();
+  if (identity) {
+    await removeParticipant(retroId, identity.subject).catch(() => {});
+  }
+  redirect("/");
 }
