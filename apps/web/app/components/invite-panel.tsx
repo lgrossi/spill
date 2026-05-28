@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addGrantAction, leaveRetroAction, listGrantsAction, removeGrantAction } from "@/lib/actions";
+import { addGrantAction, listGrantsAction, removeGrantAction } from "@/lib/actions";
 import { type Grant } from "@/lib/api";
 import { Avatar, avatarColorForSeed, avatarInitials } from "./spill-ui";
 import { UserAutocomplete, type Picked } from "./user-autocomplete";
@@ -247,16 +247,6 @@ function MemberBadge({
           host
         </span>
       ) : null}
-      {isSelf && retroId && (
-        <button
-          type="button"
-          title="Leave this board session"
-          onClick={() => leaveRetroAction(retroId)}
-          className="ml-0.5 rounded px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.08em] text-spill-muted transition hover:bg-spill-wrong/15 hover:text-spill-wrong"
-        >
-          leave
-        </button>
-      )}
       {onRemove && (
         <button
           aria-label={`Remove ${label}`}
