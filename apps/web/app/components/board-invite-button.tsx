@@ -57,7 +57,7 @@ export function BoardInviteButton({
         <div className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">
-              manage access
+              people
             </p>
             <button
               aria-label="Close"
