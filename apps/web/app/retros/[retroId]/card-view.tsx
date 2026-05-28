@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, type ColumnAccent } from "@/components/spill-ui";
+import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, shortAuthorName, type ColumnAccent } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
@@ -46,6 +46,7 @@ export function CardView({
         <ClusterMembers board={board} card={card} />
         <CardFooter
           author={avatarInitials(author?.display_name)}
+          authorName={shortAuthorName(author?.display_name)}
           color={avatarColorForSeed(author?.id)}
           tag={semantic}
           trailing={board.retro.phase === "voting" ? <VoteControls board={board} card={card} color={color} /> : undefined}

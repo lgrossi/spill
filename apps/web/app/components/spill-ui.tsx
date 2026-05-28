@@ -279,6 +279,19 @@ export function avatarInitials(label: string | null | undefined) {
   return (parts[0] ?? base).slice(0, 2).toLowerCase();
 }
 
+// "Alice Grossi" -> "Alice G.", "alice.g" -> "alice g.", "alice" -> "alice"
+// Used on cards to attribute the writer without burning two lines on a
+// long full name.
+export function shortAuthorName(label: string | null | undefined): string {
+  const value = label?.trim();
+  if (!value) return "anonymous";
+  const base = value.includes("@") ? value.split("@")[0] : value;
+  const parts = base.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  const last = parts[parts.length - 1];
+  return `${parts[0]} ${last[0].toUpperCase()}.`;
+}
+
 export function avatarColorForSeed(seed: string | null | undefined) {
   const colors = [spillColors.wrong, spillColors.mood, spillColors.action, spillColors.well, spillColors.muted];
   const value = seed?.trim() || "spill-user";
@@ -366,12 +379,14 @@ export function SpillCard({
 
 export function CardFooter({
   author = "??",
+  authorName,
   color = spillColors.muted,
   tag,
   trailing,
   votes,
 }: {
   author?: string;
+  authorName?: string;
   color?: string;
   tag?: string;
   trailing?: ReactNode;
@@ -380,6 +395,11 @@ export function CardFooter({
   return (
     <div className="mt-2 flex items-center gap-1.5 border-t border-white/20 pt-1.5 text-[11px]">
       <Avatar k={author} color={color} ring="rgba(255,255,255,0.55)" size={18} />
+      {authorName ? (
+        <span className="truncate text-[11px] font-semibold text-white/85" title={authorName}>
+          {authorName}
+        </span>
+      ) : null}
       {tag ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9.5px] font-semibold tracking-[0.03em] text-white">#{tag}</span> : null}
       <div className="flex-1" />
       {trailing ?? (votes !== undefined ? (
