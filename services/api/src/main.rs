@@ -112,7 +112,7 @@ fn api_router() -> Router<AppState> {
         .route("/session", get(session))
         .route("/gifs/search", get(media::search_gifs))
         .route("/retros", get(list_retros).post(create_retro))
-        .route("/retros/{retro_id}", get(open_retro))
+        .route("/retros/{retro_id}", get(open_retro).delete(delete_retro))
         .route("/retros/{retro_id}/events", get(board_events))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
@@ -257,6 +257,24 @@ async fn open_retro(
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("retro not found"))
+}
+
+async fn delete_retro(
+    State(repository): State<Option<RetroRepository>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    require_host(&repository, retro_id, &user.email).await?;
+    let deleted = repository
+        .delete_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to delete retro: {error}")))?;
+    if !deleted {
+        return Err(ApiError::not_found("retro not found"));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn create_draft_card(

@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { searchDirectory, type DirectoryUser } from "./directory";
 import {
   createDraftCardCommand,
@@ -32,7 +33,7 @@ import {
   createMeetingNoteCommand,
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
-import { removeParticipant } from "./api";
+import { deleteRetro, removeParticipant } from "./api";
 import { clearLocalIdentity, setLocalIdentity } from "./identity";
 import { addGrant, listGrants, removeGrant, type Grant } from "./api";
 
@@ -169,4 +170,13 @@ export async function removeParticipantAction(
   subject: string,
 ): Promise<void> {
   return removeParticipant(retroId, subject);
+}
+
+export async function deleteRetroAction(formData: FormData): Promise<void> {
+  const retroId = String(formData.get("retro_id") ?? "");
+  if (!retroId) return;
+  await deleteRetro(retroId);
+  revalidatePath("/");
+  revalidatePath("/history");
+  redirect("/");
 }

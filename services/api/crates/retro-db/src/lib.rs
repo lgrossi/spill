@@ -44,6 +44,14 @@ impl RetroRepository {
         .await
     }
 
+    pub async fn delete_retro(&self, id: Uuid) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM retros WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
         creation::create_retro(&self.pool, input).await
     }

@@ -109,6 +109,13 @@ export async function removeParticipant(retroId: string, subject: string): Promi
   );
 }
 
+export async function deleteRetro(retroId: string): Promise<void> {
+  await apiFetchNoJson(`/api/retros/${retroId}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+}
+
 export async function startVoting(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/voting/start`, {
     method: "POST",
