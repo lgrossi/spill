@@ -29,8 +29,10 @@ export function BoardInviteButton({
   return (
     <>
       <button
-        className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 text-[12.5px] font-semibold leading-none text-[var(--fg-2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_1px_0_rgba(74,52,20,0.06)] transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+        aria-label="people"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-spill-line bg-transparent text-spill-muted transition hover:border-spill-fg/30 hover:bg-[var(--paper-2)] hover:text-spill-fg focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
         onClick={open}
+        title="people"
         type="button"
       >
         <svg
@@ -46,7 +48,6 @@ export function BoardInviteButton({
           <circle cx="15" cy="7" r="2.5" />
           <path d="M19 19c0-2.761-1.791-5-4-5.5" strokeLinecap="round" />
         </svg>
-        people
       </button>
 
       <dialog

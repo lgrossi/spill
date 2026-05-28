@@ -8,7 +8,7 @@ import { listGrantsAction, markReadyAction, unmarkReadyAction } from "@/lib/acti
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
-import { PhaseControls } from "./phase-controls";
+import { PhaseControls, ProceedButton, nextActionFor } from "./phase-controls";
 import { WrappedSummary } from "./wrapped-summary";
 
 type BoardSearchParams = {
@@ -61,7 +61,7 @@ export default async function RetroBoardPage({
         />
       }
       presence={<ParticipantStack board={board} />}
-      center={<CenterPhase board={board} />}
+      center={<CenterPhase board={board} isHost={isHost} />}
       subtitle={<TitleSubtitle board={board} />}
       title={board.retro.title}
     >
@@ -143,17 +143,21 @@ function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
   return <span>wrapped recap</span>;
 }
 
-function CenterPhase({ board }: { board: RetroBoard }): ReactNode {
+function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }): ReactNode {
   const phase = board.retro.phase;
   const showReady = phase === "writing" || phase === "voting";
+  const next = nextActionFor(board, isHost);
   return (
-    <div className="flex flex-col items-center gap-0.5">
+    <div className="flex flex-col items-center gap-1">
       <StageIndicator phase={phase} retroId={board.retro.id} />
-      {showReady && board.ready.participant_count > 0 ? (
-        <span className="text-[10px] leading-none text-spill-muted">
-          {board.ready.ready_count} of {board.ready.participant_count} ready
-        </span>
-      ) : null}
+      <div className="flex items-center gap-2 leading-none">
+        {showReady && board.ready.participant_count > 0 ? (
+          <span className="text-[10px] text-spill-muted">
+            {board.ready.ready_count} of {board.ready.participant_count} ready
+          </span>
+        ) : null}
+        {next ? <ProceedButton retroId={board.retro.id} spec={next} /> : null}
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import {
   completeRetroAction,
   revealRetroAction,
@@ -9,16 +10,16 @@ import type { RetroBoard } from "@/lib/contracts";
 import { Btn, spillColors } from "@/components/spill-ui";
 import { BoardInviteButton } from "@/components/board-invite-button";
 
-type NextSpec = {
+export type NextSpec = {
   action: (formData: FormData) => void | Promise<void>;
   kind: "primary" | "dashed";
   accent?: string;
-  icon: string;
+  cta: string;
   label: string;
   disabled?: boolean;
 };
 
-function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
+export function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
   const phase = board.retro.phase;
   const allReady =
     board.ready.participant_count > 0 &&
@@ -27,8 +28,8 @@ function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
     return {
       action: isHost ? forceRevealRetroAction : revealRetroAction,
       kind: allReady ? "primary" : "dashed",
-      icon: "»",
-      label: "next: discuss",
+      cta: "proceed »",
+      label: "proceed to discuss",
       disabled: !isHost && !allReady,
     };
   }
@@ -38,15 +39,15 @@ function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
         action: startActionDiscussionAction,
         kind: "primary",
         accent: spillColors.action,
-        icon: "»",
-        label: "next: act",
+        cta: "proceed »",
+        label: "proceed to act",
       };
     }
     return {
       action: startVotingAction,
       kind: "primary",
-      icon: "»",
-      label: "next: vote",
+      cta: "proceed »",
+      label: "proceed to vote",
     };
   }
   if (phase === "voting") {
@@ -54,8 +55,8 @@ function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
       action: startActionDiscussionAction,
       kind: allReady ? "primary" : "dashed",
       accent: spillColors.action,
-      icon: "»",
-      label: "next: act",
+      cta: "proceed »",
+      label: "proceed to act",
       disabled:
         (!isHost && !allReady) || board.retro.action_discussion_limit <= 0,
     };
@@ -64,13 +65,40 @@ function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
     return {
       action: completeRetroAction,
       kind: "primary",
-      icon: "✓",
+      cta: "wrap ✓",
       label: "wrap retro",
     };
   }
   return null;
 }
 
+export function ProceedButton({ retroId, spec }: { retroId: string; spec: NextSpec }) {
+  const accent = spec.accent ?? spillColors.wrong;
+  const filled = spec.kind === "primary";
+  const style: CSSProperties = filled ? { backgroundColor: accent } : {};
+  return (
+    <form action={spec.action} className="contents">
+      <input name="retro_id" type="hidden" value={retroId} />
+      <button
+        aria-label={spec.label}
+        className={`inline-flex h-[22px] items-center gap-1 rounded-full px-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.08em] leading-none transition disabled:pointer-events-none disabled:opacity-55 ${
+          filled
+            ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_1px_0_rgba(74,52,20,0.12)] hover:brightness-[0.97]"
+            : "border border-dashed border-spill-line text-spill-muted hover:border-spill-fg/30 hover:text-spill-fg"
+        }`}
+        disabled={spec.disabled}
+        style={style}
+        title={spec.label}
+        type="submit"
+      >
+        {spec.cta}
+      </button>
+    </form>
+  );
+}
+
+// Right-side action area: people button + (on completed) home shortcut.
+// The proceed button lives in the centered phase block, not here.
 export function PhaseControls({
   board,
   isHost = false,
@@ -97,26 +125,5 @@ export function PhaseControls({
     );
   }
 
-  const next = nextActionFor(board, isHost);
-  return (
-    <>
-      {peopleButton}
-      {next ? (
-        <form action={next.action}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn
-            aria-label={next.label}
-            title={next.label}
-            kind={next.kind}
-            accent={next.accent}
-            type="submit"
-            disabled={next.disabled}
-            className="min-w-[44px] text-base"
-          >
-            {next.icon}
-          </Btn>
-        </form>
-      ) : null}
-    </>
-  );
+  return <>{peopleButton}</>;
 }
