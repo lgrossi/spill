@@ -154,6 +154,6 @@ function WrappedBoardCard({ card }: { card: RetroCard }) {
 
 function actionCheckClass(checked: boolean) {
   return `grid h-7 w-7 place-items-center rounded-[7px] border text-[13px] font-extrabold leading-none transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)] ${
-    checked ? "border-spill-well bg-spill-well text-white" : "border-[var(--line-2)] bg-white text-transparent hover:border-spill-well hover:text-spill-well"
+    checked ? "border-spill-well bg-spill-well text-white" : "border-[var(--line-2)] bg-[var(--panel-hi)] text-transparent hover:border-spill-well hover:text-spill-well"
   }`;
 }

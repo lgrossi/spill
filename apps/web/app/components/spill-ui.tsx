@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { CSSProperties, ReactNode } from "react";
 import { IntentCardText, IntentSearch } from "./intent-controls";
 
@@ -71,6 +72,7 @@ export function TopBar({
         <div className="ml-auto flex items-center gap-1.5 [&>form]:contents">
           <div className="hidden items-center md:flex">{presence}</div>
           {actions}
+          <ThemeToggle />
         </div>
       </div>
       {center ? (

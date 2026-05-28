@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { readTheme } from "./lib/theme";
 
 export const metadata: Metadata = {
   title: "Spill.",
@@ -11,13 +12,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = await readTheme();
   return (
-    <html lang="en">
+    <html lang="en" data-theme={theme}>
       <body className="sp-paper">{children}</body>
     </html>
   );

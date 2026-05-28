@@ -116,7 +116,7 @@ export default async function OverviewPage({
                       <input name="action_id" type="hidden" value={action.id} />
                       <button
                         aria-label={`Mark ${action.title} done`}
-                        className="grid h-7 w-7 place-items-center rounded-[8px] border border-spill-line bg-[var(--panel-hi)] text-[13px] font-extrabold text-spill-well shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_0_rgba(74,52,20,0.06)] transition hover:border-spill-well hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+                        className="grid h-7 w-7 place-items-center rounded-[8px] border border-spill-line bg-[var(--panel-hi)] text-[13px] font-extrabold text-spill-well shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_0_rgba(74,52,20,0.06)] transition hover:border-spill-well hover:bg-[var(--panel)] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
                         title="Mark done"
                         type="submit"
                       >
