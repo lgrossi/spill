@@ -30,7 +30,6 @@ export function PhaseControls({
 
   if (board.retro.phase === "writing") {
     const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
-    const someButNotAllReady = board.ready.ready_count > 0 && !allReady;
     // Hosts use forceReveal so they can advance even when not everyone is ready.
     // Non-hosts use the regular reveal which the backend gates on readiness.
     const revealAction = isHost ? forceRevealRetroAction : revealRetroAction;
@@ -48,7 +47,7 @@ export function PhaseControls({
         </form>
         <form action={revealAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={someButNotAllReady ? "dashed" : "primary"} accent={spillColors.well} type="submit" disabled={!isHost && !allReady}>reveal -&gt;</Btn>
+          <Btn kind={allReady ? "primary" : "dashed"} type="submit" disabled={!isHost && !allReady}>reveal -&gt;</Btn>
         </form>
       </>
     );
@@ -76,9 +75,6 @@ export function PhaseControls({
 
   if (board.retro.phase === "voting") {
     const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
-    // Dashed only when someone has marked ready but not everyone — signals "wait".
-    // When nobody has marked ready yet (ready_count === 0) keep primary as default.
-    const someButNotAll = board.ready.ready_count > 0 && !allReady;
     return (
       <>
         <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
@@ -89,7 +85,7 @@ export function PhaseControls({
         </form>
         <form action={startActionDiscussionAction}>
           <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={someButNotAll ? "dashed" : "primary"} accent={spillColors.action} type="submit" disabled={!isHost && !allReady || board.retro.action_discussion_limit <= 0}>act -&gt;</Btn>
+          <Btn kind={allReady ? "primary" : "dashed"} accent={spillColors.action} type="submit" disabled={!isHost && !allReady || board.retro.action_discussion_limit <= 0}>act -&gt;</Btn>
         </form>
       </>
     );
