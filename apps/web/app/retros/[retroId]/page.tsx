@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { BoardAccessDenied, IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
-import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
+import { AppChrome, StageIndicator, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
 import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
-import { listGrantsAction } from "@/lib/actions";
+import { listGrantsAction, markReadyAction, unmarkReadyAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
@@ -61,7 +61,8 @@ export default async function RetroBoardPage({
         />
       }
       presence={<ParticipantStack board={board} />}
-      subtitle={phaseSubtitle(board)}
+      center={<CenterPhase board={board} />}
+      subtitle={<TitleSubtitle board={board} />}
       title={board.retro.title}
     >
       <BoardSync retroId={board.retro.id} />
@@ -89,27 +90,72 @@ function ParticipantStack({ board }: { board: RetroBoard }) {
 
 function VoteLeftDots({ remaining, total }: { remaining: number; total: number }) {
   return (
-    <span className="flex shrink-0 gap-0.5" aria-label={`${remaining} votes left`}>
+    <span className="flex shrink-0 gap-0.5" aria-label={`${remaining} of ${total} votes left`}>
       {Array.from({ length: total }).map((_, index) => (
-        <span className={`h-1.5 w-1.5 rounded-full border border-spill-well/45 ${index < remaining ? "bg-spill-well/75" : "bg-transparent"}`} key={index} />
+        <span className={`h-1.5 w-1.5 rounded-full ${index < remaining ? "bg-spill-wrong" : "border border-spill-line bg-transparent"}`} key={index} />
       ))}
     </span>
   );
 }
 
-function phaseSubtitle(board: RetroBoard): ReactNode {
-  if (board.retro.phase === "writing") return `writing. ${board.ready.ready_count} of ${board.ready.participant_count} ready`;
-  if (board.retro.phase === "discussion") return "review. manual grouping is available";
-  if (board.retro.phase === "voting") {
+function ReadyCheckbox({ retroId, checked }: { retroId: string; checked: boolean }) {
+  const action = checked ? unmarkReadyAction : markReadyAction;
+  return (
+    <form action={action} className="contents">
+      <input name="retro_id" type="hidden" value={retroId} />
+      <button
+        type="submit"
+        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-[2px] text-[10.5px] font-semibold leading-none transition ${
+          checked
+            ? "bg-spill-wrong text-white"
+            : "border border-dashed border-spill-line text-spill-muted hover:border-spill-fg/30 hover:text-spill-fg"
+        }`}
+      >
+        <span
+          aria-hidden
+          className={`grid h-3 w-3 place-items-center rounded-sm border text-[8px] leading-none ${
+            checked ? "border-white/70 bg-white/15 text-white" : "border-spill-muted/60 text-transparent"
+          }`}
+        >
+          ✓
+        </span>
+        {checked ? "i'm ready" : "i'm ready"}
+      </button>
+    </form>
+  );
+}
+
+function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
+  const phase = board.retro.phase;
+  if (phase === "writing") {
+    return <ReadyCheckbox retroId={board.retro.id} checked={board.ready.current_user_ready} />;
+  }
+  if (phase === "voting") {
     return (
-      <>
-        <span className="truncate">voting. {board.voting.votes_remaining} votes left</span>
+      <span className="flex items-center gap-1.5">
+        <span className="truncate">{board.voting.votes_remaining} of {board.retro.vote_limit} votes left</span>
         <VoteLeftDots remaining={board.voting.votes_remaining} total={board.retro.vote_limit} />
-      </>
+      </span>
     );
   }
-  if (board.retro.phase === "action_discussion") return `action discussion. top ${board.retro.action_discussion_limit}`;
-  return "completed. wrapped recap";
+  if (phase === "discussion") return <span>review and group cards</span>;
+  if (phase === "action_discussion") return <span>top {board.retro.action_discussion_limit} actions</span>;
+  return <span>wrapped recap</span>;
+}
+
+function CenterPhase({ board }: { board: RetroBoard }): ReactNode {
+  const phase = board.retro.phase;
+  const showReady = phase === "writing" || phase === "voting";
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <StageIndicator phase={phase} retroId={board.retro.id} />
+      {showReady && board.ready.participant_count > 0 ? (
+        <span className="text-[10px] leading-none text-spill-muted">
+          {board.ready.ready_count} of {board.ready.participant_count} ready
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 async function loadBoard(retroId: string): Promise<RetroBoard | "forbidden" | null> {

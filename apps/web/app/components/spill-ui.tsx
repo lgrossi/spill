@@ -18,19 +18,21 @@ export type ColumnAccent = "mood" | "well" | "wrong" | "action";
 export function AppChrome({
   title,
   subtitle,
+  center,
   children,
   actions,
   presence,
 }: {
   title?: string;
   subtitle?: ReactNode;
+  center?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
   presence?: ReactNode;
 }) {
   return (
     <main className="sp-paper flex min-h-dvh flex-col text-spill-fg">
-      <TopBar title={title} subtitle={subtitle} actions={actions} presence={presence} />
+      <TopBar title={title} subtitle={subtitle} center={center} actions={actions} presence={presence} />
       <section className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-hidden">
         {children}
       </section>
@@ -41,16 +43,18 @@ export function AppChrome({
 export function TopBar({
   title,
   subtitle,
+  center,
   actions,
   presence,
 }: {
   title?: string;
   subtitle?: ReactNode;
+  center?: ReactNode;
   actions?: ReactNode;
   presence?: ReactNode;
 }) {
   return (
-    <header className="sp-panel-grain h-14 shrink-0 border-b border-spill-line bg-spill-panel shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(0,0,0,0.04)]">
+    <header className="sp-panel-grain relative h-14 shrink-0 border-b border-spill-line bg-spill-panel shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(0,0,0,0.04)]">
       <div className="flex h-full w-full items-center gap-3 px-4 md:px-8 lg:px-10">
         <Link href="/" aria-label="Spill home">
           <SpillLogo />
@@ -69,6 +73,11 @@ export function TopBar({
           {actions}
         </div>
       </div>
+      {center ? (
+        <div className="pointer-events-none absolute inset-0 hidden items-center justify-center md:flex">
+          <div className="pointer-events-auto">{center}</div>
+        </div>
+      ) : null}
     </header>
   );
 }
@@ -113,6 +122,8 @@ export function Btn({
   disabled,
   className = "",
   style,
+  "aria-label": ariaLabel,
+  title,
 }: {
   children: ReactNode;
   href?: string;
@@ -123,6 +134,8 @@ export function Btn({
   disabled?: boolean;
   className?: string;
   style?: CSSProperties;
+  "aria-label"?: string;
+  title?: string;
 }) {
   const base =
     "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[12.5px] font-semibold leading-none transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:shadow-[var(--focus)] disabled:pointer-events-none disabled:opacity-45";
@@ -144,14 +157,14 @@ export function Btn({
 
   if (href) {
     return (
-      <Link className={classes} href={href} style={cssVars}>
+      <Link aria-label={ariaLabel} className={classes} href={href} style={cssVars} title={title}>
         {children}
       </Link>
     );
   }
 
   return (
-    <button className={classes} disabled={disabled} form={form} style={cssVars} type={type ?? "button"}>
+    <button aria-label={ariaLabel} className={classes} disabled={disabled} form={form} style={cssVars} title={title} type={type ?? "button"}>
       {children}
     </button>
   );
@@ -519,16 +532,17 @@ export function CardComposer({
 export function StageIndicator({ phase, retroId }: { phase: string; retroId?: string }) {
   const steps = [
     ["writing", "WRITE"],
+    ["discussion", "DISCUSS"],
     ["voting", "VOTE"],
     ["action_discussion", "ACT"],
   ];
-  const activePhase = phase === "discussion" ? "voting" : phase;
-  const activeIndex = Math.max(0, steps.findIndex(([key]) => key === activePhase));
+  const completed = phase === "completed";
+  const activeIndex = steps.findIndex(([key]) => key === phase);
   return (
     <div className="hidden items-center gap-0.5 md:flex">
       {steps.map(([key, label], index) => {
-        const active = index === activeIndex;
-        const done = index < activeIndex || phase === "completed";
+        const active = !completed && index === activeIndex;
+        const done = completed || (activeIndex >= 0 && index < activeIndex);
         const content = (
           <>
             {index + 1} {label}

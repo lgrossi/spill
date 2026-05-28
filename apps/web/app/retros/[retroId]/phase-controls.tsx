@@ -1,15 +1,75 @@
 import {
   completeRetroAction,
-  markReadyAction,
   revealRetroAction,
   forceRevealRetroAction,
   startActionDiscussionAction,
   startVotingAction,
-  unmarkReadyAction,
 } from "@/lib/actions";
 import type { RetroBoard } from "@/lib/contracts";
-import { Btn, PhaseBadge, Pill, StageIndicator, spillColors } from "@/components/spill-ui";
+import { Btn, spillColors } from "@/components/spill-ui";
 import { BoardInviteButton } from "@/components/board-invite-button";
+
+type NextSpec = {
+  action: (formData: FormData) => void | Promise<void>;
+  kind: "primary" | "dashed";
+  accent?: string;
+  icon: string;
+  label: string;
+  disabled?: boolean;
+};
+
+function nextActionFor(board: RetroBoard, isHost: boolean): NextSpec | null {
+  const phase = board.retro.phase;
+  const allReady =
+    board.ready.participant_count > 0 &&
+    board.ready.ready_count >= board.ready.participant_count;
+  if (phase === "writing") {
+    return {
+      action: isHost ? forceRevealRetroAction : revealRetroAction,
+      kind: allReady ? "primary" : "dashed",
+      icon: "»",
+      label: "next: discuss",
+      disabled: !isHost && !allReady,
+    };
+  }
+  if (phase === "discussion") {
+    if (board.retro.vote_limit <= 0) {
+      return {
+        action: startActionDiscussionAction,
+        kind: "primary",
+        accent: spillColors.action,
+        icon: "»",
+        label: "next: act",
+      };
+    }
+    return {
+      action: startVotingAction,
+      kind: "primary",
+      icon: "»",
+      label: "next: vote",
+    };
+  }
+  if (phase === "voting") {
+    return {
+      action: startActionDiscussionAction,
+      kind: allReady ? "primary" : "dashed",
+      accent: spillColors.action,
+      icon: "»",
+      label: "next: act",
+      disabled:
+        (!isHost && !allReady) || board.retro.action_discussion_limit <= 0,
+    };
+  }
+  if (phase === "action_discussion") {
+    return {
+      action: completeRetroAction,
+      kind: "primary",
+      icon: "✓",
+      label: "wrap retro",
+    };
+  }
+  return null;
+}
 
 export function PhaseControls({
   board,
@@ -28,87 +88,35 @@ export function PhaseControls({
     />
   ) : null;
 
-  if (board.retro.phase === "writing") {
-    const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
-    // Hosts use forceReveal so they can advance even when not everyone is ready.
-    // Non-hosts use the regular reveal which the backend gates on readiness.
-    const revealAction = isHost ? forceRevealRetroAction : revealRetroAction;
+  if (board.retro.phase === "completed") {
     return (
       <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
         {peopleButton}
-        <Pill tone="soft" accent={spillColors.mood}>
-          <span className="sp-live-dot h-1.5 w-1.5 bg-spill-mood" />
-          writing
-        </Pill>
-        <form action={board.ready.current_user_ready ? unmarkReadyAction : markReadyAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={board.ready.current_user_ready ? "secondary" : "primary"} type="submit">{board.ready.current_user_ready ? "not ready" : "I'm ready"}</Btn>
-        </form>
-        <form action={revealAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={allReady ? "primary" : "dashed"} type="submit" disabled={!isHost && !allReady}>reveal -&gt;</Btn>
-        </form>
+        <Btn href="/" kind="primary">home</Btn>
       </>
     );
   }
 
-  if (board.retro.phase === "discussion") {
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        {peopleButton}
-        <Pill tone="soft" accent={spillColors.action}>review</Pill>
-        <form action={startVotingAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="dashed" type="submit" disabled={board.retro.vote_limit <= 0}>vote -&gt;</Btn>
-        </form>
-        {board.retro.vote_limit <= 0 ? (
-          <form action={startActionDiscussionAction}>
-            <input name="retro_id" type="hidden" value={board.retro.id} />
-            <Btn kind="primary" accent={spillColors.action} type="submit">act -&gt;</Btn>
-          </form>
-        ) : null}
-      </>
-    );
-  }
-
-  if (board.retro.phase === "voting") {
-    const allReady = board.ready.participant_count > 0 && board.ready.ready_count >= board.ready.participant_count;
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        {peopleButton}
-        <form action={board.ready.current_user_ready ? unmarkReadyAction : markReadyAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={board.ready.current_user_ready ? "secondary" : "primary"} type="submit">{board.ready.current_user_ready ? "not ready" : "I'm ready"}</Btn>
-        </form>
-        <form action={startActionDiscussionAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind={allReady ? "primary" : "dashed"} accent={spillColors.action} type="submit" disabled={!isHost && !allReady || board.retro.action_discussion_limit <= 0}>act -&gt;</Btn>
-        </form>
-      </>
-    );
-  }
-
-  if (board.retro.phase === "action_discussion") {
-    return (
-      <>
-        <StageIndicator phase={board.retro.phase} retroId={board.retro.id} />
-        {peopleButton}
-        <Pill tone="soft" accent={spillColors.action}>action</Pill>
-        <form action={completeRetroAction}>
-          <input name="retro_id" type="hidden" value={board.retro.id} />
-          <Btn kind="dashed" type="submit">wrap retro</Btn>
-        </form>
-      </>
-    );
-  }
-
+  const next = nextActionFor(board, isHost);
   return (
     <>
-      <PhaseBadge color={spillColors.well} phase="wrapped" />
-      <Btn href="/" kind="primary">home</Btn>
+      {peopleButton}
+      {next ? (
+        <form action={next.action}>
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <Btn
+            aria-label={next.label}
+            title={next.label}
+            kind={next.kind}
+            accent={next.accent}
+            type="submit"
+            disabled={next.disabled}
+            className="min-w-[44px] text-base"
+          >
+            {next.icon}
+          </Btn>
+        </form>
+      ) : null}
     </>
   );
 }

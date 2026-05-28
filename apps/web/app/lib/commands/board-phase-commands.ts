@@ -6,6 +6,7 @@ import {
   castVote,
   completeRetro,
   forceRevealRetro,
+  getRetro,
   markReady,
   removeVote,
   revealRetro,
@@ -55,6 +56,7 @@ export async function castVoteCommand(formData: FormData) {
   const cardId = field(formData, "card_id");
 
   await castVote(retroId, cardId, 1);
+  await syncReadinessFromVotes(retroId);
   redirect(`/retros/${retroId}`);
 }
 
@@ -63,6 +65,7 @@ export async function removeVoteCommand(formData: FormData) {
   const cardId = field(formData, "card_id");
 
   await removeVote(retroId, cardId);
+  await syncReadinessFromVotes(retroId);
   redirect(`/retros/${retroId}`);
 }
 
@@ -79,4 +82,21 @@ export async function completeRetroCommand(formData: FormData) {
   await completeRetro(retroId);
   revalidatePath("/history");
   redirect(`/retros/${retroId}`);
+}
+
+// Auto-track readiness from vote spend: spending the last vote marks ready,
+// un-voting back from zero clears the implicit ready signal.
+async function syncReadinessFromVotes(retroId: string) {
+  try {
+    const board = await getRetro(retroId);
+    if (board.retro.phase !== "voting") return;
+    const noVotesLeft = board.voting.votes_remaining === 0;
+    if (noVotesLeft && !board.ready.current_user_ready) {
+      await markReady(retroId);
+    } else if (!noVotesLeft && board.ready.current_user_ready) {
+      await unmarkReady(retroId);
+    }
+  } catch {
+    // best-effort; the next page render will reflect current state
+  }
 }
