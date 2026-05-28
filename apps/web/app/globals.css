@@ -122,6 +122,26 @@ textarea {
   resize: vertical;
 }
 
+/* WebKit renders a chunky default clear button on search inputs; the focus
+   color leaks through as blue on some Chromium builds. Replace it with a
+   small muted X that matches the palette. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-left: 4px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M1 1l8 8M9 1l-8 8' stroke='%2386755a' stroke-width='1.6' fill='none' stroke-linecap='round'/></svg>");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+}
+input[type="search"]::-webkit-search-cancel-button:hover {
+  opacity: 1;
+}
+
 .sp-paper {
   background-color: var(--paper);
   background-image:

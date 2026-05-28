@@ -77,7 +77,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
                 <span className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-white/75">GIF results</span>
                 <span className="text-[11px] text-white/65">select to add to card</span>
               </div>
-              <div className="sp-scroll grid max-h-[138px] grid-cols-4 gap-2 overflow-y-auto pr-1">
+              <div className="sp-scroll grid max-h-[260px] grid-cols-3 gap-2 overflow-y-auto pr-1">
                 {results.map((gif) => (
                   <label className="grid cursor-pointer gap-1 rounded-[7px] border border-transparent bg-white p-1 text-[9px] text-spill-fg has-[:checked]:border-white has-[:checked]:shadow-[0_0_0_2px_rgba(255,255,255,0.35)]" key={`${gif.id}-${gif.url}`}>
                     <input
@@ -86,7 +86,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
                       onChange={() => selectGif(gif)}
                       type="radio"
                     />
-                    <img alt="" className="h-10 w-full rounded object-cover" loading="lazy" src={gif.preview_url || gif.url} />
+                    <img alt="" className="h-20 w-full rounded object-cover" loading="lazy" src={gif.preview_url || gif.url} />
                     <span className="truncate">{gif.alt_text}</span>
                   </label>
                 ))}
