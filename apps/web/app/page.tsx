@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { BoardHistory } from "@/components/board-history";
 import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, phaseLabel, spillColors } from "@/components/spill-ui";
+import { DeleteBoardButton } from "@/components/delete-board-button";
 import { listRetros, type RetroOverview, type RetroSummary } from "@/lib/api";
 import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { clearIdentityAction, completeActionItemAction } from "@/lib/actions";
@@ -175,24 +176,31 @@ function QuickStartLink({ href, title, detail }: { href: string; title: string; 
 function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   const color = phaseColor(board.phase);
   return (
-    <Link
-      className="sp-panel-grain relative flex h-[156px] flex-col rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
-      href={`/retros/${board.id}`}
-      style={{ "--board-phase-color": color } as CSSProperties}
-    >
-      <span className="absolute -top-2.5 left-3.5">
-        <PhaseBadge phase={phaseLabel(board.phase)} color={color} />
-      </span>
-      <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
-      <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
-      <div className="mt-auto flex items-end justify-between">
-        <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
-          {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
-          {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
+    <div className="group relative">
+      <Link
+        className="sp-panel-grain relative flex h-[156px] flex-col rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
+        href={`/retros/${board.id}`}
+        style={{ "--board-phase-color": color } as CSSProperties}
+      >
+        <span className="absolute -top-2.5 left-3.5">
+          <PhaseBadge phase={phaseLabel(board.phase)} color={color} />
         </span>
-        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-      </div>
-    </Link>
+        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
+        <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
+        <div className="mt-auto flex items-end justify-between">
+          <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
+            {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
+            {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
+          </span>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+        </div>
+      </Link>
+      {board.is_host ? (
+        <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+          <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

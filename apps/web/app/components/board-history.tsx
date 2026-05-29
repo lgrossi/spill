@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RetroSummary } from "@/lib/api";
 import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
+import { DeleteBoardButton } from "./delete-board-button";
 
 const pageSize = 5;
 const phaseOptions = [
@@ -147,29 +148,38 @@ export function BoardHistory({
           <div className="px-3.5 py-4 text-[12px] font-semibold text-spill-muted">No boards match that search.</div>
         ) : (
           rows.map((board) => (
-            <Link
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b border-spill-line px-3.5 py-2.5 text-[12px] last:border-b-0 hover:bg-[var(--panel-hi)] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
-              data-board-row
-              href={`/retros/${board.id}`}
+            <div
+              className="group relative border-b border-spill-line last:border-b-0 hover:bg-[var(--panel-hi)]"
               key={`${board.id}-${board.title}`}
             >
-              <span className="min-w-0">
-                <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
-                <span className="text-[11px] text-spill-muted">
-                  updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
-                </span>
-              </span>
-              <span
-                className="mt-0.5 rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.08em]"
-                style={{
-                  borderColor: `${phaseColor(board.phase)}66`,
-                  backgroundColor: `${phaseColor(board.phase)}18`,
-                  color: phaseColor(board.phase),
-                } as CSSProperties}
+              <Link
+                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)] ${board.is_host ? "pr-11" : ""}`}
+                data-board-row
+                href={`/retros/${board.id}`}
               >
-                {phaseLabel(board.phase)}
-              </span>
-            </Link>
+                <span className="min-w-0">
+                  <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
+                  <span className="text-[11px] text-spill-muted">
+                    updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
+                  </span>
+                </span>
+                <span
+                  className="mt-0.5 rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.08em]"
+                  style={{
+                    borderColor: `${phaseColor(board.phase)}66`,
+                    backgroundColor: `${phaseColor(board.phase)}18`,
+                    color: phaseColor(board.phase),
+                  } as CSSProperties}
+                >
+                  {phaseLabel(board.phase)}
+                </span>
+              </Link>
+              {board.is_host ? (
+                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                  <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+                </div>
+              ) : null}
+            </div>
           ))
         )}
         {filteredBoards.length > pageSize ? (

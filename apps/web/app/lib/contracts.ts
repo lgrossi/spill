@@ -15,6 +15,7 @@ export type RetroSummary = {
   unresolved_action_count: number;
   recurring_tags: string[];
   open_actions: RetroActionSummary[];
+  is_host: boolean;
 };
 
 export type RetroActionSummary = {

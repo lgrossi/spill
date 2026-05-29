@@ -5,6 +5,7 @@ use crate::{RetroOverview, RetroSummary, RetroSummaryRow};
 pub(super) async fn list_retros(
     pool: &PgPool,
     subject: &str,
+    email: &str,
 ) -> Result<RetroOverview, sqlx::Error> {
     let rows = sqlx::query_as::<_, RetroSummaryRow>(
         "SELECT
@@ -55,7 +56,19 @@ pub(super) async fn list_retros(
                     WHERE ai.retro_id = r.id AND ai.status NOT IN ('rejected', 'done')
                 ),
                 '[]'::jsonb
-            ) AS open_actions
+            ) AS open_actions,
+            (
+                $2 <> ''
+                AND (
+                    LOWER(r.creator_email) = LOWER($2)
+                    OR EXISTS (
+                        SELECT 1 FROM board_grants bg
+                        WHERE bg.retro_id = r.id
+                          AND LOWER(bg.principal_email) = LOWER($2)
+                          AND bg.role = 'host'
+                    )
+                )
+            ) AS is_host
          FROM retros r
          LEFT JOIN participants p ON p.retro_id = r.id
          LEFT JOIN retro_columns c ON c.retro_id = r.id
@@ -74,6 +87,7 @@ pub(super) async fn list_retros(
          ORDER BY last_activity_at DESC, r.created_at DESC",
     )
     .bind(subject)
+    .bind(email)
     .fetch_all(pool)
     .await?;
 
