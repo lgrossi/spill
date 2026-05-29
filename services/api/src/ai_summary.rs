@@ -63,15 +63,17 @@ pub async fn run(
 
     let prompt = build_prompt(&board);
     match provider.complete(&prompt).await {
-        Ok(summary) => {
-            let output = serde_json::json!({
-                "review_required": false,
-                "summary": summary,
-            });
-            if let Err(error) = repository.complete_ai_artifact(artifact_id, output).await {
-                tracing::warn!(%artifact_id, %error, "failed to mark summary artifact succeeded");
+        Ok(response) => match output_from_provider_response(&response) {
+            Ok(output) => {
+                if let Err(error) = repository.complete_ai_artifact(artifact_id, output).await {
+                    tracing::warn!(%artifact_id, %error, "failed to mark summary artifact succeeded");
+                }
             }
-        }
+            Err(message) => {
+                tracing::warn!(%artifact_id, "ai provider returned invalid summary JSON");
+                mark_failed(&repository, artifact_id, message).await;
+            }
+        },
         Err(error) => {
             // The provider error already carries enough detail for the
             // operator log; the user-facing message is intentionally
@@ -101,12 +103,29 @@ pub fn build_prompt(board: &RetroBoard) -> String {
     let mut prompt = String::new();
     let _ = writeln!(
         prompt,
-        "Write an executive-friendly retrospective summary from the structured evidence below.\n\
-         Output exactly three concise bullets, max 120 words total:\n\
-         - Theme: the recurring pattern across cards, clusters, votes, and meeting notes.\n\
-         - Loudest concern: the highest-signal concern, weighted by vote counts and repeated themes.\n\
-         - Next step: the most concrete committed action. If there is no committed action, infer one cautiously from the evidence.\n\
-         Use only the evidence below; do not invent facts, owners, or actions. Treat media/GIF descriptions as participant intent, not literal events. Avoid platitudes."
+        "Return exactly one valid JSON object and nothing else.\n\
+         Required schema:\n\
+         {{\n\
+           \"team_mood\": \"quietly-proud\" | \"smooth-sailing\" | \"good-sparks\" | \"productive-chaos\" | \"foggy\" | \"spicy\" | \"stuck-in-mud\" | \"needs-a-map\",\n\
+           \"summary\": \"string\"\n\
+         }}\n\
+         Rules:\n\
+         - Use double quotes.\n\
+         - Do not wrap the JSON in markdown or a code fence.\n\
+         - Do not include extra keys.\n\
+         - team_mood must be exactly one allowed value.\n\
+         - summary must be 2 short sentences, 35 to 55 words total.\n\
+         Write summary in simple, human language. Give it a small proverb-like turn: calm, \
+         memorable, and a little playful, but never grand, mystical, or fake-wise. Use at most \
+         one light image. Do not mention the mood label directly or reuse its exact words.\n\
+         Use only the structured evidence below; do not invent facts, owners, or actions. Start with the \
+         overall pattern, include the strongest concern using vote counts and repeated themes as signal, \
+         and end with the most concrete next step from committed actions. If multiple committed actions \
+         clearly reinforce the same next step, combine them. If there is no committed action, infer one \
+         cautiously from the evidence.\n\
+         Treat media/GIF descriptions as participant intent, not literal events. Do not use bullets, \
+         headings, labels, markdown, colon-heavy analysis, generic platitudes, ornate metaphors, \
+         or empty poetic fluff."
     );
     let _ = writeln!(prompt, "\nRetro title: {}", board.retro.title);
     let _ = writeln!(prompt, "Phase: {}", board.retro.phase);
@@ -205,6 +224,103 @@ fn card_text(body_text: Option<&str>, gif_alt_text: Option<&str>) -> String {
     }
 }
 
+fn output_from_provider_response(response: &str) -> Result<serde_json::Value, &'static str> {
+    let parsed = parse_provider_json(response);
+    let summary = match &parsed {
+        Some(value) => value
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("AI provider returned JSON without a summary")?,
+        None if looks_like_json_response(response) => {
+            return Err("AI provider returned invalid JSON");
+        }
+        None => response,
+    };
+    let team_mood = match &parsed {
+        Some(value) => {
+            let mood = value
+                .get("team_mood")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or("AI provider returned JSON without a team mood")?;
+            if !is_allowed_team_mood(mood) {
+                return Err("AI provider returned unknown team mood");
+            }
+            Some(mood)
+        }
+        None => None,
+    };
+
+    let mut output = serde_json::json!({
+        "review_required": false,
+        "summary": summary,
+    });
+    if let Some(team_mood) = team_mood {
+        output["team_mood"] = serde_json::json!(team_mood);
+    }
+    Ok(output)
+}
+
+fn looks_like_json_response(response: &str) -> bool {
+    let trimmed = response.trim();
+    trimmed.starts_with('{')
+        || trimmed.starts_with("```")
+        || (trimmed.contains('{') && trimmed.contains('}'))
+}
+
+fn parse_provider_json(response: &str) -> Option<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(response)
+        .or_else(|_| serde_json::from_str::<serde_json::Value>(fenced_json_body(response)))
+        .or_else(|_| serde_json::from_str::<serde_json::Value>(json_object_body(response)))
+        .ok()
+}
+
+fn fenced_json_body(response: &str) -> &str {
+    let trimmed = response.trim();
+    let Some(after_fence) = trimmed.strip_prefix("```") else {
+        return response;
+    };
+    let after_language = after_fence
+        .strip_prefix("json")
+        .or_else(|| after_fence.strip_prefix("JSON"))
+        .unwrap_or(after_fence);
+    after_language
+        .strip_suffix("```")
+        .unwrap_or(after_language)
+        .trim()
+}
+
+fn json_object_body(response: &str) -> &str {
+    let Some(start) = response.find('{') else {
+        return response;
+    };
+    let Some(end) = response.rfind('}') else {
+        return response;
+    };
+    if start <= end {
+        &response[start..=end]
+    } else {
+        response
+    }
+}
+
+fn is_allowed_team_mood(value: &str) -> bool {
+    matches!(
+        value,
+        "quietly-proud"
+            | "smooth-sailing"
+            | "good-sparks"
+            | "productive-chaos"
+            | "foggy"
+            | "spicy"
+            | "stuck-in-mud"
+            | "needs-a-map"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use retro_db::{
@@ -213,6 +329,128 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn build_prompt_requests_structured_mood_and_picturesque_summary() {
+        let prompt = build_prompt(&RetroBoard {
+            retro: retro(uuid(1)),
+            participants: Vec::new(),
+            columns: Vec::new(),
+            ready: Default::default(),
+            voting: VotingInfo {
+                vote_limit: 3,
+                votes_used: 0,
+                votes_remaining: 3,
+            },
+            clusters: Vec::new(),
+            actions: Vec::new(),
+            deck: Vec::new(),
+            ai_artifacts: Vec::new(),
+            meeting_notes: Vec::new(),
+            deliveries: Vec::new(),
+        });
+
+        assert!(prompt.contains("Return exactly one valid JSON object and nothing else"));
+        assert!(prompt.contains("\"team_mood\""));
+        assert!(prompt.contains("\"quietly-proud\" | \"smooth-sailing\" | \"good-sparks\""));
+        assert!(prompt.contains("summary must be 2 short sentences, 35 to 55 words total"));
+        assert!(prompt.contains("small proverb-like turn"));
+        assert!(prompt.contains("Use at most one light image"));
+        assert!(prompt.contains("Do not mention the mood label directly or reuse its exact words"));
+        assert!(prompt.contains("colon-heavy analysis"));
+        assert!(prompt.contains("ornate metaphors"));
+        assert!(prompt.contains("empty poetic fluff"));
+    }
+
+    #[test]
+    fn output_from_provider_response_extracts_json_summary_and_mood() {
+        let output = output_from_provider_response(
+            r#"{"team_mood":"needs-a-map","summary":"The team found the path, but the signposts need work."}"#,
+        )
+        .unwrap();
+
+        assert_eq!(output["review_required"], false);
+        assert_eq!(output["team_mood"], "needs-a-map");
+        assert_eq!(
+            output["summary"],
+            "The team found the path, but the signposts need work."
+        );
+    }
+
+    #[test]
+    fn output_from_provider_response_keeps_plain_text_compatible() {
+        let output = output_from_provider_response("Plain summary from legacy provider").unwrap();
+
+        assert_eq!(output["review_required"], false);
+        assert_eq!(output["summary"], "Plain summary from legacy provider");
+        assert!(output.get("team_mood").is_none());
+    }
+
+    #[test]
+    fn output_from_provider_response_rejects_unknown_mood() {
+        let error = output_from_provider_response(
+            r#"{"team_mood":"dumpster-fire","summary":"The team had signal without the label."}"#,
+        )
+        .expect_err("unknown structured mood should fail");
+
+        assert_eq!(error, "AI provider returned unknown team mood");
+    }
+
+    #[test]
+    fn output_from_provider_response_extracts_fenced_json() {
+        let output = output_from_provider_response(
+            "```json\n{\"team_mood\":\"spicy\",\"summary\":\"The retro had heat, but the kitchen stayed open.\"}\n```",
+        )
+        .unwrap();
+
+        assert_eq!(output["team_mood"], "spicy");
+        assert_eq!(
+            output["summary"],
+            "The retro had heat, but the kitchen stayed open."
+        );
+    }
+
+    #[test]
+    fn output_from_provider_response_extracts_surrounded_json_object() {
+        let output = output_from_provider_response(
+            "Here you go: {\"team_mood\":\"foggy\",\"summary\":\"The signal is there, but the path needs clearing.\"}",
+        )
+        .unwrap();
+
+        assert_eq!(output["team_mood"], "foggy");
+        assert_eq!(
+            output["summary"],
+            "The signal is there, but the path needs clearing."
+        );
+    }
+
+    #[test]
+    fn output_from_provider_response_rejects_json_without_summary() {
+        let error = output_from_provider_response(r#"{"team_mood":"spicy","summary":""}"#)
+            .expect_err("empty structured summary should fail");
+
+        assert_eq!(error, "AI provider returned JSON without a summary");
+    }
+
+    #[test]
+    fn output_from_provider_response_rejects_json_without_mood() {
+        let error = output_from_provider_response(r#"{"summary":"The team had signal."}"#)
+            .expect_err("missing structured mood should fail");
+
+        assert_eq!(error, "AI provider returned JSON without a team mood");
+    }
+
+    #[test]
+    fn output_from_provider_response_rejects_malformed_json_like_text() {
+        let error = output_from_provider_response(
+            r#"```json
+{"team_mood":"spicy","summary":"The retro had heat"
+```"#,
+        )
+        .expect_err("malformed fenced JSON should fail");
+
+        assert_eq!(error, "AI provider returned invalid JSON");
+    }
 
     #[test]
     fn build_prompt_includes_visible_cluster_members() {

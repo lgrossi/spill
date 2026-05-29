@@ -491,11 +491,14 @@ Requirements:
 - team-level only
 - optional
 - playful labels:
-  - Stormy
-  - Off
-  - Mixed
-  - Steady
-  - Flying
+  - quietly-proud
+  - smooth-sailing
+  - good-sparks
+  - productive-chaos
+  - foggy
+  - spicy
+  - stuck-in-mud
+  - needs-a-map
 - short explanation
 - may use uploaded meeting notes when provided
 - no per-person mood scoring

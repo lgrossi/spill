@@ -188,11 +188,14 @@ The product proposes a lightweight, playful team mood at the end of the retro.
 
 Current preferred scale:
 
-- Stormy
-- Off
-- Mixed
-- Steady
-- Flying
+- quietly-proud
+- smooth-sailing
+- good-sparks
+- productive-chaos
+- foggy
+- spicy
+- stuck-in-mud
+- needs-a-map
 
 The mood is:
 

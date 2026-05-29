@@ -311,11 +311,14 @@ The HTML mock should annotate behavior, not just draw pages.
 ### Team mood behavior
 - mood is playful and lightweight
 - use current labels:
-  - Stormy
-  - Off
-  - Mixed
-  - Steady
-  - Flying
+  - quietly-proud
+  - smooth-sailing
+  - good-sparks
+  - productive-chaos
+  - foggy
+  - spicy
+  - stuck-in-mud
+  - needs-a-map
 - mood should have a short explanation
 
 ## Edge and state coverage
