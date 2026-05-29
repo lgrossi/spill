@@ -40,7 +40,12 @@ pub async fn run(
     let board = match repository.fetch_board_readonly(retro_id).await {
         Ok(Some(board)) => board,
         Ok(None) => {
-            mark_failed(&repository, artifact_id, "retro vanished before summary ran").await;
+            mark_failed(
+                &repository,
+                artifact_id,
+                "retro vanished before summary ran",
+            )
+            .await;
             publish_change(&event_hub, retro_id);
             return;
         }
@@ -96,9 +101,12 @@ pub fn build_prompt(board: &RetroBoard) -> String {
     let mut prompt = String::new();
     let _ = writeln!(
         prompt,
-        "Summarise this team retrospective in 3 to 4 sentences for an executive reader. \
-         Highlight the recurring theme, the loudest concern (most-voted card), and the \
-         single most concrete next step. Avoid platitudes."
+        "Write an executive-friendly retrospective summary from the structured evidence below.\n\
+         Output exactly three concise bullets, max 120 words total:\n\
+         - Theme: the recurring pattern across cards, clusters, votes, and meeting notes.\n\
+         - Loudest concern: the highest-signal concern, weighted by vote counts and repeated themes.\n\
+         - Next step: the most concrete committed action. If there is no committed action, infer one cautiously from the evidence.\n\
+         Use only the evidence below; do not invent facts, owners, or actions. Treat media/GIF descriptions as participant intent, not literal events. Avoid platitudes."
     );
     let _ = writeln!(prompt, "\nRetro title: {}", board.retro.title);
     let _ = writeln!(prompt, "Phase: {}", board.retro.phase);
@@ -186,8 +194,15 @@ fn prompt_card_count(card: &CardRecord) -> usize {
     }
 }
 
-fn card_text<'a>(body_text: Option<&'a str>, gif_alt_text: Option<&'a str>) -> &'a str {
-    body_text.or(gif_alt_text).unwrap_or("(media card)")
+fn card_text(body_text: Option<&str>, gif_alt_text: Option<&str>) -> String {
+    let body_text = body_text.map(str::trim).filter(|text| !text.is_empty());
+    let media_text = gif_alt_text.map(str::trim).filter(|text| !text.is_empty());
+    match (body_text, media_text) {
+        (Some(body), Some(media)) => format!("{body} [media: {media}]"),
+        (Some(body), None) => body.to_owned(),
+        (None, Some(media)) => format!("[media: {media}]"),
+        (None, None) => "[media card without text metadata]".to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -321,6 +336,54 @@ mod tests {
         assert!(prompt.contains("## Meeting notes (1)"), "{prompt}");
         assert!(
             prompt.contains("- Facilitator: Support handoff stayed unclear."),
+            "{prompt}"
+        );
+    }
+
+    #[test]
+    fn build_prompt_formats_media_alt_text_as_evidence() {
+        let retro_id = uuid(1);
+        let column_id = uuid(2);
+        let author_id = uuid(3);
+        let mut media_only = card(retro_id, column_id, author_id, "", 3);
+        media_only.gif_alt_text = Some("confused Travolta looking around".to_owned());
+        let mut text_with_media = card(retro_id, column_id, author_id, "Release felt risky", 1);
+        text_with_media.gif_alt_text = Some("fire alarm gif".to_owned());
+        let board = RetroBoard {
+            retro: retro(retro_id),
+            participants: Vec::new(),
+            columns: vec![RetroColumnRecord {
+                id: column_id,
+                retro_id,
+                column_key: "risks".to_owned(),
+                title: "Risks".to_owned(),
+                position: 0,
+                order_direction: "desc".to_owned(),
+                accent_color: None,
+                cards: vec![media_only, text_with_media],
+            }],
+            ready: Default::default(),
+            voting: VotingInfo {
+                vote_limit: 3,
+                votes_used: 0,
+                votes_remaining: 3,
+            },
+            clusters: Vec::new(),
+            actions: Vec::new(),
+            deck: Vec::new(),
+            ai_artifacts: Vec::new(),
+            meeting_notes: Vec::new(),
+            deliveries: Vec::new(),
+        };
+
+        let prompt = build_prompt(&board);
+
+        assert!(
+            prompt.contains("- (3 votes) [media: confused Travolta looking around]"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("- (1 votes) Release felt risky [media: fire alarm gif]"),
             "{prompt}"
         );
     }
