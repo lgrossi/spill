@@ -195,11 +195,9 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
         </div>
       </Link>
-      {board.is_host ? (
-        <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-          <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
-        </div>
-      ) : null}
+      <div className="absolute right-2 top-2">
+        <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+      </div>
     </div>
   );
 }

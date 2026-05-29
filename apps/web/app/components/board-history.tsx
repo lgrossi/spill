@@ -153,7 +153,7 @@ export function BoardHistory({
               key={`${board.id}-${board.title}`}
             >
               <Link
-                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)] ${board.is_host ? "pr-11" : ""}`}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 pr-11 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
                 data-board-row
                 href={`/retros/${board.id}`}
               >
@@ -174,11 +174,9 @@ export function BoardHistory({
                   {phaseLabel(board.phase)}
                 </span>
               </Link>
-              {board.is_host ? (
-                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
-                  <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
-                </div>
-              ) : null}
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
+                <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+              </div>
             </div>
           ))
         )}

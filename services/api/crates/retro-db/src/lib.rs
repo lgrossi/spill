@@ -154,12 +154,8 @@ impl RetroRepository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    pub async fn list_retros(
-        &self,
-        subject: &str,
-        email: &str,
-    ) -> Result<RetroOverview, sqlx::Error> {
-        overview::list_retros(&self.pool, subject, email).await
+    pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
+        overview::list_retros(&self.pool, subject).await
     }
 
     pub async fn authorize_retro_participant(
@@ -906,7 +902,6 @@ pub struct RetroSummary {
     pub unresolved_action_count: i64,
     pub recurring_tags: Vec<String>,
     pub open_actions: Vec<RetroActionSummary>,
-    pub is_host: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -932,7 +927,6 @@ struct RetroSummaryRow {
     unresolved_action_count: i64,
     recurring_tags: Json<Vec<String>>,
     open_actions: Json<Vec<RetroActionSummary>>,
-    is_host: bool,
 }
 
 impl From<RetroSummaryRow> for RetroSummary {
@@ -952,7 +946,6 @@ impl From<RetroSummaryRow> for RetroSummary {
             unresolved_action_count: row.unresolved_action_count,
             recurring_tags: row.recurring_tags.0,
             open_actions: row.open_actions.0,
-            is_host: row.is_host,
         }
     }
 }
@@ -1199,7 +1192,7 @@ mod tests {
             ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
-        let overview = repo.list_retros("user-123", "").await.unwrap();
+        let overview = repo.list_retros("user-123").await.unwrap();
         assert_eq!(overview.active.len(), 1);
         assert_eq!(overview.completed.len(), 0);
         assert_eq!(overview.active[0].participant_count, 1);
@@ -1925,7 +1918,7 @@ mod tests {
             .unwrap();
         assert_eq!(completed.phase, "completed");
 
-        let overview = repo.list_retros("ava", "").await.unwrap();
+        let overview = repo.list_retros("ava").await.unwrap();
         assert_eq!(overview.active.len(), 0);
         assert_eq!(overview.completed.len(), 1);
         assert_eq!(overview.completed[0].unresolved_action_count, 1);
