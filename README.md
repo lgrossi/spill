@@ -167,6 +167,19 @@ Default local URLs:
 GIF search requires `SPILLIO_KLIPY_API_KEY`. Without it, the API returns a
 degraded empty GIF response instead of failing the board.
 
+The completed-retro page exposes an AI wrap-up summary. When a retro
+is completed, the API auto-creates a summary AI artifact and runs it
+in the background through the pluggable AI provider abstraction in
+`services/api/src/ai_provider`. The shipped implementation is a
+gateway provider that POSTs the prompt to `SPILLIO_AI_GATEWAY_URL`
+(a fully-formed endpoint) as `{prompt_text: "…"}` and reads
+`{response: "…"}` back. The wrap-up tile reads the artifact off
+the board payload and re-renders as it advances through
+`pending` → `running` → `succeeded` / `failed`, driven by the
+existing board WebSocket. With the env var unset (local dev), the
+auto-trigger is skipped and the tile stays hidden — the rest of the
+API is unaffected.
+
 ## Production-ish local run
 
 ```bash
@@ -197,6 +210,8 @@ API:
 - `SPILLIO_API_ADDR`
 - `SPILLIO_KLIPY_API_KEY`
 - `RUST_LOG`
+- `SPILLIO_AI_PROVIDER` (optional; defaults to `gateway` when a gateway URL is set)
+- `SPILLIO_AI_GATEWAY_URL` (optional; fully-formed URL of the AI gateway endpoint)
 
 Web:
 

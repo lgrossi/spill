@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -33,6 +35,8 @@ use tracing_subscriber::prelude::*;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use uuid::Uuid;
 
+mod ai_provider;
+mod ai_summary;
 mod contracts;
 mod error;
 mod events;
@@ -64,6 +68,10 @@ struct AppState {
     access_policy: LinkAccessPolicy,
     repository: Option<RetroRepository>,
     event_hub: BoardEventHub,
+    /// Built once at startup from `SPILLIO_AI_*` env vars. `None` when
+    /// no provider is configured — AI routes degrade to 503 but the
+    /// rest of the API keeps serving normally.
+    ai_provider: Option<Arc<ai_provider::AiProvider>>,
 }
 
 impl FromRef<AppState> for LinkAccessPolicy {
@@ -84,6 +92,12 @@ impl FromRef<AppState> for BoardEventHub {
     }
 }
 
+impl FromRef<AppState> for Option<Arc<ai_provider::AiProvider>> {
+    fn from_ref(state: &AppState) -> Self {
+        state.ai_provider.clone()
+    }
+}
+
 #[cfg(test)]
 fn app() -> Router {
     app_with_state(AppState::default())
@@ -94,6 +108,20 @@ fn app_with_repository(repository: RetroRepository) -> Router {
         access_policy: LinkAccessPolicy,
         repository: Some(repository),
         event_hub: BoardEventHub::default(),
+        ai_provider: ai_provider::AiProvider::from_env().map(Arc::new),
+    })
+}
+
+#[cfg(test)]
+fn app_with_repository_and_ai(
+    repository: RetroRepository,
+    ai_provider: Option<Arc<ai_provider::AiProvider>>,
+) -> Router {
+    app_with_state(AppState {
+        access_policy: LinkAccessPolicy,
+        repository: Some(repository),
+        event_hub: BoardEventHub::default(),
+        ai_provider,
     })
 }
 
@@ -322,12 +350,14 @@ async fn accept_deck_item(
 async fn start_ai_job(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<StartAiJobRequest>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
     let artifact = job_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .start_ai_job(user, retro_id, request)
         .await?;
     Ok(Json(artifact))
@@ -336,11 +366,13 @@ async fn start_ai_job(
 async fn retry_ai_job(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path((retro_id, artifact_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::AiArtifactRecord>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
     let artifact = job_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .retry_ai_job(user, retro_id, artifact_id)
         .await?;
     Ok(Json(artifact))
@@ -653,15 +685,18 @@ async fn propose_action(
 async fn complete_retro(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
     retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .complete_retro(user, retro_id)
         .await
         .map(Json)
 }
+
 
 async fn set_action_status(
     repository: Option<RetroRepository>,

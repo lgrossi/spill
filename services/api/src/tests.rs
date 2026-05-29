@@ -1302,3 +1302,295 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(board["retro"]["phase"], "discussion");
 }
+
+// ---------------------------------------------------------------------------
+// AI provider auto-summary tests
+// ---------------------------------------------------------------------------
+//
+// These exercise the spawn-and-forget summary runner end-to-end:
+//   - complete the retro
+//   - poll the board until the artifact lands on the expected status
+//   - assert the persisted output / error
+// A `FakeProvider` is injected via `app_with_repository_and_ai`, so no
+// real HTTP is involved and no env vars are read.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::ai_provider::{AiProvider, FakeProvider};
+
+const AUTHOR: &str = "ava";
+
+/// Create a retro and march it through ready → reveal → voting →
+/// actions/start so it is ready to be completed. Returns retro_id.
+/// One participant (`AUTHOR`), one card — enough for the prompt
+/// builder to produce something non-empty.
+async fn seed_completable_retro(app: &axum::Router) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Retro under test","template":"standard"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap().to_owned();
+    let column_id = created["columns"][0]["id"].as_str().unwrap().to_owned();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"shipping cadence felt steady"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // Card creation returns 201 Created.
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for path in ["ready", "reveal", "voting/start", "actions/start"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    retro_id
+}
+
+async fn post_complete(app: &axum::Router, retro_id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/complete"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
+}
+
+async fn fetch_board(app: &axum::Router, retro_id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
+}
+
+/// Poll the board for a summary artifact in the expected terminal
+/// status. Returns the artifact JSON. Bounded at ~2s — generous for
+/// `FakeProvider` (no IO) but small enough not to hide regressions.
+async fn wait_for_summary_status(
+    app: &axum::Router,
+    retro_id: &str,
+    expected_status: &str,
+) -> Value {
+    for _ in 0..200 {
+        let board = fetch_board(app, retro_id).await;
+        if let Some(artifact) = board["ai_artifacts"]
+            .as_array()
+            .and_then(|artifacts| artifacts.iter().find(|a| a["kind"] == "summary"))
+        {
+            if artifact["status"] == expected_status {
+                return artifact.clone();
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for summary artifact to reach status {expected_status}");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn complete_retro_without_ai_provider_skips_summary_artifact(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), None);
+    let retro_id = seed_completable_retro(&app).await;
+
+    let board = post_complete(&app, &retro_id).await;
+    assert_eq!(board["retro"]["phase"], "completed");
+
+    // No provider → no auto-trigger; the artifact array stays empty.
+    let board = fetch_board(&app, &retro_id).await;
+    let artifacts = board["ai_artifacts"].as_array().unwrap();
+    assert!(
+        artifacts.iter().all(|a| a["kind"] != "summary"),
+        "expected no summary artifact, got {artifacts:?}",
+    );
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn real_provider_summary_job_before_completion_fails_without_running(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "should not be generated",
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Premature summary retro","template":"standard"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"kind":"summary"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let artifact: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+
+    assert_eq!(artifact["status"], "failed");
+    assert!(artifact["output"].is_null());
+    assert!(
+        artifact["error_message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("after retro completion"),
+        "expected completion gate message, got {:?}",
+        artifact["error_message"],
+    );
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn complete_retro_with_fake_provider_persists_succeeded_summary(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "stub summary text from fake provider",
+    )));
+    let app =
+        app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let retro_id = seed_completable_retro(&app).await;
+    post_complete(&app, &retro_id).await;
+
+    let artifact = wait_for_summary_status(&app, &retro_id, "succeeded").await;
+    assert_eq!(artifact["kind"], "summary");
+    assert_eq!(artifact["output"]["review_required"], false);
+    assert_eq!(artifact["output"]["summary"], "stub summary text from fake provider");
+    assert!(artifact["error_message"].is_null());
+
+    // The runner uses `fetch_board_readonly` and must not insert a
+    // synthetic participant. The participant list should only contain
+    // the human author.
+    let board = fetch_board(&app, &retro_id).await;
+    let subjects: Vec<&str> = board["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["external_subject"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(subjects, vec![AUTHOR], "runner must not appear as a participant");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn failing_provider_records_failed_artifact_then_retry_recovers(pool: sqlx::PgPool) {
+    let failing = Arc::new(AiProvider::Fake(FakeProvider::failing_with(
+        "upstream is unavailable",
+    )));
+    let app =
+        app_with_repository_and_ai(retro_db::RetroRepository::new(pool.clone()), Some(failing));
+    let retro_id = seed_completable_retro(&app).await;
+    post_complete(&app, &retro_id).await;
+
+    let failed = wait_for_summary_status(&app, &retro_id, "failed").await;
+    assert_eq!(failed["status"], "failed");
+    assert!(
+        failed["error_message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("AI provider"),
+        "expected user-facing error message, got {:?}",
+        failed["error_message"],
+    );
+    let artifact_id = failed["id"].as_str().unwrap().to_owned();
+
+    // Now swap in a healthy provider and retry through the existing
+    // /ai-jobs/{id}/retry endpoint. We rebuild the app against the
+    // same pool so the retry uses the now-healthy provider while the
+    // failed artifact persists across the swap.
+    let healthy = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "recovered summary",
+    )));
+    let app =
+        app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(healthy));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/retros/{retro_id}/ai-jobs/{artifact_id}/retry"
+                ))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let recovered = wait_for_summary_status(&app, &retro_id, "succeeded").await;
+    assert_eq!(recovered["output"]["summary"], "recovered summary");
+    assert!(
+        recovered["retry_count"].as_i64().unwrap() >= 1,
+        "retry_count should advance on retry",
+    );
+}

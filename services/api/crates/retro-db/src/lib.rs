@@ -123,6 +123,51 @@ impl RetroRepository {
         }))
     }
 
+    /// Side-effect-free board fetch used by background jobs (AI
+    /// summary runner today). Skips the participant insert and the
+    /// access record that `fetch_board_for_user` performs, so calling
+    /// it does not pollute the participant list with synthetic
+    /// service identities.
+    ///
+    /// User-specific projections (`ready`, `voting`, `deck`, and the
+    /// per-user card masking) collapse on a non-`writing` retro to
+    /// what an anonymous viewer would see — the empty subject here is
+    /// safe for any completed retro, which is the only state in which
+    /// the runner is expected to be called.
+    pub async fn fetch_board_readonly(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<RetroBoard>, sqlx::Error> {
+        let Some(retro) = self.fetch_retro(id).await? else {
+            return Ok(None);
+        };
+        let participants = self.fetch_participants(id).await?;
+        let mut columns = self.fetch_columns(id).await?;
+        let clusters = self.fetch_clusters(id).await?;
+        let cards = self.fetch_cards_for_user(id, "").await?;
+        let actions = self.fetch_actions(id).await?;
+        let deck = self.fetch_deck(id, "").await?;
+        let ai_artifacts = self.fetch_ai_artifacts(id).await?;
+        let meeting_notes = self.fetch_meeting_notes(id).await?;
+        let deliveries = self.fetch_deliveries(id).await?;
+        attach_cards_to_columns(&mut columns, cards);
+        let ready = self.ready_info(id, "").await?;
+        let voting = self.voting_info(id, "").await?;
+        Ok(Some(RetroBoard {
+            retro,
+            participants,
+            columns,
+            ready,
+            voting,
+            clusters,
+            actions,
+            deck,
+            ai_artifacts,
+            meeting_notes,
+            deliveries,
+        }))
+    }
+
     pub async fn fetch_columns(
         &self,
         retro_id: Uuid,
@@ -646,6 +691,7 @@ pub struct ClusterMemberRecord {
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
+    pub vote_count: i64,
     pub hidden: bool,
 }
 
@@ -657,6 +703,7 @@ impl From<&CardRecord> for ClusterMemberRecord {
             body_text: card.body_text.clone(),
             gif_url: card.gif_url.clone(),
             gif_alt_text: card.gif_alt_text.clone(),
+            vote_count: card.vote_count,
             hidden: card.hidden,
         }
     }
