@@ -9,7 +9,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use retro_db::{RetroBoard, RetroRepository};
+use retro_db::{CardRecord, ClusterMemberRecord, RetroBoard, RetroRepository};
 use uuid::Uuid;
 
 use crate::ai_provider::AiProvider;
@@ -101,7 +101,7 @@ pub fn build_prompt(board: &RetroBoard) -> String {
     let _ = writeln!(prompt, "Phase: {}", board.retro.phase);
 
     for column in &board.columns {
-        let visible: Vec<&retro_db::CardRecord> = column
+        let visible: Vec<&CardRecord> = column
             .cards
             .iter()
             .filter(|card| !card.hidden && card.parent_card_id.is_none())
@@ -109,14 +109,33 @@ pub fn build_prompt(board: &RetroBoard) -> String {
         if visible.is_empty() {
             continue;
         }
-        let _ = writeln!(prompt, "\n## {} ({} cards)", column.title, visible.len());
+        let visible_count = visible
+            .iter()
+            .map(|card| prompt_card_count(card))
+            .sum::<usize>();
+        let _ = writeln!(prompt, "\n## {} ({} cards)", column.title, visible_count);
         for card in visible {
-            let text = card
-                .body_text
-                .as_deref()
-                .or(card.gif_alt_text.as_deref())
-                .unwrap_or("(media card)");
-            let _ = writeln!(prompt, "- ({} votes) {}", card.vote_count, text);
+            let text = card_text(card.body_text.as_deref(), card.gif_alt_text.as_deref());
+            let visible_members: Vec<&ClusterMemberRecord> = card
+                .cluster_members
+                .iter()
+                .filter(|member| !member.hidden)
+                .collect();
+            if visible_members.is_empty() {
+                let _ = writeln!(prompt, "- ({} votes) {}", card.vote_count, text);
+                continue;
+            }
+
+            let _ = writeln!(
+                prompt,
+                "- Cluster: {} ({} votes on group)",
+                text, card.vote_count
+            );
+            for member in visible_members {
+                let member_text =
+                    card_text(member.body_text.as_deref(), member.gif_alt_text.as_deref());
+                let _ = writeln!(prompt, "  - ({} votes) {}", member.vote_count, member_text);
+            }
         }
     }
 
@@ -128,4 +147,152 @@ pub fn build_prompt(board: &RetroBoard) -> String {
     }
 
     prompt
+}
+
+fn prompt_card_count(card: &CardRecord) -> usize {
+    let visible_members = card
+        .cluster_members
+        .iter()
+        .filter(|member| !member.hidden)
+        .count();
+    if visible_members == 0 {
+        1
+    } else {
+        visible_members
+    }
+}
+
+fn card_text<'a>(body_text: Option<&'a str>, gif_alt_text: Option<&'a str>) -> &'a str {
+    body_text.or(gif_alt_text).unwrap_or("(media card)")
+}
+
+#[cfg(test)]
+mod tests {
+    use retro_db::{
+        CardRecord, ClusterMemberRecord, RetroBoard, RetroColumnRecord, RetroRecord, VotingInfo,
+    };
+
+    use super::*;
+
+    #[test]
+    fn build_prompt_includes_visible_cluster_members() {
+        let retro_id = uuid(1);
+        let column_id = uuid(2);
+        let author_id = uuid(3);
+        let mut group_card = card(
+            retro_id,
+            column_id,
+            author_id,
+            "Grouped: platform friction",
+            1,
+        );
+        group_card.cluster_id = Some(uuid(4));
+        group_card.cluster_members = vec![
+            cluster_member(6, author_id, "Deploys are slow", 4, false),
+            cluster_member(7, author_id, "Staging flakes during QA", 2, false),
+            cluster_member(8, author_id, "Hidden draft", 9, true),
+        ];
+
+        let board = RetroBoard {
+            retro: RetroRecord {
+                id: retro_id,
+                title: "Sprint 42".to_owned(),
+                phase: "completed".to_owned(),
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                creator_email: "host@example.com".to_owned(),
+            },
+            participants: Vec::new(),
+            columns: vec![RetroColumnRecord {
+                id: column_id,
+                retro_id,
+                column_key: "pain".to_owned(),
+                title: "Pain".to_owned(),
+                position: 0,
+                order_direction: "desc".to_owned(),
+                accent_color: None,
+                cards: vec![group_card],
+            }],
+            ready: Default::default(),
+            voting: VotingInfo {
+                vote_limit: 3,
+                votes_used: 0,
+                votes_remaining: 3,
+            },
+            clusters: Vec::new(),
+            actions: Vec::new(),
+            deck: Vec::new(),
+            ai_artifacts: Vec::new(),
+            meeting_notes: Vec::new(),
+            deliveries: Vec::new(),
+        };
+
+        let prompt = build_prompt(&board);
+
+        assert!(prompt.contains("## Pain (2 cards)"), "{prompt}");
+        assert!(
+            prompt.contains("- Cluster: Grouped: platform friction (1 votes on group)"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("  - (4 votes) Deploys are slow"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("  - (2 votes) Staging flakes during QA"),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("Hidden draft"), "{prompt}");
+    }
+
+    fn card(
+        retro_id: Uuid,
+        column_id: Uuid,
+        author_participant_id: Uuid,
+        body_text: &str,
+        vote_count: i64,
+    ) -> CardRecord {
+        CardRecord {
+            id: uuid(5),
+            retro_id,
+            column_id,
+            author_participant_id,
+            body_text: Some(body_text.to_owned()),
+            gif_url: None,
+            gif_alt_text: None,
+            state: "revealed".to_owned(),
+            position: 0,
+            cluster_id: None,
+            parent_card_id: None,
+            cluster_details: None,
+            cluster_title: None,
+            cluster_category: None,
+            vote_count,
+            current_user_vote_count: 0,
+            hidden: false,
+            cluster_members: Vec::new(),
+        }
+    }
+
+    fn cluster_member(
+        id: u128,
+        author_participant_id: Uuid,
+        body_text: &str,
+        vote_count: i64,
+        hidden: bool,
+    ) -> ClusterMemberRecord {
+        ClusterMemberRecord {
+            id: uuid(id),
+            author_participant_id,
+            body_text: Some(body_text.to_owned()),
+            gif_url: None,
+            gif_alt_text: None,
+            vote_count,
+            hidden,
+        }
+    }
+
+    fn uuid(value: u128) -> Uuid {
+        Uuid::from_u128(value)
+    }
 }

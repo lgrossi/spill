@@ -63,6 +63,7 @@ export type RetroCard = {
     body_text: string | null;
     gif_url: string | null;
     gif_alt_text: string | null;
+    vote_count: number;
     hidden: boolean;
   }[];
 };

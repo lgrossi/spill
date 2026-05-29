@@ -691,6 +691,7 @@ pub struct ClusterMemberRecord {
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
+    pub vote_count: i64,
     pub hidden: bool,
 }
 
@@ -702,6 +703,7 @@ impl From<&CardRecord> for ClusterMemberRecord {
             body_text: card.body_text.clone(),
             gif_url: card.gif_url.clone(),
             gif_alt_text: card.gif_alt_text.clone(),
+            vote_count: card.vote_count,
             hidden: card.hidden,
         }
     }
