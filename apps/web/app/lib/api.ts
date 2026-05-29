@@ -116,6 +116,7 @@ export async function deleteRetro(retroId: string): Promise<void> {
   });
 }
 
+
 export async function startVoting(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/voting/start`, {
     method: "POST",

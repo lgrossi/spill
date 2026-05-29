@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use retro_core::{AiArtifactKind, DeliveryKind, DomainError};
 use retro_db::{CreateMeetingNoteInput, RetroRepository};
 use uuid::Uuid;
 
 use crate::{
+    ai_provider::AiProvider,
+    ai_summary,
     contracts::{CreateDeliveryRequest, CreateMeetingNoteRequest, StartAiJobRequest},
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -14,6 +18,11 @@ use crate::{
 pub struct JobWorkflow {
     repository: RetroRepository,
     event_hub: BoardEventHub,
+    /// Optional, opt-in: when set, `summary`-kind AI jobs run through
+    /// the real provider in the background. Without it, every kind
+    /// (including `summary`) keeps the synchronous fake-provider
+    /// behaviour the existing tests assume.
+    ai_provider: Option<Arc<AiProvider>>,
 }
 
 impl JobWorkflow {
@@ -21,7 +30,13 @@ impl JobWorkflow {
         Self {
             repository,
             event_hub,
+            ai_provider: None,
         }
+    }
+
+    pub fn with_ai_provider(mut self, ai_provider: Option<Arc<AiProvider>>) -> Self {
+        self.ai_provider = ai_provider;
+        self
     }
 
     pub async fn start_ai_job(
@@ -42,7 +57,7 @@ impl JobWorkflow {
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
-        let artifact = self.run_fake_ai_job(artifact, request.fail).await?;
+        let artifact = self.dispatch_ai_job(artifact, retro_id, request.fail).await?;
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(artifact)
     }
@@ -60,7 +75,7 @@ impl JobWorkflow {
             .await
             .map_err(|error| ApiError::internal(format!("failed to retry AI job: {error}")))?
             .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
-        let artifact = self.run_fake_ai_job(artifact, false).await?;
+        let artifact = self.dispatch_ai_job(artifact, retro_id, false).await?;
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(artifact)
     }
@@ -151,6 +166,38 @@ impl JobWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to build AI input: {error}")))?;
         input["requested_failure"] = serde_json::json!(fail);
         Ok(input)
+    }
+
+    /// Routes a freshly-created (or freshly-retried) artifact to the
+    /// right runner. Today only `summary` has a real provider; every
+    /// other kind continues to use the synchronous fake provider.
+    /// When no provider is configured, even `summary` falls back to
+    /// fake — keeps the test suite working without env vars.
+    async fn dispatch_ai_job(
+        &self,
+        artifact: retro_db::AiArtifactRecord,
+        retro_id: Uuid,
+        fail: bool,
+    ) -> Result<retro_db::AiArtifactRecord, ApiError> {
+        let is_summary = artifact.kind == ai_summary::KIND;
+        if let (true, false, Some(provider)) = (is_summary, fail, self.ai_provider.clone()) {
+            let artifact = self
+                .repository
+                .mark_ai_running(artifact.id)
+                .await
+                .map_err(|error| {
+                    ApiError::internal(format!("failed to mark AI job running: {error}"))
+                })?
+                .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
+            let repository = self.repository.clone();
+            let event_hub = self.event_hub.clone();
+            let artifact_id = artifact.id;
+            tokio::spawn(async move {
+                ai_summary::run(repository, event_hub, provider, artifact_id, retro_id).await;
+            });
+            return Ok(artifact);
+        }
+        self.run_fake_ai_job(artifact, fail).await
     }
 
     async fn run_fake_ai_job(

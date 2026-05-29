@@ -4,6 +4,7 @@ import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
+import { AiWrapTile } from "./ai-wrap-tile";
 
 export function WrappedSummary({ board }: { board: RetroBoard }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
@@ -59,11 +60,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
           </div>
         </Tile>
 
-        <Tile className="border-spill-action/50 bg-spill-action/10">
-          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-action">AI wrap-up</p>
-          <h3 className="mt-2 text-[15px] font-bold text-spill-fg">Coming soon</h3>
-          <p className="mt-1 text-[11.5px] leading-5 text-spill-muted">Summaries, recurring themes, and suggested next-retro setup will appear here once the AI summarizer is wired.</p>
-        </Tile>
+        <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
       </aside>
     </section>
   );

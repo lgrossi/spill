@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::http::StatusCode;
 use retro_core::{CardBody, DomainError, IngestedItemPlacement, IngestionSource};
 use retro_db::{
@@ -8,6 +10,8 @@ use retro_db::{
 use uuid::Uuid;
 
 use crate::{
+    ai_provider::AiProvider,
+    ai_summary,
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
         CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
@@ -22,6 +26,10 @@ use crate::{
 pub struct RetroWorkflow {
     repository: RetroRepository,
     event_hub: BoardEventHub,
+    /// Optional, opt-in: only `complete_retro` consults this to
+    /// auto-trigger the summary AI artifact. None means no auto-trigger;
+    /// every other workflow method is unaffected.
+    ai_provider: Option<Arc<AiProvider>>,
 }
 
 impl RetroWorkflow {
@@ -29,7 +37,13 @@ impl RetroWorkflow {
         Self {
             repository,
             event_hub,
+            ai_provider: None,
         }
+    }
+
+    pub fn with_ai_provider(mut self, ai_provider: Option<Arc<AiProvider>>) -> Self {
+        self.ai_provider = ai_provider;
+        self
     }
 
     pub async fn create_retro(
@@ -467,7 +481,41 @@ impl RetroWorkflow {
             })?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
+        // Auto-trigger the summary AI artifact. We deliberately fire and
+        // forget: the artifact lifecycle (`pending` → `running` →
+        // `succeeded`/`failed`) is persisted, so any failure becomes
+        // visible to the wrap-up page via the existing board fetch /
+        // WebSocket update — the completion request itself is never
+        // blocked or rejected by an AI failure.
+        self.spawn_summary_if_configured(retro_id).await;
         self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    async fn spawn_summary_if_configured(&self, retro_id: Uuid) {
+        let Some(provider) = self.ai_provider.clone() else {
+            return;
+        };
+        let artifact = match self
+            .repository
+            .create_ai_artifact(
+                retro_id,
+                ai_summary::KIND,
+                serde_json::json!({ "trigger": "complete_retro" }),
+            )
+            .await
+        {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                tracing::warn!(%retro_id, %error, "failed to create summary artifact");
+                return;
+            }
+        };
+        let repository = self.repository.clone();
+        let event_hub = self.event_hub.clone();
+        let artifact_id = artifact.id;
+        tokio::spawn(async move {
+            ai_summary::run(repository, event_hub, provider, artifact_id, retro_id).await;
+        });
     }
 
     async fn fetch_board_for_user(
