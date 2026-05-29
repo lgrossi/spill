@@ -1457,6 +1457,60 @@ async fn complete_retro_without_ai_provider_skips_summary_artifact(pool: sqlx::P
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn real_provider_summary_job_before_completion_fails_without_running(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "should not be generated",
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Premature summary retro","template":"standard"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/ai-jobs"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"kind":"summary"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let artifact: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+
+    assert_eq!(artifact["status"], "failed");
+    assert!(artifact["output"].is_null());
+    assert!(
+        artifact["error_message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("after retro completion"),
+        "expected completion gate message, got {:?}",
+        artifact["error_message"],
+    );
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn complete_retro_with_fake_provider_persists_succeeded_summary(pool: sqlx::PgPool) {
     let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
         "stub summary text from fake provider",

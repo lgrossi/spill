@@ -181,6 +181,29 @@ impl JobWorkflow {
     ) -> Result<retro_db::AiArtifactRecord, ApiError> {
         let is_summary = artifact.kind == ai_summary::KIND;
         if let (true, false, Some(provider)) = (is_summary, fail, self.ai_provider.clone()) {
+            let Some(board) = self
+                .repository
+                .fetch_board_readonly(retro_id)
+                .await
+                .map_err(|error| {
+                    ApiError::internal(format!("failed to load board for AI job: {error}"))
+                })?
+            else {
+                return Err(ApiError::not_found("retro not found"));
+            };
+            if board.retro.phase != "completed" {
+                return self
+                    .repository
+                    .fail_ai_artifact(
+                        artifact.id,
+                        "Summary generation is available after retro completion",
+                    )
+                    .await
+                    .map_err(|error| {
+                        ApiError::internal(format!("failed to mark AI job failed: {error}"))
+                    })?
+                    .ok_or_else(|| ApiError::not_found("AI artifact not found"));
+            }
             let artifact = self
                 .repository
                 .mark_ai_running(artifact.id)

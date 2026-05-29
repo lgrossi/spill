@@ -9,7 +9,10 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use retro_db::{CardRecord, ClusterMemberRecord, RetroBoard, RetroRepository};
+use retro_db::{
+    ActionItemRecord, CardRecord, ClusterMemberRecord, MeetingNoteRecord, RetroBoard,
+    RetroRepository,
+};
 use uuid::Uuid;
 
 use crate::ai_provider::AiProvider;
@@ -139,10 +142,31 @@ pub fn build_prompt(board: &RetroBoard) -> String {
         }
     }
 
-    if !board.actions.is_empty() {
-        let _ = writeln!(prompt, "\n## Committed actions ({})", board.actions.len());
-        for action in &board.actions {
+    let committed_actions: Vec<&ActionItemRecord> = board
+        .actions
+        .iter()
+        .filter(|action| action.status != "rejected")
+        .collect();
+    if !committed_actions.is_empty() {
+        let _ = writeln!(
+            prompt,
+            "\n## Committed actions ({})",
+            committed_actions.len()
+        );
+        for action in committed_actions {
             let _ = writeln!(prompt, "- [{}] {}", action.status, action.title);
+        }
+    }
+
+    let visible_notes: Vec<&MeetingNoteRecord> = board
+        .meeting_notes
+        .iter()
+        .filter(|note| !note.body_text.trim().is_empty())
+        .collect();
+    if !visible_notes.is_empty() {
+        let _ = writeln!(prompt, "\n## Meeting notes ({})", visible_notes.len());
+        for note in visible_notes {
+            let _ = writeln!(prompt, "- {}: {}", note.title, note.body_text);
         }
     }
 
@@ -169,7 +193,8 @@ fn card_text<'a>(body_text: Option<&'a str>, gif_alt_text: Option<&'a str>) -> &
 #[cfg(test)]
 mod tests {
     use retro_db::{
-        CardRecord, ClusterMemberRecord, RetroBoard, RetroColumnRecord, RetroRecord, VotingInfo,
+        ActionItemRecord, CardRecord, ClusterMemberRecord, MeetingNoteRecord, RetroBoard,
+        RetroColumnRecord, RetroRecord, VotingInfo,
     };
 
     use super::*;
@@ -245,6 +270,72 @@ mod tests {
         assert!(!prompt.contains("Hidden draft"), "{prompt}");
     }
 
+    #[test]
+    fn build_prompt_includes_notes_and_excludes_rejected_actions() {
+        let retro_id = uuid(1);
+        let column_id = uuid(2);
+        let author_id = uuid(3);
+        let board = RetroBoard {
+            retro: retro(retro_id),
+            participants: Vec::new(),
+            columns: vec![RetroColumnRecord {
+                id: column_id,
+                retro_id,
+                column_key: "wins".to_owned(),
+                title: "Wins".to_owned(),
+                position: 0,
+                order_direction: "desc".to_owned(),
+                accent_color: None,
+                cards: vec![card(retro_id, column_id, author_id, "Launch went well", 2)],
+            }],
+            ready: Default::default(),
+            voting: VotingInfo {
+                vote_limit: 3,
+                votes_used: 0,
+                votes_remaining: 3,
+            },
+            clusters: Vec::new(),
+            actions: vec![
+                action(9, retro_id, "Follow up with support", "confirmed"),
+                action(10, retro_id, "Rewrite everything", "rejected"),
+            ],
+            deck: Vec::new(),
+            ai_artifacts: Vec::new(),
+            meeting_notes: vec![meeting_note(
+                retro_id,
+                author_id,
+                "Facilitator",
+                "Support handoff stayed unclear.",
+            )],
+            deliveries: Vec::new(),
+        };
+
+        let prompt = build_prompt(&board);
+
+        assert!(prompt.contains("## Committed actions (1)"), "{prompt}");
+        assert!(
+            prompt.contains("- [confirmed] Follow up with support"),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("Rewrite everything"), "{prompt}");
+        assert!(prompt.contains("## Meeting notes (1)"), "{prompt}");
+        assert!(
+            prompt.contains("- Facilitator: Support handoff stayed unclear."),
+            "{prompt}"
+        );
+    }
+
+    fn retro(id: Uuid) -> RetroRecord {
+        RetroRecord {
+            id,
+            title: "Sprint 42".to_owned(),
+            phase: "completed".to_owned(),
+            vote_limit: 3,
+            action_discussion_limit: 3,
+            creator_email: "host@example.com".to_owned(),
+        }
+    }
+
     fn card(
         retro_id: Uuid,
         column_id: Uuid,
@@ -289,6 +380,35 @@ mod tests {
             gif_alt_text: None,
             vote_count,
             hidden,
+        }
+    }
+
+    fn action(id: u128, retro_id: Uuid, title: &str, status: &str) -> ActionItemRecord {
+        ActionItemRecord {
+            id: uuid(id),
+            retro_id,
+            source_card_id: None,
+            source_cluster_id: None,
+            title: title.to_owned(),
+            details: None,
+            status: status.to_owned(),
+            position: 0,
+            tags: Vec::new(),
+        }
+    }
+
+    fn meeting_note(
+        retro_id: Uuid,
+        author_participant_id: Uuid,
+        title: &str,
+        body_text: &str,
+    ) -> MeetingNoteRecord {
+        MeetingNoteRecord {
+            id: uuid(11),
+            retro_id,
+            author_participant_id,
+            title: title.to_owned(),
+            body_text: body_text.to_owned(),
         }
     }
 
