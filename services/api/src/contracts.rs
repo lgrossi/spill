@@ -283,6 +283,7 @@ mod tests {
                 "scheduled_at: string | null",
                 "completed_at: string | null",
                 "cover_gif_url: string | null",
+                "current_user_role:",
                 "team_mood: string | null",
             ],
         );

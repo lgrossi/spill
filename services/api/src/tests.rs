@@ -252,6 +252,30 @@ async fn host_can_update_retro_title_and_schedule(pool: sqlx::PgPool) {
     assert_eq!(title_only["retro"]["cover_gif_alt_text"], "Team high five");
 
     let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Cleared metadata","scheduled_at":"","cover_gif_url":"","cover_gif_alt_text":""}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cleared: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(cleared["retro"]["title"], "Cleared metadata");
+    assert_eq!(cleared["retro"]["scheduled_at"], Value::Null);
+    assert_eq!(cleared["retro"]["cover_gif_url"], Value::Null);
+    assert_eq!(cleared["retro"]["cover_gif_alt_text"], Value::Null);
+
+    let response = app
         .oneshot(
             Request::builder()
                 .method("PATCH")

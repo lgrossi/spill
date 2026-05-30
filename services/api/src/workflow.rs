@@ -100,22 +100,15 @@ impl RetroWorkflow {
         retro_id: Uuid,
         request: UpdateRetroMetadataRequest,
     ) -> Result<retro_db::RetroBoard, ApiError> {
-        let is_host = self
-            .repository
-            .is_board_host(retro_id, &user.email)
-            .await
-            .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
-        if !is_host {
-            return Err(ApiError::forbidden("only hosts can edit board details"));
-        }
-        let scheduled_at = optional_non_empty(request.scheduled_at);
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        let title = require_non_empty("title", request.title)?;
         self.repository
             .update_retro_metadata(
                 retro_id,
-                &require_non_empty("title", request.title)?,
-                scheduled_at.as_deref(),
-                optional_non_empty(request.cover_gif_url).as_deref(),
-                optional_non_empty(request.cover_gif_alt_text).as_deref(),
+                &title,
+                request.scheduled_at.as_deref(),
+                request.cover_gif_url.as_deref(),
+                request.cover_gif_alt_text.as_deref(),
             )
             .await
             .map_err(|error| {
@@ -684,11 +677,18 @@ async fn ensure_retro_host(
     retro_id: Uuid,
     email: &str,
 ) -> Result<(), ApiError> {
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
     let is_host = repository
         .is_board_host(retro_id, email)
         .await
         .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
-    if !is_host {
+    let is_creator =
+        !retro.creator_email.is_empty() && retro.creator_email == email.trim().to_lowercase();
+    if !is_host && !is_creator {
         return Err(ApiError::forbidden("only hosts can perform this action"));
     }
     Ok(())

@@ -180,7 +180,7 @@ export function BoardHistory({
                 </span>
               </Link>
               <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                {board.phase === "completed" ? (
+                {board.phase === "completed" && board.current_user_role === "host" ? (
                   <CloneRetroButton retroId={board.id} title={board.title} scheduledAt={board.scheduled_at} createdAt={board.created_at} />
                 ) : null}
                 <DeleteBoardButton retroId={board.id} boardTitle={board.title} />

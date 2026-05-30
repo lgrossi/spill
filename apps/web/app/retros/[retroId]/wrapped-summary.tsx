@@ -7,7 +7,7 @@ import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
 
-export function WrappedSummary({ board }: { board: RetroBoard }) {
+export function WrappedSummary({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
@@ -70,7 +70,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         </Tile>
 
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
-        <TaggingReview board={board} />
+        <TaggingReview board={board} isHost={isHost} />
 
         <Tile>
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
@@ -94,8 +94,8 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
   );
 }
 
-function TaggingReview({ board }: { board: RetroBoard }) {
-  const latest = [...board.ai_artifacts].reverse().find((item) => item.kind === "tagging");
+function TaggingReview({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
+  const latest = board.ai_artifacts.find((item) => item.kind === "tagging");
   const suggestions = taggingSuggestions(latest?.output);
   return (
     <Tile>
@@ -116,18 +116,20 @@ function TaggingReview({ board }: { board: RetroBoard }) {
               </div>
             ))}
           </div>
-          <form action={applyTaggingAction} className="mt-3">
-            <input name="retro_id" type="hidden" value={board.retro.id} />
-            <input name="artifact_id" type="hidden" value={latest?.id ?? ""} />
-            <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
-              apply tags
-            </button>
-          </form>
+          {isHost ? (
+            <form action={applyTaggingAction} className="mt-3">
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <input name="artifact_id" type="hidden" value={latest?.id ?? ""} />
+              <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
+                apply tags
+              </button>
+            </form>
+          ) : null}
         </>
       ) : latest?.status === "succeeded" ? (
         <p className="mt-2 text-[11.5px] leading-5 text-spill-muted">No confident tag suggestions.</p>
       ) : null}
-      {latest?.status !== "pending" && latest?.status !== "running" ? (
+      {isHost && latest?.status !== "pending" && latest?.status !== "running" ? (
         <form action={startAiJobAction} className="mt-3">
           <input name="retro_id" type="hidden" value={board.retro.id} />
           <input name="kind" type="hidden" value="tagging" />

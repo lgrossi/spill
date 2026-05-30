@@ -18,6 +18,17 @@ pub(super) async fn list_retros(
             to_char(r.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at,
             r.cover_gif_url,
             r.cover_gif_alt_text,
+            COALESCE(
+                (
+                    SELECT scoped_participant.role
+                    FROM participants scoped_participant
+                    WHERE scoped_participant.retro_id = r.id
+                      AND scoped_participant.external_subject = $1
+                    ORDER BY CASE WHEN scoped_participant.role = 'host' THEN 0 ELSE 1 END
+                    LIMIT 1
+                ),
+                'member'
+            ) AS current_user_role,
             (
                 SELECT artifact.output->>'team_mood'
                 FROM ai_artifacts artifact

@@ -11,6 +11,7 @@ export type RetroSummary = {
   completed_at: string | null;
   cover_gif_url: string | null;
   cover_gif_alt_text: string | null;
+  current_user_role: "host" | "member";
   team_mood: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
