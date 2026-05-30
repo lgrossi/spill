@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
@@ -10,6 +11,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
+  const mood = generatedTeamMood(board.ai_artifacts);
   const actionColumnCards = board.columns
     .filter(isActionsColumn)
     .flatMap((column) => column.cards.filter((card) => !card.hidden && card.parent_card_id === null));
@@ -37,11 +39,15 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         </div>
 
         <div className="mt-5 flex items-center gap-5">
-          <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 border-[#246f4e] bg-[radial-gradient(circle_at_35%_30%,#3eb486,#2f9469_70%)] text-[22px] font-extrabold tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]">steady</div>
+          <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
+            {mood?.badge ?? "mood"}
+          </div>
           <div>
-            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . stub preview - coming soon</p>
-            <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">Steady.</h2>
-            <p className="mt-1 max-w-xl text-[13.5px] leading-6 text-[var(--fg-2)]">AI summarization is not wired yet. The rest of this wrap uses the actual board cards, votes, and actions.</p>
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "waiting for summary"}</p>
+            <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">{mood?.title ?? "Mood pending."}</h2>
+            <p className="mt-1 max-w-xl text-[13.5px] leading-6 text-[var(--fg-2)]">
+              {mood ? "Generated from the summary artifact using board cards, votes, actions, and meeting notes." : "AI mood appears here once the completed-retro summary finishes."}
+            </p>
           </div>
         </div>
 
@@ -64,6 +70,99 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       </aside>
     </section>
   );
+}
+
+type MoodPresentation = {
+  badge: string;
+  title: string;
+  style: CSSProperties;
+};
+
+const fallbackMoodStyle: CSSProperties = {
+  background: "radial-gradient(circle at 35% 30%, #8a8177, #62564d 70%)",
+  borderColor: "#62564d",
+};
+
+const moodPresentations: Record<string, MoodPresentation> = {
+  "quietly-proud": {
+    badge: "quietly proud",
+    title: "Quietly proud.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #79c38c, #3b8f58 70%)",
+      borderColor: "#2d7646",
+    },
+  },
+  "smooth-sailing": {
+    badge: "smooth sailing",
+    title: "Smooth sailing.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #6fb6d6, #347fa2 70%)",
+      borderColor: "#246983",
+    },
+  },
+  "good-sparks": {
+    badge: "good sparks",
+    title: "Good sparks.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #f3b64f, #c9792d 70%)",
+      borderColor: "#a35f24",
+    },
+  },
+  "productive-chaos": {
+    badge: "productive chaos",
+    title: "Productive chaos.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #cf8a3f, #9f5f30 70%)",
+      borderColor: "#804923",
+    },
+  },
+  foggy: {
+    badge: "foggy",
+    title: "Foggy.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #9ca3af, #64748b 70%)",
+      borderColor: "#475569",
+    },
+  },
+  spicy: {
+    badge: "spicy",
+    title: "Spicy.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #ef6f5e, #b64232 70%)",
+      borderColor: "#8f3328",
+    },
+  },
+  "stuck-in-mud": {
+    badge: "stuck in mud",
+    title: "Stuck in mud.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #8f7660, #5f4938 70%)",
+      borderColor: "#4b382b",
+    },
+  },
+  "needs-a-map": {
+    badge: "needs a map",
+    title: "Needs a map.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #8b7bd4, #5947a3 70%)",
+      borderColor: "#463783",
+    },
+  },
+};
+
+function generatedTeamMood(artifacts: RetroBoard["ai_artifacts"]) {
+  const summary = artifacts.find((artifact) => artifact.kind === "summary");
+  if (summary?.status !== "succeeded") {
+    return null;
+  }
+  if (!summary?.output || typeof summary.output !== "object") {
+    return null;
+  }
+  const value = (summary.output as Record<string, unknown>).team_mood;
+  if (typeof value !== "string") {
+    return null;
+  }
+  return moodPresentations[value] ?? null;
 }
 
 function FinalBoard({

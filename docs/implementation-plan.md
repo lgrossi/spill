@@ -623,7 +623,7 @@ Acceptance criteria:
 - outputs are proposals/drafts, not final
 - summary works from board data
 - summary can use uploaded meeting notes when provided
-- team mood uses Stormy/Off/Mixed/Steady/Flying labels
+- team mood uses quietly-proud/smooth-sailing/good-sparks/productive-chaos/foggy/spicy/stuck-in-mud/needs-a-map labels
 - AI features can be disabled without breaking the board
 
 Verification:
