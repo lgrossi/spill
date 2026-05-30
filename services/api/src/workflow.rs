@@ -450,6 +450,20 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase != "discussion" {
+            return Err(ApiError::bad_request("retro is not ready for voting"));
+        }
+        if retro.vote_limit <= 0 {
+            return Err(ApiError::bad_request(
+                "voting requires a positive vote limit",
+            ));
+        }
         if let Err(error) = self.repository.cluster_board_if_auto(retro_id).await {
             let _ = self.repository.mark_clustering_failed(retro_id).await;
             return Err(cluster_error(error));
@@ -468,13 +482,19 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
-        authorize_retro_participant(&self.repository, &user, retro_id).await?;
-        self.repository
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        let updated = self
+            .repository
             .continue_unclustered(retro_id)
             .await
             .map_err(|error| {
                 ApiError::internal(format!("failed to continue unclustered: {error}"))
             })?;
+        if !updated {
+            return Err(ApiError::bad_request(
+                "continuing unclustered requires a failed auto-clustering attempt",
+            ));
+        }
         self.repository
             .start_voting(retro_id)
             .await
@@ -657,6 +677,21 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))
     }
+}
+
+async fn ensure_retro_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<(), ApiError> {
+    let is_host = repository
+        .is_board_host(retro_id, email)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+    if !is_host {
+        return Err(ApiError::forbidden("only hosts can perform this action"));
+    }
+    Ok(())
 }
 
 pub(crate) async fn authorize_retro_participant(

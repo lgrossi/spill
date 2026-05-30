@@ -3,8 +3,6 @@ import { cloneRetroAction } from "@/lib/actions";
 export function CloneRetroButton({
   retroId,
   title,
-  scheduledAt,
-  createdAt,
 }: {
   retroId: string;
   title: string;
@@ -24,7 +22,8 @@ export function CloneRetroButton({
         </label>
         <label className="grid gap-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">
           scheduled
-          <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold normal-case tracking-normal text-spill-fg" name="scheduled_at" type="datetime-local" defaultValue={nextDatetimeLocal(scheduledAt ?? createdAt)} />
+          <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold normal-case tracking-normal text-spill-fg" name="scheduled_at" type="datetime-local" aria-describedby={`clone-${retroId}-schedule-help`} />
+          <span id={`clone-${retroId}-schedule-help`} className="text-[10.5px] font-semibold normal-case tracking-normal text-spill-muted">Leave blank to infer the next date from cadence.</span>
         </label>
         <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
           create
@@ -32,11 +31,4 @@ export function CloneRetroButton({
       </form>
     </details>
   );
-}
-
-function nextDatetimeLocal(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  date.setDate(date.getDate() + 14);
-  return date.toISOString().slice(0, 16);
 }

@@ -55,9 +55,9 @@ export async function updateRetroMetadata(retroId: string, title: string, schedu
     method: "PATCH",
     body: JSON.stringify({
       title,
-      scheduled_at: scheduledAt || null,
-      cover_gif_url: coverGifUrl || null,
-      cover_gif_alt_text: coverGifAltText || null,
+      scheduled_at: scheduledAt,
+      cover_gif_url: coverGifUrl,
+      cover_gif_alt_text: coverGifAltText,
     }),
     headers: { "content-type": "application/json" },
     cache: "no-store",

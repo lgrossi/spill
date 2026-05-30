@@ -282,9 +282,9 @@ impl RetroRepository {
         sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET title = $2,
-                 scheduled_at = NULLIF($3, '')::timestamptz,
-                 cover_gif_url = NULLIF($4, ''),
-                 cover_gif_alt_text = NULLIF($5, '')
+                 scheduled_at = CASE WHEN $3::text IS NULL THEN scheduled_at ELSE NULLIF($3, '')::timestamptz END,
+                 cover_gif_url = CASE WHEN $4::text IS NULL THEN cover_gif_url ELSE NULLIF($4, '') END,
+                 cover_gif_alt_text = CASE WHEN $5::text IS NULL THEN cover_gif_alt_text ELSE NULLIF($5, '') END
              WHERE id = $1
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text, clustering_mode, clustering_status,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
@@ -293,9 +293,9 @@ impl RetroRepository {
         )
         .bind(retro_id)
         .bind(title.trim())
-        .bind(scheduled_at.unwrap_or("").trim())
-        .bind(cover_gif_url.unwrap_or("").trim())
-        .bind(cover_gif_alt_text.unwrap_or("").trim())
+        .bind(scheduled_at.map(str::trim))
+        .bind(cover_gif_url.map(str::trim))
+        .bind(cover_gif_alt_text.map(str::trim))
         .fetch_optional(&self.pool)
         .await
     }
@@ -1840,6 +1840,50 @@ mod tests {
         assert_eq!(voting.phase, "voting");
         let second = repo.cluster_board_if_auto(created.retro.id).await.unwrap();
         assert!(second.is_empty());
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn auto_clustering_failed_status_can_retry_once(pool: PgPool) {
+        let repo = RetroRepository::new(pool.clone());
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Retry auto cluster retro".to_owned(),
+                scheduled_at: None,
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                clustering_mode: "auto_on_vote_start".to_owned(),
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        for text in ["Deploy alerts noisy", "Deploy alerts owner"] {
+            repo.create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some(text.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        sqlx::query("UPDATE retros SET clustering_status = 'failed' WHERE id = $1")
+            .bind(created.retro.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let clusters = repo.cluster_board_if_auto(created.retro.id).await.unwrap();
+        assert_eq!(clusters.len(), 1);
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]

@@ -15,7 +15,15 @@ impl RetroRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        if retro.clustering_mode != "auto_on_vote_start" || retro.clustering_status != "not_run" {
+        if retro.clustering_mode != "auto_on_vote_start" {
+            return Ok(Vec::new());
+        }
+        if retro.clustering_status == "failed" {
+            sqlx::query("UPDATE retros SET clustering_status = 'not_run' WHERE id = $1")
+                .bind(retro_id)
+                .execute(&self.pool)
+                .await?;
+        } else if retro.clustering_status != "not_run" {
             return Ok(Vec::new());
         }
 
@@ -30,12 +38,19 @@ impl RetroRepository {
         Ok(())
     }
 
-    pub async fn continue_unclustered(&self, retro_id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE retros SET clustering_status = 'completed' WHERE id = $1")
-            .bind(retro_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+    pub async fn continue_unclustered(&self, retro_id: Uuid) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE retros
+             SET clustering_status = 'completed'
+             WHERE id = $1
+               AND phase = 'discussion'
+               AND clustering_mode = 'auto_on_vote_start'
+               AND clustering_status = 'failed'",
+        )
+        .bind(retro_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn cluster_board(&self, retro_id: Uuid) -> Result<Vec<ClusterRecord>, ClusterError> {
