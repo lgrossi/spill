@@ -53,6 +53,13 @@ impl RetroWorkflow {
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
+        for invitee in &invitees {
+            let email = invitee.email.trim().to_lowercase();
+            if email.is_empty() || !email.contains('@') || email == creator_email_lc {
+                continue;
+            }
+            validate_invitee_role(Some(&invitee.role))?;
+        }
         let board = self
             .repository
             .create_retro(CreateRetroInput {
@@ -78,12 +85,6 @@ impl RetroWorkflow {
             let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {
                 continue;
-            }
-            if invitee.role != "host" && invitee.role != "member" {
-                return Err(ApiError::bad_request(format!(
-                    "role must be \"host\" or \"member\", got: {}",
-                    invitee.role
-                )));
             }
             self.repository
                 .add_board_grant(retro_id, &email, &invitee.role)
