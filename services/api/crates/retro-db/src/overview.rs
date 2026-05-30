@@ -119,6 +119,11 @@ pub(super) async fn list_retros(
              WHERE scoped_participant.retro_id = r.id
                AND scoped_participant.external_subject = $1
                AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
+         ) OR EXISTS (
+             SELECT 1
+             FROM board_grants scoped_grant
+             WHERE scoped_grant.retro_id = r.id
+               AND lower(scoped_grant.principal_email) = lower($2)
          )
          GROUP BY r.id
          ORDER BY last_activity_at DESC, r.created_at DESC",

@@ -72,23 +72,25 @@ export function WrappedSummary({ board, isHost }: { board: RetroBoard; isHost: b
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
         <TaggingReview board={board} isHost={isHost} />
 
-        <Tile>
-          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
-          <form action={cloneRetroAction} className="mt-3 grid gap-2">
-            <input name="source_retro_id" type="hidden" value={board.retro.id} />
-            <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="title" defaultValue={`Next: ${board.retro.title}`} aria-label="Next retro title" />
-            <label className="grid gap-1">
-              <span className="sr-only">Next retro scheduled date</span>
-              <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="scheduled_at" type="datetime-local" aria-describedby="next-retro-schedule-help" />
-              <span id="next-retro-schedule-help" className="text-[10.5px] font-semibold text-spill-muted">Leave blank to infer the next date from cadence.</span>
-            </label>
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-spill-muted">
-              <input name="suggest_title" type="checkbox" value="1" />
-              ask AI for the next title if available
-            </label>
-            <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">create next retro</button>
-          </form>
-        </Tile>
+        {isHost ? (
+          <Tile>
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
+            <form action={cloneRetroAction} className="mt-3 grid gap-2">
+              <input name="source_retro_id" type="hidden" value={board.retro.id} />
+              <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="title" defaultValue={`Next: ${board.retro.title}`} aria-label="Next retro title" />
+              <label className="grid gap-1">
+                <span className="sr-only">Next retro scheduled date</span>
+                <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="scheduled_at" type="datetime-local" aria-describedby="next-retro-schedule-help" />
+                <span id="next-retro-schedule-help" className="text-[10.5px] font-semibold text-spill-muted">Leave blank to infer the next date from cadence.</span>
+              </label>
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-spill-muted">
+                <input name="suggest_title" type="checkbox" value="1" />
+                ask AI for the next title if available
+              </label>
+              <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">create next retro</button>
+            </form>
+          </Tile>
+        ) : null}
       </aside>
     </section>
   );
