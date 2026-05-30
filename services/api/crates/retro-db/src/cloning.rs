@@ -11,6 +11,7 @@ struct CloneSource {
     vote_limit: i32,
     action_discussion_limit: i32,
     clustering_mode: String,
+    source_scheduled_at: Option<String>,
     default_scheduled_at: Option<String>,
 }
 
@@ -25,7 +26,54 @@ pub(super) async fn clone_retro(
             vote_limit,
             action_discussion_limit,
             clustering_mode,
-            to_char((COALESCE(scheduled_at, created_at) + INTERVAL '14 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS default_scheduled_at
+            to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS source_scheduled_at,
+            to_char(
+                (
+                    COALESCE(scheduled_at, created_at) + COALESCE(
+                        (
+                            WITH source_columns AS (
+                                SELECT array_agg(title ORDER BY position) AS titles
+                                FROM retro_columns
+                                WHERE retro_id = $1
+                            ),
+                            cadence_points AS (
+                                SELECT COALESCE(candidate.scheduled_at, candidate.created_at) AS happened_at
+                                FROM retros candidate
+                                WHERE candidate.id <> $1
+                                  AND candidate.vote_limit = retros.vote_limit
+                                  AND candidate.action_discussion_limit = retros.action_discussion_limit
+                                  AND (
+                                    SELECT array_agg(title ORDER BY position)
+                                    FROM retro_columns
+                                    WHERE retro_id = candidate.id
+                                  ) = (SELECT titles FROM source_columns)
+                                  AND EXISTS (
+                                    SELECT 1
+                                    FROM participants source_participant
+                                    JOIN participants candidate_participant
+                                      ON candidate_participant.external_subject = source_participant.external_subject
+                                    WHERE source_participant.retro_id = $1
+                                      AND candidate_participant.retro_id = candidate.id
+                                      AND source_participant.external_subject IS NOT NULL
+                                  )
+                                UNION ALL
+                                SELECT COALESCE(retros.scheduled_at, retros.created_at)
+                            ),
+                            ordered_points AS (
+                                SELECT happened_at, LAG(happened_at) OVER (ORDER BY happened_at DESC) AS previous_at
+                                FROM cadence_points
+                            )
+                            SELECT previous_at - happened_at
+                            FROM ordered_points
+                            WHERE previous_at IS NOT NULL
+                            ORDER BY happened_at DESC
+                            LIMIT 1
+                        ),
+                        INTERVAL '14 days'
+                    )
+                ) AT TIME ZONE 'UTC',
+                'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'
+            ) AS default_scheduled_at
          FROM retros
          WHERE id = $1",
     )

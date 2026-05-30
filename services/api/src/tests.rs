@@ -383,6 +383,80 @@ async fn clone_retro_can_use_optional_ai_title_suggestion(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn clone_retro_infers_next_date_from_previous_cadence(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    for (title, scheduled_at) in [
+        ("Sprint 42", "2026-06-05T10:00:00Z"),
+        ("Sprint 43", "2026-06-12T10:00:00Z"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/retros")
+                    .header(HEADER_USER_SUBJECT, "host-123")
+                    .header(HEADER_USER_NAME, "Host")
+                    .header(HEADER_USER_EMAIL, "host@example.com")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"title":"{title}","template":"standard","scheduled_at":"{scheduled_at}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let overview_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let overview: Value = serde_json::from_slice(
+        &to_bytes(overview_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let source_id = overview["retros"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|retro| retro["title"] == "Sprint 43")
+        .and_then(|retro| retro["id"].as_str())
+        .unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{source_id}/clone"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_NAME, "Host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"title":"Sprint 44"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let cloned: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(cloned["retro"]["scheduled_at"], "2026-06-19T10:00:00Z");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
