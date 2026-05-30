@@ -172,6 +172,75 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_can_update_retro_title_and_schedule(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_NAME, "Host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Original retro","template":"standard","scheduled_at":"2026-06-05T10:00:00Z"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    assert_eq!(created["retro"]["scheduled_at"], "2026-06-05T10:00:00Z");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Renamed retro","scheduled_at":"2026-06-12T10:00:00Z"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(updated["retro"]["title"], "Renamed retro");
+    assert_eq!(updated["retro"]["scheduled_at"], "2026-06-12T10:00:00Z");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_USER_SUBJECT, "member-123")
+                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Member rename","scheduled_at":"2026-06-19T10:00:00Z"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
@@ -234,8 +303,20 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
         .map(|participant| participant["id"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(participant_ids.len(), 2);
-    assert!(participant_ids.contains(&ava_board["columns"][0]["cards"][0]["author_participant_id"].as_str().unwrap()));
-    assert!(participant_ids.contains(&ava_board["columns"][0]["cards"][1]["author_participant_id"].as_str().unwrap()));
+    assert!(
+        participant_ids.contains(
+            &ava_board["columns"][0]["cards"][0]["author_participant_id"]
+                .as_str()
+                .unwrap()
+        )
+    );
+    assert!(
+        participant_ids.contains(
+            &ava_board["columns"][0]["cards"][1]["author_participant_id"]
+                .as_str()
+                .unwrap()
+        )
+    );
 
     assert_eq!(
         ava_board["columns"][0]["cards"][0]["body_text"],
@@ -992,8 +1073,7 @@ const ALICE_EMAIL: &str = "alice@spill.test";
 const ALICE_SUBJECT: &str =
     "email:911c1a4b6e2a0f21e6b2176e7b1ee2e9d8c713b47fada7c98a565f26f93f2122";
 const BOB_EMAIL: &str = "bob@spill.test";
-const BOB_SUBJECT: &str =
-    "email:5e4ed42deade990aad0ac79434b6615d3c2dcf0ec6fb898a0e002a6206fe1396";
+const BOB_SUBJECT: &str = "email:5e4ed42deade990aad0ac79434b6615d3c2dcf0ec6fb898a0e002a6206fe1396";
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
@@ -1096,10 +1176,7 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
         1,
         "Bob's participant row should have been removed on uninvite"
     );
-    assert_eq!(
-        board_after["participants"][0]["display_name"],
-        "Alice"
-    );
+    assert_eq!(board_after["participants"][0]["display_name"], "Alice");
 }
 
 // Feature 2 — host can kick any participant, participant can self-leave;
@@ -1148,7 +1225,9 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"))
+                .uri(format!(
+                    "/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"
+                ))
                 .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
                 .header(HEADER_USER_EMAIL, BOB_EMAIL)
                 .body(Body::empty())
@@ -1164,7 +1243,9 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"))
+                .uri(format!(
+                    "/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"
+                ))
                 .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
                 .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .body(Body::empty())
@@ -1536,15 +1617,17 @@ async fn complete_retro_with_fake_provider_persists_succeeded_summary(pool: sqlx
     let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
         "stub summary text from fake provider",
     )));
-    let app =
-        app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
     let retro_id = seed_completable_retro(&app).await;
     post_complete(&app, &retro_id).await;
 
     let artifact = wait_for_summary_status(&app, &retro_id, "succeeded").await;
     assert_eq!(artifact["kind"], "summary");
     assert_eq!(artifact["output"]["review_required"], false);
-    assert_eq!(artifact["output"]["summary"], "stub summary text from fake provider");
+    assert_eq!(
+        artifact["output"]["summary"],
+        "stub summary text from fake provider"
+    );
     assert!(artifact["error_message"].is_null());
 
     // The runner uses `fetch_board_readonly` and must not insert a
@@ -1557,7 +1640,11 @@ async fn complete_retro_with_fake_provider_persists_succeeded_summary(pool: sqlx
         .iter()
         .map(|p| p["external_subject"].as_str().unwrap_or(""))
         .collect();
-    assert_eq!(subjects, vec![AUTHOR], "runner must not appear as a participant");
+    assert_eq!(
+        subjects,
+        vec![AUTHOR],
+        "runner must not appear as a participant"
+    );
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
@@ -1589,8 +1676,7 @@ async fn failing_provider_records_failed_artifact_then_retry_recovers(pool: sqlx
     let healthy = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
         "recovered summary",
     )));
-    let app =
-        app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(healthy));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(healthy));
 
     let response = app
         .clone()

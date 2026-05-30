@@ -15,7 +15,7 @@ use crate::{
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
         CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
-        UpdateDraftCardRequest,
+        UpdateDraftCardRequest, UpdateRetroMetadataRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -57,6 +57,7 @@ impl RetroWorkflow {
             .repository
             .create_retro(CreateRetroInput {
                 title: require_non_empty("title", request.title)?,
+                scheduled_at: optional_non_empty(request.scheduled_at),
                 creator_subject: user.subject,
                 creator_email: user.email,
                 creator_display_name: user.display_name,
@@ -79,7 +80,8 @@ impl RetroWorkflow {
             }
             if invitee.role != "host" && invitee.role != "member" {
                 return Err(ApiError::bad_request(format!(
-                    "role must be \"host\" or \"member\", got: {}", invitee.role
+                    "role must be \"host\" or \"member\", got: {}",
+                    invitee.role
                 )));
             }
             self.repository
@@ -89,6 +91,37 @@ impl RetroWorkflow {
         }
 
         Ok((StatusCode::CREATED, board))
+    }
+
+    pub async fn update_retro_metadata(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+        request: UpdateRetroMetadataRequest,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        let is_host = self
+            .repository
+            .is_board_host(retro_id, &user.email)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+        if !is_host {
+            return Err(ApiError::forbidden("only hosts can edit board details"));
+        }
+        let scheduled_at = optional_non_empty(request.scheduled_at);
+        self.repository
+            .update_retro_metadata(
+                retro_id,
+                &require_non_empty("title", request.title)?,
+                scheduled_at.as_deref(),
+            )
+            .await
+            .map_err(|error| {
+                ApiError::bad_request(format!("failed to update retro metadata: {error}"))
+            })?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        self.fetch_board_for_user(retro_id, &user).await
     }
 
     pub async fn create_draft_card(

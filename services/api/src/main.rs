@@ -18,7 +18,7 @@ use contracts::{
     AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, ClusterCardsRequest,
     CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
     HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
-    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest,
+    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest, UpdateRetroMetadataRequest,
 };
 use contracts::RevealBoardRequest;
 use error::ApiError;
@@ -140,7 +140,12 @@ fn api_router() -> Router<AppState> {
         .route("/session", get(session))
         .route("/gifs/search", get(media::search_gifs))
         .route("/retros", get(list_retros).post(create_retro))
-        .route("/retros/{retro_id}", get(open_retro).delete(delete_retro))
+        .route(
+            "/retros/{retro_id}",
+            get(open_retro)
+                .patch(update_retro_metadata)
+                .delete(delete_retro),
+        )
         .route("/retros/{retro_id}/events", get(board_events))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
@@ -303,6 +308,20 @@ async fn delete_retro(
         return Err(ApiError::not_found("retro not found"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_retro_metadata(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<UpdateRetroMetadataRequest>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .update_retro_metadata(user, retro_id, request)
+        .await
+        .map(Json)
 }
 
 async fn create_draft_card(

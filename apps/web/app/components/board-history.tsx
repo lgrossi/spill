@@ -160,7 +160,7 @@ export function BoardHistory({
                 <span className="min-w-0">
                   <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
                   <span className="text-[11px] text-spill-muted">
-                    updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
+                    {boardDateLine(board)} . updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
                   </span>
                 </span>
                 <span
@@ -224,6 +224,12 @@ function formatBoardDate(value: string) {
     day: "numeric",
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
   }).format(date);
+}
+
+function boardDateLine(board: RetroSummary) {
+  if (board.phase === "completed" && board.completed_at) return `completed ${formatBoardDate(board.completed_at)}`;
+  if (board.scheduled_at) return `scheduled ${formatBoardDate(board.scheduled_at)}`;
+  return `created ${formatBoardDate(board.created_at)}`;
 }
 
 function normalizeStatus(status: string) {

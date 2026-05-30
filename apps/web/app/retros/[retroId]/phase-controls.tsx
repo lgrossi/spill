@@ -2,6 +2,7 @@ import type { RetroBoard } from "@/lib/contracts";
 import { Btn } from "@/components/spill-ui";
 import { BoardInviteButton } from "@/components/board-invite-button";
 import { DeleteBoardButton } from "@/components/delete-board-button";
+import { RetroMetadataEditor } from "@/components/retro-metadata-editor";
 
 // Right-side topbar: people button + home shortcut on completed.
 // Phase advance happens in the centered PhaseLine (auto-advance countdown
@@ -25,10 +26,12 @@ export function PhaseControls({
   const deleteButton = isHost ? (
     <DeleteBoardButton retroId={board.retro.id} boardTitle={board.retro.title} />
   ) : null;
+  const editButton = isHost ? <RetroMetadataEditor board={board} /> : null;
 
   if (board.retro.phase === "completed") {
     return (
       <>
+        {editButton}
         {peopleButton}
         {deleteButton}
         <Btn href="/" kind="primary">home</Btn>
@@ -38,6 +41,7 @@ export function PhaseControls({
 
   return (
     <>
+      {editButton}
       {peopleButton}
       {deleteButton}
     </>

@@ -38,7 +38,13 @@ impl RetroRepository {
     }
 
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
-        sqlx::query_as::<_, RetroRecord>("SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email FROM retros WHERE id = $1")
+        sqlx::query_as::<_, RetroRecord>(
+            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+                to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
+                to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at
+             FROM retros WHERE id = $1",
+        )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
@@ -134,10 +140,7 @@ impl RetroRepository {
     /// what an anonymous viewer would see — the empty subject here is
     /// safe for any completed retro, which is the only state in which
     /// the runner is expected to be called.
-    pub async fn fetch_board_readonly(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<RetroBoard>, sqlx::Error> {
+    pub async fn fetch_board_readonly(&self, id: Uuid) -> Result<Option<RetroBoard>, sqlx::Error> {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
@@ -247,6 +250,42 @@ impl RetroRepository {
         .await
     }
 
+    pub async fn is_board_host(&self, retro_id: Uuid, email: &str) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM board_grants
+                WHERE retro_id = $1 AND principal_email = lower($2) AND role = 'host'
+            )",
+        )
+        .bind(retro_id)
+        .bind(email)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn update_retro_metadata(
+        &self,
+        retro_id: Uuid,
+        title: &str,
+        scheduled_at: Option<&str>,
+    ) -> Result<Option<RetroRecord>, sqlx::Error> {
+        sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET title = $2,
+                 scheduled_at = NULLIF($3, '')::timestamptz
+             WHERE id = $1
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+                to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
+                to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at",
+        )
+        .bind(retro_id)
+        .bind(title.trim())
+        .bind(scheduled_at.unwrap_or("").trim())
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     pub async fn add_board_grant(
         &self,
         retro_id: Uuid,
@@ -303,13 +342,12 @@ impl RetroRepository {
         email: &str,
     ) -> Result<bool, sqlx::Error> {
         let subject = email_subject(email);
-        let result = sqlx::query(
-            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
-        )
-        .bind(retro_id)
-        .bind(subject)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2")
+                .bind(retro_id)
+                .bind(subject)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -318,13 +356,12 @@ impl RetroRepository {
         retro_id: Uuid,
         subject: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
-        )
-        .bind(retro_id)
-        .bind(subject)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2")
+                .bind(retro_id)
+                .bind(subject)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -595,6 +632,9 @@ pub struct RetroRecord {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub creator_email: String,
+    pub created_at: String,
+    pub scheduled_at: Option<String>,
+    pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -941,6 +981,7 @@ pub struct RetroSummary {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub created_at: String,
+    pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
@@ -967,6 +1008,7 @@ struct RetroSummaryRow {
     vote_limit: i32,
     action_discussion_limit: i32,
     created_at: String,
+    scheduled_at: Option<String>,
     completed_at: Option<String>,
     last_activity_at: String,
     last_opened_at: Option<String>,
@@ -987,6 +1029,7 @@ impl From<RetroSummaryRow> for RetroSummary {
             vote_limit: row.vote_limit,
             action_discussion_limit: row.action_discussion_limit,
             created_at: row.created_at,
+            scheduled_at: row.scheduled_at,
             completed_at: row.completed_at,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
@@ -1018,6 +1061,7 @@ pub struct BoardGrant {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateRetroInput {
     pub title: String,
+    pub scheduled_at: Option<String>,
     pub creator_subject: String,
     pub creator_email: String,
     pub creator_display_name: String,
@@ -1221,6 +1265,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Sprint 43".to_owned(),
+                scheduled_at: None,
                 creator_subject: "user-123".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1259,6 +1304,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Team pulse".to_owned(),
+                scheduled_at: None,
                 creator_subject: "user-456".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Lee".to_owned(),
@@ -1296,6 +1342,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Privacy retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1387,6 +1434,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "GIF retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1470,6 +1518,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Move retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1526,6 +1575,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Ready retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1563,6 +1613,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Voting retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1635,6 +1686,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Cluster retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1702,6 +1754,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Manual cluster retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1777,6 +1830,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Cross column cluster retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1851,6 +1905,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Actions retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -1991,6 +2046,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Ingest retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -2082,6 +2138,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "AI retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -2153,6 +2210,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Notes retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -2206,6 +2264,7 @@ mod tests {
         let created = repo
             .create_retro(CreateRetroInput {
                 title: "Delivery retro".to_owned(),
+                scheduled_at: None,
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),

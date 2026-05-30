@@ -18,6 +18,7 @@ pub struct SessionResponse {
 #[derive(Deserialize)]
 pub struct CreateRetroRequest {
     pub title: String,
+    pub scheduled_at: Option<String>,
     pub template: String,
     #[serde(default)]
     pub columns: Vec<String>,
@@ -69,6 +70,12 @@ pub struct CastVoteRequest {
 pub struct UpdateActionRequest {
     pub title: String,
     pub details: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRetroMetadataRequest {
+    pub title: String,
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +246,8 @@ mod tests {
             "RetroBoard",
             &[
                 "retro:",
+                "scheduled_at: string | null",
+                "completed_at: string | null",
                 "columns: RetroColumn[]",
                 "ready:",
                 "voting:",
@@ -253,12 +262,17 @@ mod tests {
         assert_contract_contains(
             &frontend_contracts,
             "RetroSummary",
-            &["completed_at: string | null"],
+            &["scheduled_at: string | null", "completed_at: string | null"],
         );
         assert_contract_contains(
             &frontend_contracts,
             "RetroOverview",
             &["retros: RetroSummary[]"],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "CreateRetroPayload",
+            &["scheduled_at?: string | null"],
         );
     }
 

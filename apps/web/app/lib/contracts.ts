@@ -7,6 +7,7 @@ export type RetroSummary = {
   vote_limit: number;
   action_discussion_limit: number;
   created_at: string;
+  scheduled_at: string | null;
   completed_at: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
@@ -99,6 +100,9 @@ export type RetroBoard = {
     phase: RetroPhase;
     vote_limit: number;
     action_discussion_limit: number;
+    created_at: string;
+    scheduled_at: string | null;
+    completed_at: string | null;
   };
   participants: RetroParticipant[];
   columns: RetroColumn[];
@@ -185,6 +189,7 @@ export type InviteeRequest = {
 export type CreateRetroPayload =
   | {
       title: string;
+      scheduled_at?: string | null;
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
@@ -192,6 +197,7 @@ export type CreateRetroPayload =
     }
   | {
       title: string;
+      scheduled_at?: string | null;
       template: "custom";
       columns: string[];
       column_colors?: string[];

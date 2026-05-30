@@ -27,7 +27,7 @@ import {
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
 import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
-import { createRetroCommand } from "./commands/retro-commands";
+import { createRetroCommand, updateRetroMetadataCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
   createMeetingNoteCommand,
@@ -60,6 +60,14 @@ function safeReturnTo(value: string) {
 
 export async function createRetroAction(formData: FormData) {
   return createRetroCommand(formData);
+}
+
+export async function updateRetroMetadataAction(formData: FormData) {
+  await updateRetroMetadataCommand(formData);
+  const retroId = String(formData.get("retro_id") ?? "");
+  if (retroId) revalidatePath(`/retros/${retroId}`);
+  revalidatePath("/");
+  revalidatePath("/history");
 }
 
 export async function createDraftCardAction(formData: FormData) {

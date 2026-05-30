@@ -22,11 +22,15 @@ pub(super) async fn create_retro(
 
     let creator_email = input.creator_email.trim().to_lowercase();
     let retro = sqlx::query_as::<_, RetroRecord>(
-        "INSERT INTO retros (title, vote_limit, action_discussion_limit, clustering_mode, creator_email)
-         VALUES ($1, $2, $3, 'disabled', $4)
-         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
+        "INSERT INTO retros (title, scheduled_at, vote_limit, action_discussion_limit, clustering_mode, creator_email)
+         VALUES ($1, NULLIF($2, '')::timestamptz, $3, $4, 'disabled', $5)
+         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+            to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
+            to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at",
     )
     .bind(input.title.trim())
+    .bind(input.scheduled_at.as_deref().unwrap_or("").trim())
     .bind(input.vote_limit)
     .bind(input.action_discussion_limit)
     .bind(&creator_email)

@@ -187,6 +187,7 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
         </span>
         <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
         <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
+        <p className="mt-1 text-[10.5px] font-semibold text-spill-muted">{boardDateLine(board)}</p>
         <div className="mt-auto flex items-end justify-between">
           <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
             {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
@@ -208,6 +209,22 @@ function boardSubtitle(board: RetroOverview["active"][number]) {
   if (board.phase === "discussion") return `${board.participant_count} people reviewing cards`;
   if (board.phase === "action_discussion") return "turning top themes into actions";
   return "wrapped and searchable";
+}
+
+function boardDateLine(board: RetroOverview["active"][number]) {
+  if (board.phase === "completed" && board.completed_at) return `completed ${formatBoardDate(board.completed_at)}`;
+  if (board.scheduled_at) return `scheduled ${formatBoardDate(board.scheduled_at)}`;
+  return `created ${formatBoardDate(board.created_at)}`;
+}
+
+function formatBoardDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }
 
 function openActionCount(overview: RetroOverview) {

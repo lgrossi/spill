@@ -58,6 +58,10 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <span className="text-[11px] text-spill-muted">what should people recognize?</span>
           </div>
           <input id="title" name="title" required placeholder="e.g. Team retro - May 25" className={`${fieldControlClass} min-h-[56px] border-2 border-spill-wrong px-4 text-2xl font-bold tracking-[-0.02em] shadow-[var(--focus)]`} aria-label="Retro title" />
+          <label className="mt-3 block">
+            <span className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">scheduled date</span>
+            <input name="scheduled_at" type="datetime-local" className={`${fieldControlClass} mt-1 w-full`} />
+          </label>
         </div>
 
         <div>

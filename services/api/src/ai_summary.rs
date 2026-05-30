@@ -479,6 +479,9 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 creator_email: "host@example.com".to_owned(),
+                created_at: "2026-05-30T10:00:00Z".to_owned(),
+                scheduled_at: None,
+                completed_at: Some("2026-05-30T11:00:00Z".to_owned()),
             },
             participants: Vec::new(),
             columns: vec![RetroColumnRecord {
@@ -634,6 +637,9 @@ mod tests {
             vote_limit: 3,
             action_discussion_limit: 3,
             creator_email: "host@example.com".to_owned(),
+            created_at: "2026-05-30T10:00:00Z".to_owned(),
+            scheduled_at: None,
+            completed_at: Some("2026-05-30T11:00:00Z".to_owned()),
         }
     }
 

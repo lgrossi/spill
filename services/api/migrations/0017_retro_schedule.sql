@@ -1,0 +1,1 @@
+ALTER TABLE retros ADD COLUMN scheduled_at TIMESTAMPTZ;

@@ -50,6 +50,18 @@ export async function getRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, { cache: "no-store" });
 }
 
+export async function updateRetroMetadata(retroId: string, title: string, scheduledAt?: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title,
+      scheduled_at: scheduledAt || null,
+    }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
 export async function createDraftCard(retroId: string, columnId: string, bodyText: string, gifUrl?: string, gifAltText?: string): Promise<RetroCard> {
   return apiFetch(`/api/retros/${retroId}/cards`, {
     method: "POST",

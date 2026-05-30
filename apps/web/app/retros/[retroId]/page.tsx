@@ -128,20 +128,38 @@ function ReadyCheckbox({ retroId, checked }: { retroId: string; checked: boolean
 
 function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
   const phase = board.retro.phase;
+  const date = boardDateLabel(board);
   if (phase === "writing") {
-    return <ReadyCheckbox retroId={board.retro.id} checked={board.ready.current_user_ready} />;
+    return (
+      <>
+        {date ? <span>{date}</span> : null}
+        <ReadyCheckbox retroId={board.retro.id} checked={board.ready.current_user_ready} />
+      </>
+    );
   }
   if (phase === "voting") {
     return (
       <span className="flex items-center gap-1.5">
+        {date ? <span>{date} ·</span> : null}
         <span className="truncate">{board.voting.votes_remaining} of {board.retro.vote_limit} votes left</span>
         <VoteLeftDots remaining={board.voting.votes_remaining} total={board.retro.vote_limit} />
       </span>
     );
   }
-  if (phase === "discussion") return <span>review and group cards</span>;
-  if (phase === "action_discussion") return <span>top {board.retro.action_discussion_limit} actions</span>;
-  return <span>wrapped recap</span>;
+  if (phase === "discussion") return <span>{date ? `${date} · ` : ""}review and group cards</span>;
+  if (phase === "action_discussion") return <span>{date ? `${date} · ` : ""}top {board.retro.action_discussion_limit} actions</span>;
+  return <span>{date ? `${date} · ` : ""}wrapped recap</span>;
+}
+
+function boardDateLabel(board: RetroBoard) {
+  if (board.retro.scheduled_at) return `scheduled ${shortDate(board.retro.scheduled_at)}`;
+  return `created ${shortDate(board.retro.created_at)}`;
+}
+
+function shortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
 function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }): ReactNode {
