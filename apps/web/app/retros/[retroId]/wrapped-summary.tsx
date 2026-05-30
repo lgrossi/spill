@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
-import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
+import { cloneRetroAction, completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
@@ -67,9 +67,26 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         </Tile>
 
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
+
+        <Tile>
+          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
+          <form action={cloneRetroAction} className="mt-3 grid gap-2">
+            <input name="source_retro_id" type="hidden" value={board.retro.id} />
+            <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="title" defaultValue={`Next: ${board.retro.title}`} aria-label="Next retro title" />
+            <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="scheduled_at" type="datetime-local" defaultValue={nextDatetimeLocal(board.retro.scheduled_at ?? board.retro.created_at)} aria-label="Next retro scheduled date" />
+            <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">create next retro</button>
+          </form>
+        </Tile>
       </aside>
     </section>
   );
+}
+
+function nextDatetimeLocal(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + 14);
+  return date.toISOString().slice(0, 16);
 }
 
 type MoodPresentation = {

@@ -79,6 +79,12 @@ pub struct UpdateRetroMetadataRequest {
 }
 
 #[derive(Deserialize)]
+pub struct CloneRetroRequest {
+    pub title: Option<String>,
+    pub scheduled_at: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct IngestItemRequest {
     pub source: String,
     pub placement: String,

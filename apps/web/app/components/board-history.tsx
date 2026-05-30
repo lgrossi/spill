@@ -7,6 +7,7 @@ import type { RetroSummary } from "@/lib/api";
 import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 import { DeleteBoardButton } from "./delete-board-button";
+import { CloneRetroButton } from "./clone-retro-button";
 
 const pageSize = 5;
 const phaseOptions = [
@@ -153,7 +154,7 @@ export function BoardHistory({
               key={`${board.id}-${board.title}`}
             >
               <Link
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 pr-11 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 pr-24 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
                 data-board-row
                 href={`/retros/${board.id}`}
               >
@@ -174,7 +175,10 @@ export function BoardHistory({
                   {phaseLabel(board.phase)}
                 </span>
               </Link>
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
+              <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                {board.phase === "completed" ? (
+                  <CloneRetroButton retroId={board.id} title={board.title} scheduledAt={board.scheduled_at} createdAt={board.created_at} />
+                ) : null}
                 <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
               </div>
             </div>

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRetro, updateRetroMetadata, type CreateRetroPayload } from "@/lib/api";
+import { cloneRetro, createRetro, updateRetroMetadata, type CreateRetroPayload } from "@/lib/api";
 import type { InviteeRequest } from "@/lib/contracts";
 
 export async function createRetroCommand(formData: FormData) {
@@ -126,6 +126,15 @@ export async function updateRetroMetadataCommand(formData: FormData) {
   const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
   if (!retroId || !title) return;
   await updateRetroMetadata(retroId, title, scheduledAt);
+}
+
+export async function cloneRetroCommand(formData: FormData) {
+  const sourceRetroId = String(formData.get("source_retro_id") ?? "");
+  const title = String(formData.get("title") ?? "").trim();
+  const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  if (!sourceRetroId) return;
+  const board = await cloneRetro(sourceRetroId, title, scheduledAt);
+  redirect(`/retros/${board.retro.id}`);
 }
 
 function withActionColumn({

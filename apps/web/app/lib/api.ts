@@ -62,6 +62,18 @@ export async function updateRetroMetadata(retroId: string, title: string, schedu
   });
 }
 
+export async function cloneRetro(retroId: string, title?: string, scheduledAt?: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/clone`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: title || null,
+      scheduled_at: scheduledAt || null,
+    }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
 export async function createDraftCard(retroId: string, columnId: string, bodyText: string, gifUrl?: string, gifAltText?: string): Promise<RetroCard> {
   return apiFetch(`/api/retros/${retroId}/cards`, {
     method: "POST",

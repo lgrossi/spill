@@ -3,9 +3,9 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use retro_core::{CardBody, DomainError, IngestedItemPlacement, IngestionSource};
 use retro_db::{
-    AcceptDeckItemInput, CastVoteInput, ClusterCardsInput, ClusterError, CreateRetroInput,
-    DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate, UpdateActionInput,
-    VotingError,
+    AcceptDeckItemInput, CastVoteInput, CloneRetroInput, ClusterCardsInput, ClusterError,
+    CreateRetroInput, DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate,
+    UpdateActionInput, VotingError,
 };
 use uuid::Uuid;
 
@@ -13,9 +13,9 @@ use crate::{
     ai_provider::AiProvider,
     ai_summary,
     contracts::{
-        AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
-        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
-        UpdateDraftCardRequest, UpdateRetroMetadataRequest,
+        AcceptDeckItemRequest, CastVoteRequest, CloneRetroRequest, ClusterCardsRequest,
+        CreateDraftCardRequest, CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest,
+        UpdateActionRequest, UpdateDraftCardRequest, UpdateRetroMetadataRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -122,6 +122,38 @@ impl RetroWorkflow {
 
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    pub async fn clone_retro(
+        &self,
+        user: CurrentUser,
+        source_retro_id: Uuid,
+        request: CloneRetroRequest,
+    ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
+        let is_host = self
+            .repository
+            .is_board_host(source_retro_id, &user.email)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+        if !is_host {
+            return Err(ApiError::forbidden("only hosts can create the next retro"));
+        }
+        let board = self
+            .repository
+            .clone_retro(CloneRetroInput {
+                source_retro_id,
+                title: optional_non_empty(request.title),
+                scheduled_at: optional_non_empty(request.scheduled_at),
+                creator_subject: user.subject,
+                creator_email: user.email,
+                creator_display_name: user.display_name,
+            })
+            .await
+            .map_err(|error| {
+                ApiError::bad_request(format!("failed to create next retro: {error}"))
+            })?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        Ok((StatusCode::CREATED, board))
     }
 
     pub async fn create_draft_card(

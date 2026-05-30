@@ -13,6 +13,7 @@ mod actions;
 mod artifacts;
 mod board_read_model;
 mod cards;
+mod cloning;
 mod clustering;
 mod creation;
 mod domain_mapping;
@@ -60,6 +61,13 @@ impl RetroRepository {
 
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
         creation::create_retro(&self.pool, input).await
+    }
+
+    pub async fn clone_retro(
+        &self,
+        input: CloneRetroInput,
+    ) -> Result<Option<RetroBoard>, sqlx::Error> {
+        cloning::clone_retro(&self.pool, input).await
     }
 
     pub async fn fetch_board(&self, id: Uuid) -> Result<Option<RetroBoard>, sqlx::Error> {
@@ -1069,6 +1077,16 @@ pub struct CreateRetroInput {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub column_colors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CloneRetroInput {
+    pub source_retro_id: Uuid,
+    pub title: Option<String>,
+    pub scheduled_at: Option<String>,
+    pub creator_subject: String,
+    pub creator_email: String,
+    pub creator_display_name: String,
 }
 
 #[derive(Debug, Clone)]

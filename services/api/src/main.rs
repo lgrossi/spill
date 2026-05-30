@@ -15,10 +15,11 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use contracts::{
-    AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, ClusterCardsRequest,
-    CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
-    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
-    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest, UpdateRetroMetadataRequest,
+    AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, CloneRetroRequest,
+    ClusterCardsRequest, CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest,
+    CreateRetroRequest, HealthResponse, IngestItemRequest, MoveDraftCardRequest,
+    RemoveGrantRequest, SessionResponse, StartAiJobRequest, UpdateActionRequest,
+    UpdateDraftCardRequest, UpdateRetroMetadataRequest,
 };
 use contracts::RevealBoardRequest;
 use error::ApiError;
@@ -147,6 +148,7 @@ fn api_router() -> Router<AppState> {
                 .delete(delete_retro),
         )
         .route("/retros/{retro_id}/events", get(board_events))
+        .route("/retros/{retro_id}/clone", post(clone_retro))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
             "/retros/{retro_id}/cards/{card_id}",
@@ -322,6 +324,20 @@ async fn update_retro_metadata(
         .update_retro_metadata(user, retro_id, request)
         .await
         .map(Json)
+}
+
+async fn clone_retro(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<CloneRetroRequest>,
+) -> Result<(StatusCode, Json<retro_db::RetroBoard>), ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .clone_retro(user, retro_id, request)
+        .await
+        .map(|(status, board)| (status, Json(board)))
 }
 
 async fn create_draft_card(
