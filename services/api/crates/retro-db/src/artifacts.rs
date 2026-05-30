@@ -56,12 +56,73 @@ impl RetroRepository {
         kind: &str,
     ) -> Result<Value, sqlx::Error> {
         let notes = self.fetch_meeting_notes(retro_id).await?;
+        let clusters = if kind == "tagging" {
+            self.fetch_clusters(retro_id).await?
+        } else {
+            Vec::new()
+        };
+        let existing_tags = if kind == "tagging" {
+            self.existing_tag_context(retro_id).await?
+        } else {
+            Vec::new()
+        };
         Ok(serde_json::json!({
             "provider": "fake",
             "kind": kind,
             "meeting_notes_included": matches!(kind, "summary" | "mood") && !notes.is_empty(),
             "meeting_notes": if matches!(kind, "summary" | "mood") { notes } else { Vec::new() },
+            "tagging": if kind == "tagging" {
+                serde_json::json!({
+                    "scope": "clusters_and_board",
+                    "clusters": clusters,
+                    "existing_tags": existing_tags,
+                    "rules": {
+                        "prefer_existing_tags": true,
+                        "max_tags_per_cluster": 2,
+                        "max_board_tags": 4,
+                        "avoid_too_broad": ["process", "communication", "team"],
+                        "avoid_hyper_specific": true,
+                        "return_no_tag_when_uncertain": true
+                    }
+                })
+            } else {
+                serde_json::Value::Null
+            },
         }))
+    }
+
+    async fn existing_tag_context(&self, retro_id: Uuid) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH scoped_subjects AS (
+                SELECT external_subject
+                FROM participants
+                WHERE retro_id = $1 AND external_subject IS NOT NULL
+             ),
+             scoped_retros AS (
+                SELECT DISTINCT p.retro_id
+                FROM participants p
+                JOIN scoped_subjects s ON s.external_subject = p.external_subject
+                WHERE p.retro_id <> $1
+             ),
+             all_tags AS (
+                SELECT jsonb_array_elements_text(c.tags) AS tag
+                FROM card_clusters c
+                JOIN scoped_retros sr ON sr.retro_id = c.retro_id
+                UNION ALL
+                SELECT jsonb_array_elements_text(a.tags) AS tag
+                FROM action_items a
+                JOIN scoped_retros sr ON sr.retro_id = a.retro_id
+             )
+             SELECT tag
+             FROM all_tags
+             WHERE btrim(tag) <> ''
+             GROUP BY tag
+             ORDER BY COUNT(*) DESC, tag ASC
+             LIMIT 50",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
     }
 
     pub async fn mark_ai_running(

@@ -54,7 +54,22 @@ pub(super) async fn list_retros(
                 WHERE rm.phase = CASE WHEN r.phase = 'voting' THEN 'voting' ELSE 'writing' END
             )::BIGINT AS ready_count,
             COUNT(DISTINCT a.id) FILTER (WHERE a.status NOT IN ('rejected', 'done'))::BIGINT AS unresolved_action_count,
-            COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags,
+            COALESCE(
+                (
+                    SELECT jsonb_agg(DISTINCT tag.value ORDER BY tag.value)
+                    FROM (
+                        SELECT jsonb_array_elements_text(ai.tags) AS value
+                        FROM action_items ai
+                        WHERE ai.retro_id = r.id
+                        UNION
+                        SELECT jsonb_array_elements_text(cc.tags) AS value
+                        FROM card_clusters cc
+                        WHERE cc.retro_id = r.id
+                    ) tag
+                    WHERE btrim(tag.value) <> ''
+                ),
+                '[]'::jsonb
+            ) AS recurring_tags,
             COALESCE(
                 (
                     SELECT jsonb_agg(
@@ -75,7 +90,6 @@ pub(super) async fn list_retros(
          LEFT JOIN retro_columns c ON c.retro_id = r.id
          LEFT JOIN participant_ready_marks rm ON rm.retro_id = r.id
          LEFT JOIN action_items a ON a.retro_id = r.id
-         LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
          WHERE EXISTS (
              SELECT 1
              FROM participants scoped_participant

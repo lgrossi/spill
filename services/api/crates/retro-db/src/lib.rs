@@ -1782,6 +1782,13 @@ mod tests {
             Some("deploy")
         );
         assert_eq!(board.columns[0].cards[2].cluster_id, None);
+        let overview = repo.list_retros("ava").await.unwrap();
+        assert!(
+            overview.retros[0]
+                .recurring_tags
+                .contains(&"deploy".to_owned()),
+            "cluster category tags should surface at board level"
+        );
 
         let second = repo.cluster_board(created.retro.id).await;
         assert!(matches!(second, Err(ClusterError::Invalid(_))));
@@ -2292,6 +2299,89 @@ mod tests {
             board.ai_artifacts[0].output.as_ref().unwrap()["summary"],
             "Reviewable output"
         );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn tagging_ai_input_includes_cluster_scope_and_existing_tags(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let first = repo
+            .create_retro(CreateRetroInput {
+                title: "Previous tagged retro".to_owned(),
+                scheduled_at: None,
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                clustering_mode: "auto_on_vote_start".to_owned(),
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        for text in ["Deploy alerts noisy", "Deploy alerts owner"] {
+            repo.create_draft_card(DraftCardInput {
+                retro_id: first.retro.id,
+                column_id: first.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some(text.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        }
+        repo.reveal_board(first.retro.id).await.unwrap();
+        repo.cluster_board(first.retro.id).await.unwrap();
+
+        let current = repo
+            .create_retro(CreateRetroInput {
+                title: "Current tagging retro".to_owned(),
+                scheduled_at: None,
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                clustering_mode: "auto_on_vote_start".to_owned(),
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        for text in ["Deploy handoff unclear", "Deploy handoff late"] {
+            repo.create_draft_card(DraftCardInput {
+                retro_id: current.retro.id,
+                column_id: current.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some(text.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        }
+        repo.reveal_board(current.retro.id).await.unwrap();
+        repo.cluster_board(current.retro.id).await.unwrap();
+
+        let input = repo
+            .ai_input_with_note_context(current.retro.id, "tagging")
+            .await
+            .unwrap();
+
+        assert_eq!(input["tagging"]["scope"], "clusters_and_board");
+        assert_eq!(input["tagging"]["rules"]["prefer_existing_tags"], true);
+        assert!(
+            input["tagging"]["existing_tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tag| tag == "deploy")
+        );
+        assert_eq!(input["tagging"]["clusters"].as_array().unwrap().len(), 1);
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
