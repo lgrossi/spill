@@ -941,6 +941,7 @@ pub struct RetroSummary {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub created_at: String,
+    pub completed_at: Option<String>,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
     pub participant_count: i64,
@@ -966,6 +967,7 @@ struct RetroSummaryRow {
     vote_limit: i32,
     action_discussion_limit: i32,
     created_at: String,
+    completed_at: Option<String>,
     last_activity_at: String,
     last_opened_at: Option<String>,
     participant_count: i64,
@@ -985,6 +987,7 @@ impl From<RetroSummaryRow> for RetroSummary {
             vote_limit: row.vote_limit,
             action_discussion_limit: row.action_discussion_limit,
             created_at: row.created_at,
+            completed_at: row.completed_at,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
@@ -999,6 +1002,7 @@ impl From<RetroSummaryRow> for RetroSummary {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RetroOverview {
+    pub retros: Vec<RetroSummary>,
     pub active: Vec<RetroSummary>,
     pub completed: Vec<RetroSummary>,
 }
@@ -1240,6 +1244,8 @@ mod tests {
         );
 
         let overview = repo.list_retros("user-123").await.unwrap();
+        assert_eq!(overview.retros.len(), 1);
+        assert_eq!(overview.retros[0].title, "Sprint 43");
         assert_eq!(overview.active.len(), 1);
         assert_eq!(overview.completed.len(), 0);
         assert_eq!(overview.active[0].participant_count, 1);
@@ -1966,6 +1972,9 @@ mod tests {
         assert_eq!(completed.phase, "completed");
 
         let overview = repo.list_retros("ava").await.unwrap();
+        assert_eq!(overview.retros.len(), 1);
+        assert_eq!(overview.retros[0].phase, "completed");
+        assert!(overview.retros[0].completed_at.is_some());
         assert_eq!(overview.active.len(), 0);
         assert_eq!(overview.completed.len(), 1);
         assert_eq!(overview.completed[0].unresolved_action_count, 1);

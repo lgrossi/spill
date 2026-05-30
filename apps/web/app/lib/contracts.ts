@@ -7,6 +7,7 @@ export type RetroSummary = {
   vote_limit: number;
   action_discussion_limit: number;
   created_at: string;
+  completed_at: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
@@ -24,6 +25,7 @@ export type RetroActionSummary = {
 };
 
 export type RetroOverview = {
+  retros: RetroSummary[];
   active: RetroSummary[];
   completed: RetroSummary[];
 };

@@ -14,6 +14,7 @@ pub(super) async fn list_retros(
             r.vote_limit,
             r.action_discussion_limit,
             to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+            to_char(r.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at,
             to_char(
                 GREATEST(
                     r.created_at,
@@ -78,9 +79,14 @@ pub(super) async fn list_retros(
     .await?;
 
     let summaries = rows.into_iter().map(RetroSummary::from).collect::<Vec<_>>();
+    let retros = summaries.clone();
     let (completed, active): (Vec<_>, Vec<_>) = summaries
         .into_iter()
         .partition(|summary| summary.phase == "completed");
 
-    Ok(RetroOverview { active, completed })
+    Ok(RetroOverview {
+        retros,
+        active,
+        completed,
+    })
 }

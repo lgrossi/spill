@@ -133,6 +133,7 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
     assert_eq!(response.status(), StatusCode::OK);
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/retros")
@@ -146,8 +147,28 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
     assert_eq!(response.status(), StatusCode::OK);
     let overview: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(overview["retros"].as_array().unwrap().len(), 1);
+    assert_eq!(overview["retros"][0]["title"], "Sprint 43");
+    assert_eq!(overview["retros"][0]["phase"], "writing");
+    assert_eq!(overview["retros"][0]["completed_at"], Value::Null);
     assert_eq!(overview["active"].as_array().unwrap().len(), 1);
     assert_eq!(overview["completed"].as_array().unwrap().len(), 0);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "uninvited-user")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let other_overview: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(other_overview["retros"].as_array().unwrap().len(), 0);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]

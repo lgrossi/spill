@@ -28,7 +28,7 @@ pub struct CreateRetroRequest {
     #[serde(default = "default_action_discussion_limit")]
     pub action_discussion_limit: i32,
     #[serde(default)]
-   pub invitees: Vec<InviteeRequest>,
+    pub invitees: Vec<InviteeRequest>,
 }
 
 #[derive(Deserialize)]
@@ -249,6 +249,16 @@ mod tests {
                 "meeting_notes: MeetingNote[]",
                 "deliveries: Delivery[]",
             ],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "RetroSummary",
+            &["completed_at: string | null"],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "RetroOverview",
+            &["retros: RetroSummary[]"],
         );
     }
 
