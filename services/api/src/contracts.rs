@@ -30,6 +30,7 @@ pub struct CreateRetroRequest {
     pub action_discussion_limit: i32,
     #[serde(default)]
     pub invitees: Vec<InviteeRequest>,
+    pub clustering_mode: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -198,6 +198,7 @@ export type CreateRetroPayload =
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
+      clustering_mode?: "disabled" | "manual" | "auto_on_vote_start";
       invitees?: InviteeRequest[];
     }
   | {
@@ -208,6 +209,7 @@ export type CreateRetroPayload =
       column_colors?: string[];
       vote_limit: number;
       action_discussion_limit: number;
+      clustering_mode?: "disabled" | "manual" | "auto_on_vote_start";
       invitees?: InviteeRequest[];
     };
 

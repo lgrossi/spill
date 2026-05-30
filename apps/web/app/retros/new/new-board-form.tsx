@@ -141,12 +141,14 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <Tile className="flex items-center gap-3">
               <RuleMark>◆</RuleMark>
               <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <input name="clustering_mode" type="hidden" value="disabled" />
                 <div className="min-w-0">
                   <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">auto clustering</p>
-                  <p className="mt-1 text-[11px] font-semibold text-spill-muted">coming soon</p>
+                  <p className="mt-1 text-[11px] font-semibold text-spill-muted">organize once before voting</p>
                 </div>
-                <span className="rounded-full border border-spill-line bg-[var(--paper)] px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.1em] text-spill-muted">disabled</span>
+                <select className={`${fieldControlClass} min-h-8 w-28 py-1 text-[11px]`} name="clustering_mode" defaultValue="disabled" aria-label="Clustering mode">
+                  <option value="disabled">off</option>
+                  <option value="auto_on_vote_start">auto</option>
+                </select>
               </div>
             </Tile>
             <Tile className="flex items-center gap-3">

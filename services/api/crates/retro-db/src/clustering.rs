@@ -4,6 +4,24 @@ use crate::{
 };
 
 impl RetroRepository {
+    pub async fn cluster_board_if_auto(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<ClusterRecord>, ClusterError> {
+        let retro = sqlx::query_as::<_, ClusteringRetro>(
+            "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1",
+        )
+        .bind(retro_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        if retro.clustering_mode != "auto_on_vote_start" || retro.clustering_status != "not_run" {
+            return Ok(Vec::new());
+        }
+
+        self.cluster_board(retro_id).await
+    }
+
     pub async fn cluster_board(&self, retro_id: Uuid) -> Result<Vec<ClusterRecord>, ClusterError> {
         let retro = sqlx::query_as::<_, ClusteringRetro>(
             "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1",

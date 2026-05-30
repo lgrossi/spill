@@ -1093,6 +1093,7 @@ pub struct CreateRetroInput {
     pub template: RetroTemplate,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
+    pub clustering_mode: String,
     pub column_colors: Vec<String>,
 }
 
@@ -1307,6 +1308,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1353,6 +1355,7 @@ mod tests {
                 },
                 vote_limit: 5,
                 action_discussion_limit: 2,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1384,6 +1387,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1476,6 +1480,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1560,6 +1565,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1617,6 +1623,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1655,6 +1662,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1728,6 +1736,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "auto_on_vote_start".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1752,11 +1761,6 @@ mod tests {
         }
 
         repo.reveal_board(created.retro.id).await.unwrap();
-        sqlx::query("UPDATE retros SET clustering_mode = 'auto_on_vote_start' WHERE id = $1")
-            .bind(created.retro.id)
-            .execute(&repo.pool)
-            .await
-            .unwrap();
         let clusters = repo.cluster_board(created.retro.id).await.unwrap();
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].category.as_deref(), Some("deploy"));
@@ -1784,6 +1788,52 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn start_voting_auto_clusters_once_when_enabled(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Auto cluster voting retro".to_owned(),
+                scheduled_at: None,
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                clustering_mode: "auto_on_vote_start".to_owned(),
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        for text in [
+            "Deploy alerts noisy",
+            "Deploy alerts owner",
+            "Lunch was good",
+        ] {
+            repo.create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some(text.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        let clusters = repo.cluster_board_if_auto(created.retro.id).await.unwrap();
+        assert_eq!(clusters.len(), 1);
+        let voting = repo.start_voting(created.retro.id).await.unwrap();
+        assert_eq!(voting.phase, "voting");
+        let second = repo.cluster_board_if_auto(created.retro.id).await.unwrap();
+        assert!(second.is_empty());
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn manual_clustering_groups_cards_during_voting(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
@@ -1796,6 +1846,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1872,6 +1923,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -1947,6 +1999,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 2,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -2088,6 +2141,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -2180,6 +2234,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -2252,6 +2307,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await
@@ -2306,6 +2362,7 @@ mod tests {
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 1,
+                clustering_mode: "disabled".to_owned(),
                 column_colors: Vec::new(),
             })
             .await

@@ -67,6 +67,7 @@ impl RetroWorkflow {
                     "action_discussion_limit",
                     request.action_discussion_limit,
                 )?,
+                clustering_mode: validate_clustering_mode(request.clustering_mode.as_deref())?,
                 column_colors: request.column_colors,
             })
             .await
@@ -415,6 +416,10 @@ impl RetroWorkflow {
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
         self.repository
+            .cluster_board_if_auto(retro_id)
+            .await
+            .map_err(cluster_error)?;
+        self.repository
             .start_voting(retro_id)
             .await
             .map_err(voting_error)?;
@@ -753,5 +758,14 @@ fn validate_invitee_role(role: Option<&str>) -> Result<String, ApiError> {
         Err(ApiError::bad_request(format!(
             "role must be \"host\" or \"member\", got: {r}"
         )))
+    }
+}
+
+fn validate_clustering_mode(value: Option<&str>) -> Result<String, ApiError> {
+    match value.unwrap_or("disabled") {
+        "disabled" | "manual" | "auto_on_vote_start" => Ok(value.unwrap_or("disabled").to_owned()),
+        other => Err(ApiError::bad_request(format!(
+            "invalid clustering_mode: {other}"
+        ))),
     }
 }
