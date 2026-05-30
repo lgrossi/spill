@@ -450,10 +450,31 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        if let Err(error) = self.repository.cluster_board_if_auto(retro_id).await {
+            let _ = self.repository.mark_clustering_failed(retro_id).await;
+            return Err(cluster_error(error));
+        }
         self.repository
-            .cluster_board_if_auto(retro_id)
+            .start_voting(retro_id)
             .await
-            .map_err(cluster_error)?;
+            .map_err(voting_error)?;
+        self.event_hub
+            .publish(BoardEvent::PhaseChanged { retro_id });
+        self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    pub async fn continue_unclustered(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        self.repository
+            .continue_unclustered(retro_id)
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to continue unclustered: {error}"))
+            })?;
         self.repository
             .start_voting(retro_id)
             .await

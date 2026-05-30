@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   autoAdvanceAction,
   completeRetroAction,
+  continueUnclusteredAction,
   forceRevealRetroAction,
   startActionDiscussionAction,
   startVotingAction,
@@ -21,6 +22,8 @@ const PHASE_VERB: Record<string, string> = {
 type Props = {
   retroId: string;
   phase: string;
+  clusteringMode: string;
+  clusteringStatus: string;
   isHost: boolean;
   participantCount: number;
   readyCount: number;
@@ -35,6 +38,8 @@ type Props = {
 export function PhaseLine({
   retroId,
   phase,
+  clusteringMode,
+  clusteringStatus,
   isHost,
   participantCount,
   readyCount,
@@ -49,6 +54,8 @@ export function PhaseLine({
       <PhaseHint
         retroId={retroId}
         phase={phase}
+        clusteringMode={clusteringMode}
+        clusteringStatus={clusteringStatus}
         isHost={isHost}
         gated={gated}
         participantCount={participantCount}
@@ -62,6 +69,8 @@ export function PhaseLine({
 function PhaseHint({
   retroId,
   phase,
+  clusteringMode,
+  clusteringStatus,
   isHost,
   gated,
   participantCount,
@@ -86,6 +95,18 @@ function PhaseHint({
   }
   if (!isHost) return null;
   if (phase === "discussion") {
+    if (clusteringMode === "auto_on_vote_start" && clusteringStatus === "not_run") {
+      return <HostAdvanceLink retroId={retroId} action={startVotingAction} label="organize + start voting" pendingLabel="organizing..." />;
+    }
+    if (clusteringMode === "auto_on_vote_start" && clusteringStatus === "failed") {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
+          <span>organizing failed</span>
+          <HostAdvanceLink retroId={retroId} action={startVotingAction} label="retry" pendingLabel="organizing..." />
+          <HostAdvanceLink retroId={retroId} action={continueUnclusteredAction} label="continue unclustered" />
+        </span>
+      );
+    }
     return <HostAdvanceLink retroId={retroId} action={startVotingAction} label="start voting" />;
   }
   if (phase === "action_discussion") {
@@ -130,22 +151,26 @@ function HostAdvanceLink({
   retroId,
   action,
   label,
+  pendingLabel,
 }: {
   retroId: string;
   action: (formData: FormData) => void | Promise<void>;
   label: string;
+  pendingLabel?: string;
 }) {
+  const [pending, setPending] = useState(false);
   return (
-    <form action={action} className="contents">
+    <form action={action} className="contents" onSubmit={() => setPending(true)}>
       <input name="retro_id" type="hidden" value={retroId} />
       <button
         aria-label={label}
+        disabled={pending}
         title={label}
         type="submit"
         style={{ display: "contents" }}
       >
         <span className="text-[10px] text-spill-muted underline-offset-2 hover:text-spill-fg hover:underline cursor-pointer">
-          {label} →
+          {pending ? pendingLabel ?? "working..." : `${label} →`}
         </span>
       </button>
     </form>

@@ -151,6 +151,13 @@ export async function startVoting(retroId: string): Promise<RetroBoard> {
   });
 }
 
+export async function continueUnclustered(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/voting/continue-unclustered`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
 export async function castVote(retroId: string, cardId: string, count = 1): Promise<RetroBoard["voting"]> {
   return apiFetch(`/api/retros/${retroId}/votes`, {
     method: "POST",

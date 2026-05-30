@@ -102,7 +102,7 @@ pub(super) async fn clone_retro(
     let retro = sqlx::query_as::<_, RetroRecord>(
         "INSERT INTO retros (title, scheduled_at, vote_limit, action_discussion_limit, clustering_mode, creator_email)
          VALUES ($1, NULLIF($2, '')::timestamptz, $3, $4, $5, $6)
-         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text, clustering_mode, clustering_status,
             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
             to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
             to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at",

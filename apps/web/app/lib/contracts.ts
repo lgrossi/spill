@@ -108,6 +108,8 @@ export type RetroBoard = {
     completed_at: string | null;
     cover_gif_url: string | null;
     cover_gif_alt_text: string | null;
+    clustering_mode: "disabled" | "manual" | "auto_on_vote_start";
+    clustering_status: "not_run" | "running" | "completed" | "failed";
   };
   participants: RetroParticipant[];
   columns: RetroColumn[];

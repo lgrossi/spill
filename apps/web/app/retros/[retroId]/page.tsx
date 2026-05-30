@@ -173,6 +173,8 @@ function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }):
     <PhaseLine
       retroId={board.retro.id}
       phase={board.retro.phase}
+      clusteringMode={board.retro.clustering_mode}
+      clusteringStatus={board.retro.clustering_status}
       isHost={isHost}
       participantCount={board.ready.participant_count}
       readyCount={board.ready.ready_count}

@@ -22,6 +22,22 @@ impl RetroRepository {
         self.cluster_board(retro_id).await
     }
 
+    pub async fn mark_clustering_failed(&self, retro_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE retros SET clustering_status = 'failed' WHERE id = $1")
+            .bind(retro_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn continue_unclustered(&self, retro_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE retros SET clustering_status = 'completed' WHERE id = $1")
+            .bind(retro_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn cluster_board(&self, retro_id: Uuid) -> Result<Vec<ClusterRecord>, ClusterError> {
         let retro = sqlx::query_as::<_, ClusteringRetro>(
             "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1",

@@ -40,7 +40,7 @@ impl RetroRepository {
 
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
-            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text, clustering_mode, clustering_status,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
                 to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
                 to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at
@@ -286,7 +286,7 @@ impl RetroRepository {
                  cover_gif_url = NULLIF($4, ''),
                  cover_gif_alt_text = NULLIF($5, '')
              WHERE id = $1
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text, clustering_mode, clustering_status,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
                 to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
                 to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at",
@@ -648,6 +648,8 @@ pub struct RetroRecord {
     pub creator_email: String,
     pub cover_gif_url: Option<String>,
     pub cover_gif_alt_text: Option<String>,
+    pub clustering_mode: String,
+    pub clustering_status: String,
     pub created_at: String,
     pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,

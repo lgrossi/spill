@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   castVote,
   completeRetro,
+  continueUnclustered,
   forceRevealRetro,
   getRetro,
   markReady,
@@ -48,6 +49,13 @@ export async function startVotingCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await startVoting(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function continueUnclusteredCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+
+  await continueUnclustered(retroId);
   redirect(`/retros/${retroId}`);
 }
 

@@ -259,6 +259,7 @@ mod tests {
                 "retro:",
                 "scheduled_at: string | null",
                 "completed_at: string | null",
+                "clustering_status:",
                 "columns: RetroColumn[]",
                 "ready:",
                 "voting:",

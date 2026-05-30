@@ -172,6 +172,10 @@ fn api_router() -> Router<AppState> {
         )
         .route("/retros/{retro_id}/reveal", post(reveal_board))
         .route("/retros/{retro_id}/voting/start", post(start_voting))
+        .route(
+            "/retros/{retro_id}/voting/continue-unclustered",
+            post(continue_unclustered),
+        )
         .route("/retros/{retro_id}/votes", post(cast_vote))
         .route("/retros/{retro_id}/votes/{card_id}", delete(remove_vote))
         .route("/retros/{retro_id}/cluster", post(cluster_board))
@@ -608,6 +612,19 @@ async fn start_voting(
     let user = CurrentUser::from_headers(&headers)?;
     retro_workflow(repository, event_hub)?
         .start_voting(user, retro_id)
+        .await
+        .map(Json)
+}
+
+async fn continue_unclustered(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .continue_unclustered(user, retro_id)
         .await
         .map(Json)
 }

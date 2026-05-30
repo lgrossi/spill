@@ -19,6 +19,7 @@ import {
 import {
   castVoteCommand,
   completeRetroCommand,
+  continueUnclusteredCommand,
   markReadyCommand,
   removeVoteCommand,
   revealRetroCommand,
@@ -100,6 +101,10 @@ export async function revealRetroAction(formData: FormData) {
 
 export async function startVotingAction(formData: FormData) {
   return startVotingCommand(formData);
+}
+
+export async function continueUnclusteredAction(formData: FormData) {
+  return continueUnclusteredCommand(formData);
 }
 
 export async function castVoteAction(formData: FormData) {
