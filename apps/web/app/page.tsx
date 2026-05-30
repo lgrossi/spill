@@ -182,10 +182,13 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
         href={`/retros/${board.id}`}
         style={{ "--board-phase-color": color } as CSSProperties}
       >
+        {board.cover_gif_url ? (
+          <img alt={board.cover_gif_alt_text ?? ""} className="absolute right-3 top-9 h-12 w-12 rounded-[10px] border border-spill-line object-cover shadow-[var(--shadow-1)]" src={board.cover_gif_url} />
+        ) : null}
         <span className="absolute -top-2.5 left-3.5">
           <PhaseBadge phase={phaseLabel(board.phase)} color={color} />
         </span>
-        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
+        <h2 className={`mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg ${board.cover_gif_url ? "pr-14" : ""}`}>{board.title}</h2>
         <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
         <p className="mt-1 text-[10.5px] font-semibold text-spill-muted">{boardDateLine(board)}</p>
         <div className="mt-auto flex items-end justify-between">
@@ -193,7 +196,11 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
             {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
             {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
           </span>
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+          {board.phase === "completed" && board.team_mood ? (
+            <span className="rounded-full px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-white" style={{ backgroundColor: color }}>{moodLabel(board.team_mood)}</span>
+          ) : (
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+          )}
         </div>
       </Link>
       <div className="absolute right-2 top-2">
@@ -225,6 +232,10 @@ function formatBoardDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(date);
+}
+
+function moodLabel(value: string) {
+  return value.replaceAll("-", " ");
 }
 
 function openActionCount(overview: RetroOverview) {

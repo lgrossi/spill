@@ -124,8 +124,10 @@ export async function updateRetroMetadataCommand(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
   const title = String(formData.get("title") ?? "").trim();
   const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  const coverGifUrl = String(formData.get("cover_gif_url") ?? "").trim();
+  const coverGifAltText = String(formData.get("cover_gif_alt_text") ?? "").trim();
   if (!retroId || !title) return;
-  await updateRetroMetadata(retroId, title, scheduledAt);
+  await updateRetroMetadata(retroId, title, scheduledAt, coverGifUrl, coverGifAltText);
 }
 
 export async function cloneRetroCommand(formData: FormData) {

@@ -159,7 +159,11 @@ export function BoardHistory({
                 href={`/retros/${board.id}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    {board.cover_gif_url ? <img alt={board.cover_gif_alt_text ?? ""} className="h-7 w-7 shrink-0 rounded-[7px] object-cover" src={board.cover_gif_url} /> : null}
+                    <span className="block min-w-0 truncate font-extrabold text-spill-fg">{board.title}</span>
+                    {board.phase === "completed" && board.team_mood ? <span className="shrink-0 rounded-full bg-[var(--paper)] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.08em] text-spill-muted">{board.team_mood.replaceAll("-", " ")}</span> : null}
+                  </span>
                   <span className="text-[11px] text-spill-muted">
                     {boardDateLine(board)} . updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
                   </span>

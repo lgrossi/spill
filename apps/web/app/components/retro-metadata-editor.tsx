@@ -21,6 +21,14 @@ export function RetroMetadataEditor({ board }: { board: RetroBoard }) {
           <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">scheduled</span>
           <input className={fieldControlClass} name="scheduled_at" type="datetime-local" defaultValue={datetimeLocalValue(board.retro.scheduled_at)} />
         </label>
+        <label className="grid gap-1">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">cover GIF/image URL</span>
+          <input className={fieldControlClass} name="cover_gif_url" type="url" defaultValue={board.retro.cover_gif_url ?? ""} />
+        </label>
+        <label className="grid gap-1">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">cover alt text</span>
+          <input className={fieldControlClass} name="cover_gif_alt_text" defaultValue={board.retro.cover_gif_alt_text ?? ""} />
+        </label>
         <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
           save
         </button>

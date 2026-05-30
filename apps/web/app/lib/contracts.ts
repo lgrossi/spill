@@ -9,6 +9,9 @@ export type RetroSummary = {
   created_at: string;
   scheduled_at: string | null;
   completed_at: string | null;
+  cover_gif_url: string | null;
+  cover_gif_alt_text: string | null;
+  team_mood: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
@@ -103,6 +106,8 @@ export type RetroBoard = {
     created_at: string;
     scheduled_at: string | null;
     completed_at: string | null;
+    cover_gif_url: string | null;
+    cover_gif_alt_text: string | null;
   };
   participants: RetroParticipant[];
   columns: RetroColumn[];

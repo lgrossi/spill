@@ -39,6 +39,9 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         </div>
 
         <div className="mt-5 flex items-center gap-5">
+          {board.retro.cover_gif_url ? (
+            <img alt={board.retro.cover_gif_alt_text ?? ""} className="h-[100px] w-[100px] shrink-0 rounded-[18px] border-2 border-spill-line object-cover shadow-[var(--shadow-3)]" src={board.retro.cover_gif_url} />
+          ) : null}
           <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
             {mood?.badge ?? "mood"}
           </div>

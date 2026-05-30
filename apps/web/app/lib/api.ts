@@ -50,12 +50,14 @@ export async function getRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, { cache: "no-store" });
 }
 
-export async function updateRetroMetadata(retroId: string, title: string, scheduledAt?: string): Promise<RetroBoard> {
+export async function updateRetroMetadata(retroId: string, title: string, scheduledAt?: string, coverGifUrl?: string, coverGifAltText?: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, {
     method: "PATCH",
     body: JSON.stringify({
       title,
       scheduled_at: scheduledAt || null,
+      cover_gif_url: coverGifUrl || null,
+      cover_gif_alt_text: coverGifAltText || null,
     }),
     headers: { "content-type": "application/json" },
     cache: "no-store",

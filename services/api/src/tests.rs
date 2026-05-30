@@ -208,7 +208,7 @@ async fn host_can_update_retro_title_and_schedule(pool: sqlx::PgPool) {
                 .header(HEADER_USER_EMAIL, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"title":"Renamed retro","scheduled_at":"2026-06-12T10:00:00Z"}"#,
+                    r#"{"title":"Renamed retro","scheduled_at":"2026-06-12T10:00:00Z","cover_gif_url":"https://media.example/retro.gif","cover_gif_alt_text":"Team high five"}"#,
                 ))
                 .unwrap(),
         )
@@ -220,6 +220,11 @@ async fn host_can_update_retro_title_and_schedule(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(updated["retro"]["title"], "Renamed retro");
     assert_eq!(updated["retro"]["scheduled_at"], "2026-06-12T10:00:00Z");
+    assert_eq!(
+        updated["retro"]["cover_gif_url"],
+        "https://media.example/retro.gif"
+    );
+    assert_eq!(updated["retro"]["cover_gif_alt_text"], "Team high five");
 
     let response = app
         .oneshot(

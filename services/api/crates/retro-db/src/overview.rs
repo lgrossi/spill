@@ -16,6 +16,18 @@ pub(super) async fn list_retros(
             to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
             to_char(r.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
             to_char(r.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at,
+            r.cover_gif_url,
+            r.cover_gif_alt_text,
+            (
+                SELECT artifact.output->>'team_mood'
+                FROM ai_artifacts artifact
+                WHERE artifact.retro_id = r.id
+                  AND artifact.kind = 'summary'
+                  AND artifact.status = 'succeeded'
+                  AND artifact.output ? 'team_mood'
+                ORDER BY artifact.updated_at DESC, artifact.created_at DESC
+                LIMIT 1
+            ) AS team_mood,
             to_char(
                 GREATEST(
                     r.created_at,

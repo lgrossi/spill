@@ -113,6 +113,8 @@ impl RetroWorkflow {
                 retro_id,
                 &require_non_empty("title", request.title)?,
                 scheduled_at.as_deref(),
+                optional_non_empty(request.cover_gif_url).as_deref(),
+                optional_non_empty(request.cover_gif_alt_text).as_deref(),
             )
             .await
             .map_err(|error| {

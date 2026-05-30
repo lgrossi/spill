@@ -76,6 +76,8 @@ pub struct UpdateActionRequest {
 pub struct UpdateRetroMetadataRequest {
     pub title: String,
     pub scheduled_at: Option<String>,
+    pub cover_gif_url: Option<String>,
+    pub cover_gif_alt_text: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -268,7 +270,12 @@ mod tests {
         assert_contract_contains(
             &frontend_contracts,
             "RetroSummary",
-            &["scheduled_at: string | null", "completed_at: string | null"],
+            &[
+                "scheduled_at: string | null",
+                "completed_at: string | null",
+                "cover_gif_url: string | null",
+                "team_mood: string | null",
+            ],
         );
         assert_contract_contains(
             &frontend_contracts,

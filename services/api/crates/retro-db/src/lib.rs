@@ -40,7 +40,7 @@ impl RetroRepository {
 
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
-            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email,
+            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
                 to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
                 to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at
@@ -276,13 +276,17 @@ impl RetroRepository {
         retro_id: Uuid,
         title: &str,
         scheduled_at: Option<&str>,
+        cover_gif_url: Option<&str>,
+        cover_gif_alt_text: Option<&str>,
     ) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET title = $2,
-                 scheduled_at = NULLIF($3, '')::timestamptz
+                 scheduled_at = NULLIF($3, '')::timestamptz,
+                 cover_gif_url = NULLIF($4, ''),
+                 cover_gif_alt_text = NULLIF($5, '')
              WHERE id = $1
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
                 to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS scheduled_at,
                 to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at",
@@ -290,6 +294,8 @@ impl RetroRepository {
         .bind(retro_id)
         .bind(title.trim())
         .bind(scheduled_at.unwrap_or("").trim())
+        .bind(cover_gif_url.unwrap_or("").trim())
+        .bind(cover_gif_alt_text.unwrap_or("").trim())
         .fetch_optional(&self.pool)
         .await
     }
@@ -640,6 +646,8 @@ pub struct RetroRecord {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub creator_email: String,
+    pub cover_gif_url: Option<String>,
+    pub cover_gif_alt_text: Option<String>,
     pub created_at: String,
     pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,
@@ -991,6 +999,9 @@ pub struct RetroSummary {
     pub created_at: String,
     pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,
+    pub cover_gif_url: Option<String>,
+    pub cover_gif_alt_text: Option<String>,
+    pub team_mood: Option<String>,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
     pub participant_count: i64,
@@ -1018,6 +1029,9 @@ struct RetroSummaryRow {
     created_at: String,
     scheduled_at: Option<String>,
     completed_at: Option<String>,
+    cover_gif_url: Option<String>,
+    cover_gif_alt_text: Option<String>,
+    team_mood: Option<String>,
     last_activity_at: String,
     last_opened_at: Option<String>,
     participant_count: i64,
@@ -1039,6 +1053,9 @@ impl From<RetroSummaryRow> for RetroSummary {
             created_at: row.created_at,
             scheduled_at: row.scheduled_at,
             completed_at: row.completed_at,
+            cover_gif_url: row.cover_gif_url,
+            cover_gif_alt_text: row.cover_gif_alt_text,
+            team_mood: row.team_mood,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
