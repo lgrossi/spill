@@ -51,6 +51,9 @@ export default async function RetroBoardPage({
   } catch {
     // treat as non-host if grant check fails
   }
+  if (!isHost && currentUserEmail && board.retro.creator_email === currentUserEmail.toLowerCase()) {
+    isHost = true;
+  }
 
   return (
     <AppChrome

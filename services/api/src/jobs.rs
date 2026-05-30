@@ -47,6 +47,9 @@ impl JobWorkflow {
     ) -> Result<retro_db::AiArtifactRecord, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
         validate_ai_kind(&request.kind)?;
+        if request.kind == "tagging" {
+            require_retro_host(&self.repository, retro_id, &user.email).await?;
+        }
         let artifact = self
             .repository
             .create_ai_artifact(
@@ -255,6 +258,28 @@ impl JobWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to complete AI job: {error}")))?
             .ok_or_else(|| ApiError::not_found("AI artifact not found"))
     }
+}
+
+async fn require_retro_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<(), ApiError> {
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    let is_host = repository
+        .is_board_host(retro_id, email)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+    let is_creator =
+        !retro.creator_email.is_empty() && retro.creator_email == email.trim().to_lowercase();
+    if !is_host && !is_creator {
+        return Err(ApiError::forbidden("only hosts can perform this action"));
+    }
+    Ok(())
 }
 
 fn validate_ai_kind(kind: &str) -> Result<(), ApiError> {

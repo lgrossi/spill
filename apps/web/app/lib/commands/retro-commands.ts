@@ -7,7 +7,7 @@ import type { InviteeRequest } from "@/lib/contracts";
 export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
   const title = String(formData.get("title") ?? "").trim();
-  const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  const scheduledAt = datetimeLocalToIso(String(formData.get("scheduled_at") ?? "").trim());
   const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
   const actionDiscussionEnabled = formData.getAll("action_discussion_enabled").at(-1) === "1";
@@ -129,7 +129,7 @@ function customPayload(
 export async function updateRetroMetadataCommand(formData: FormData) {
   const retroId = String(formData.get("retro_id") ?? "");
   const title = String(formData.get("title") ?? "").trim();
-  const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  const scheduledAt = datetimeLocalToIso(String(formData.get("scheduled_at") ?? "").trim());
   const coverGifUrl = String(formData.get("cover_gif_url") ?? "").trim();
   const coverGifAltText = String(formData.get("cover_gif_alt_text") ?? "").trim();
   if (!retroId || !title) return;
@@ -139,11 +139,17 @@ export async function updateRetroMetadataCommand(formData: FormData) {
 export async function cloneRetroCommand(formData: FormData) {
   const sourceRetroId = String(formData.get("source_retro_id") ?? "");
   const title = String(formData.get("title") ?? "").trim();
-  const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  const scheduledAt = datetimeLocalToIso(String(formData.get("scheduled_at") ?? "").trim());
   const suggestTitle = formData.get("suggest_title") === "1";
   if (!sourceRetroId) return;
   const board = await cloneRetro(sourceRetroId, title, scheduledAt, suggestTitle);
   redirect(`/retros/${board.retro.id}`);
+}
+
+function datetimeLocalToIso(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 function withActionColumn({

@@ -5,6 +5,7 @@ use crate::{RetroOverview, RetroSummary, RetroSummaryRow};
 pub(super) async fn list_retros(
     pool: &PgPool,
     subject: &str,
+    email: &str,
 ) -> Result<RetroOverview, sqlx::Error> {
     let rows = sqlx::query_as::<_, RetroSummaryRow>(
         "SELECT
@@ -18,17 +19,27 @@ pub(super) async fn list_retros(
             to_char(r.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS completed_at,
             r.cover_gif_url,
             r.cover_gif_alt_text,
-            COALESCE(
-                (
-                    SELECT scoped_participant.role
-                    FROM participants scoped_participant
-                    WHERE scoped_participant.retro_id = r.id
-                      AND scoped_participant.external_subject = $1
-                    ORDER BY CASE WHEN scoped_participant.role = 'host' THEN 0 ELSE 1 END
-                    LIMIT 1
-                ),
-                'member'
-            ) AS current_user_role,
+            CASE
+                WHEN r.creator_email <> '' AND r.creator_email = lower($2) THEN 'host'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM board_grants bg
+                    WHERE bg.retro_id = r.id
+                      AND lower(bg.principal_email) = lower($2)
+                      AND bg.role = 'host'
+                ) THEN 'host'
+                ELSE COALESCE(
+                    (
+                        SELECT scoped_participant.role
+                        FROM participants scoped_participant
+                        WHERE scoped_participant.retro_id = r.id
+                          AND scoped_participant.external_subject = $1
+                        ORDER BY CASE WHEN scoped_participant.role = 'host' THEN 0 ELSE 1 END
+                        LIMIT 1
+                    ),
+                    'member'
+                )
+            END AS current_user_role,
             (
                 SELECT artifact.output->>'team_mood'
                 FROM ai_artifacts artifact
@@ -113,6 +124,7 @@ pub(super) async fn list_retros(
          ORDER BY last_activity_at DESC, r.created_at DESC",
     )
     .bind(subject)
+    .bind(email)
     .fetch_all(pool)
     .await?;
 

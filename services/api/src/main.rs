@@ -255,7 +255,7 @@ async fn list_retros(
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
     repository
-        .list_retros(&user.subject)
+        .list_retros(&user.subject, &user.email)
         .await
         .map(Json)
         .map_err(|error| ApiError::internal(format!("failed to list retros: {error}")))

@@ -126,14 +126,7 @@ impl RetroWorkflow {
         source_retro_id: Uuid,
         request: CloneRetroRequest,
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
-        let is_host = self
-            .repository
-            .is_board_host(source_retro_id, &user.email)
-            .await
-            .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
-        if !is_host {
-            return Err(ApiError::forbidden("only hosts can create the next retro"));
-        }
+        ensure_retro_host(&self.repository, source_retro_id, &user.email).await?;
         let source = self
             .repository
             .fetch_retro(source_retro_id)

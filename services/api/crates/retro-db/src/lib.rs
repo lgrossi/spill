@@ -210,8 +210,12 @@ impl RetroRepository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
-        overview::list_retros(&self.pool, subject).await
+    pub async fn list_retros(
+        &self,
+        subject: &str,
+        email: &str,
+    ) -> Result<RetroOverview, sqlx::Error> {
+        overview::list_retros(&self.pool, subject, email).await
     }
 
     pub async fn authorize_retro_participant(
@@ -1330,7 +1334,10 @@ mod tests {
             ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
-        let overview = repo.list_retros("user-123").await.unwrap();
+        let overview = repo
+            .list_retros("user-123", "user@example.com")
+            .await
+            .unwrap();
         assert_eq!(overview.retros.len(), 1);
         assert_eq!(overview.retros[0].title, "Sprint 43");
         assert_eq!(overview.active.len(), 1);
@@ -1787,7 +1794,7 @@ mod tests {
             Some("deploy")
         );
         assert_eq!(board.columns[0].cards[2].cluster_id, None);
-        let overview = repo.list_retros("ava").await.unwrap();
+        let overview = repo.list_retros("ava", "ava@example.com").await.unwrap();
         assert!(
             overview.retros[0]
                 .recurring_tags
@@ -2170,7 +2177,7 @@ mod tests {
             .unwrap();
         assert_eq!(completed.phase, "completed");
 
-        let overview = repo.list_retros("ava").await.unwrap();
+        let overview = repo.list_retros("ava", "ava@example.com").await.unwrap();
         assert_eq!(overview.retros.len(), 1);
         assert_eq!(overview.retros[0].phase, "completed");
         assert!(overview.retros[0].completed_at.is_some());

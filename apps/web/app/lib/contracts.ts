@@ -102,6 +102,7 @@ export type RetroBoard = {
     id: string;
     title: string;
     phase: RetroPhase;
+    creator_email: string;
     vote_limit: number;
     action_discussion_limit: number;
     created_at: string;

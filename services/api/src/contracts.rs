@@ -262,6 +262,7 @@ mod tests {
             "RetroBoard",
             &[
                 "retro:",
+                "creator_email: string",
                 "scheduled_at: string | null",
                 "completed_at: string | null",
                 "clustering_status:",
