@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
-import { cloneRetroAction, completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
+import { applyTaggingAction, cloneRetroAction, completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
@@ -70,6 +70,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         </Tile>
 
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
+        <TaggingReview board={board} />
 
         <Tile>
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
@@ -94,6 +95,52 @@ function nextDatetimeLocal(value: string) {
   if (Number.isNaN(date.getTime())) return "";
   date.setDate(date.getDate() + 14);
   return date.toISOString().slice(0, 16);
+}
+
+function TaggingReview({ board }: { board: RetroBoard }) {
+  const artifact = board.ai_artifacts.find((item) => item.kind === "tagging" && item.status === "succeeded");
+  const suggestions = taggingSuggestions(artifact?.output);
+  if (!artifact || suggestions.length === 0) return null;
+  return (
+    <Tile>
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">category tags</p>
+      <div className="mt-3 space-y-2">
+        {suggestions.map((suggestion) => (
+          <div className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2" key={suggestion.clusterId}>
+            <p className="truncate text-[11.5px] font-extrabold text-spill-fg">{clusterTitle(board, suggestion.clusterId)}</p>
+            <p className="mt-1 text-[11px] text-spill-muted">{suggestion.tags.map((tag) => `#${tag}`).join(" ")}</p>
+          </div>
+        ))}
+      </div>
+      <form action={applyTaggingAction} className="mt-3">
+        <input name="retro_id" type="hidden" value={board.retro.id} />
+        <input name="artifact_id" type="hidden" value={artifact.id} />
+        <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
+          apply tags
+        </button>
+      </form>
+    </Tile>
+  );
+}
+
+function taggingSuggestions(output: unknown) {
+  if (!output || typeof output !== "object") return [];
+  const clusters = (output as Record<string, unknown>).clusters;
+  if (!Array.isArray(clusters)) return [];
+  return clusters.flatMap((cluster) => {
+    if (!cluster || typeof cluster !== "object") return [];
+    const item = cluster as Record<string, unknown>;
+    const clusterId = typeof item.cluster_id === "string" ? item.cluster_id : "";
+    const tags = Array.isArray(item.tags)
+      ? item.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0).slice(0, 2)
+      : [];
+    return clusterId && tags.length ? [{ clusterId, tags }] : [];
+  });
+}
+
+function clusterTitle(board: RetroBoard, clusterId: string) {
+  const cluster = board.clusters.find((item) => item.id === clusterId);
+  return cluster?.title ?? cluster?.category ?? "Cluster";
 }
 
 type MoodPresentation = {

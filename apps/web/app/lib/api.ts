@@ -296,6 +296,15 @@ export async function retryAiJob(retroId: string, artifactId: string): Promise<A
   });
 }
 
+export async function applyTagging(retroId: string, artifactId: string): Promise<RetroBoard["clusters"]> {
+  return apiFetch(`/api/retros/${retroId}/tagging/apply`, {
+    method: "POST",
+    body: JSON.stringify({ artifact_id: artifactId }),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
 export async function createMeetingNote(retroId: string, title: string, bodyText: string): Promise<MeetingNote> {
   return apiFetch(`/api/retros/${retroId}/meeting-notes`, {
     method: "POST",

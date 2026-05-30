@@ -116,6 +116,11 @@ pub struct StartAiJobRequest {
 }
 
 #[derive(Deserialize)]
+pub struct ApplyTaggingRequest {
+    pub artifact_id: Uuid,
+}
+
+#[derive(Deserialize)]
 pub struct CreateMeetingNoteRequest {
     pub title: Option<String>,
     pub body_text: String,

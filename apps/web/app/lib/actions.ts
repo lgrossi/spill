@@ -34,7 +34,7 @@ import {
   createMeetingNoteCommand,
   retryDeliveryCommand,
 } from "./commands/delivery-commands";
-import { retryAiJobCommand } from "./commands/ai-job-commands";
+import { applyTaggingCommand, retryAiJobCommand } from "./commands/ai-job-commands";
 import { deleteRetro, removeParticipant } from "./api";
 import { clearLocalIdentity, setLocalIdentity } from "./identity";
 import { addGrant, listGrants, removeGrant, type Grant } from "./api";
@@ -161,6 +161,10 @@ export async function retryDeliveryAction(formData: FormData) {
 
 export async function retryAiJobAction(formData: FormData) {
   return retryAiJobCommand(formData);
+}
+
+export async function applyTaggingAction(formData: FormData) {
+  return applyTaggingCommand(formData);
 }
 
 export async function searchDirectoryAction(query: string): Promise<DirectoryUser[]> {

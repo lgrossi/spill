@@ -292,7 +292,7 @@ fn fake_ai_output(kind: &str) -> serde_json::Value {
         }),
         "tagging" => serde_json::json!({
             "review_required": true,
-            "tags": ["process", "ownership", "follow-up"]
+            "clusters": []
         }),
         _ => serde_json::json!({"review_required": true}),
     }

@@ -199,6 +199,38 @@ impl RetroRepository {
         Ok(row.map(Into::into))
     }
 
+    pub async fn apply_tagging_artifact(
+        &self,
+        retro_id: Uuid,
+        artifact_id: Uuid,
+    ) -> Result<Vec<ClusterRecord>, sqlx::Error> {
+        let Some(artifact) = sqlx::query_as::<_, AiArtifactRow>(
+            "SELECT id, retro_id, kind, status, input, output, error_message, retry_count
+             FROM ai_artifacts
+             WHERE retro_id = $1 AND id = $2 AND kind = 'tagging' AND status = 'succeeded'",
+        )
+        .bind(retro_id)
+        .bind(artifact_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(AiArtifactRecord::from) else {
+            return self.fetch_clusters(retro_id).await;
+        };
+        for (cluster_id, tags) in parse_cluster_tag_suggestions(artifact.output.as_ref()) {
+            sqlx::query(
+                "UPDATE card_clusters
+                 SET tags = $3
+                 WHERE retro_id = $1 AND id = $2",
+            )
+            .bind(retro_id)
+            .bind(cluster_id)
+            .bind(Json(tags))
+            .execute(&self.pool)
+            .await?;
+        }
+        self.fetch_clusters(retro_id).await
+    }
+
     pub async fn create_delivery(
         &self,
         retro_id: Uuid,
@@ -273,4 +305,29 @@ impl RetroRepository {
             "ai_summary": board.ai_artifacts.iter().find(|artifact| artifact.kind == "summary").and_then(|artifact| artifact.output.clone()),
         }))
     }
+}
+
+fn parse_cluster_tag_suggestions(output: Option<&Value>) -> Vec<(Uuid, Vec<String>)> {
+    let Some(output) = output else {
+        return Vec::new();
+    };
+    let Some(clusters) = output.get("clusters").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    clusters
+        .iter()
+        .filter_map(|cluster| {
+            let id = cluster.get("cluster_id")?.as_str()?.parse().ok()?;
+            let tags = cluster
+                .get("tags")?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|tag| tag.trim().to_lowercase())
+                .filter(|tag| !tag.is_empty())
+                .take(2)
+                .collect::<Vec<_>>();
+            (!tags.is_empty()).then_some((id, tags))
+        })
+        .collect()
 }

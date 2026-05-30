@@ -15,11 +15,11 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use contracts::{
-    AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, CloneRetroRequest,
-    ClusterCardsRequest, CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest,
-    CreateRetroRequest, HealthResponse, IngestItemRequest, MoveDraftCardRequest,
-    RemoveGrantRequest, SessionResponse, StartAiJobRequest, UpdateActionRequest,
-    UpdateDraftCardRequest, UpdateRetroMetadataRequest,
+    AcceptDeckItemRequest, AddGrantRequest, ApplyTaggingRequest, CastVoteRequest,
+    CloneRetroRequest, ClusterCardsRequest, CreateDeliveryRequest, CreateDraftCardRequest,
+    CreateMeetingNoteRequest, CreateRetroRequest, HealthResponse, IngestItemRequest,
+    MoveDraftCardRequest, RemoveGrantRequest, SessionResponse, StartAiJobRequest,
+    UpdateActionRequest, UpdateDraftCardRequest, UpdateRetroMetadataRequest,
 };
 use contracts::RevealBoardRequest;
 use error::ApiError;
@@ -210,6 +210,7 @@ fn api_router() -> Router<AppState> {
             post(accept_deck_item),
         )
         .route("/retros/{retro_id}/ai-jobs", post(start_ai_job))
+        .route("/retros/{retro_id}/tagging/apply", post(apply_tagging))
         .route(
             "/retros/{retro_id}/ai-jobs/{artifact_id}/retry",
             post(retry_ai_job),
@@ -417,6 +418,24 @@ async fn retry_ai_job(
         .retry_ai_job(user, retro_id, artifact_id)
         .await?;
     Ok(Json(artifact))
+}
+
+async fn apply_tagging(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<ApplyTaggingRequest>,
+) -> Result<Json<Vec<retro_db::ClusterRecord>>, ApiError> {
+    let repository = configured_repository(repository)?;
+    let user = CurrentUser::from_headers(&headers)?;
+    require_host(&repository, retro_id, &user.email).await?;
+    let clusters = repository
+        .apply_tagging_artifact(retro_id, request.artifact_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to apply tagging: {error}")))?;
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    Ok(Json(clusters))
 }
 
 async fn create_meeting_note(

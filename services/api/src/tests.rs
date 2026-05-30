@@ -457,6 +457,121 @@ async fn clone_retro_infers_next_date_from_previous_cadence(pool: sqlx::PgPool) 
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn apply_tagging_artifact_updates_cluster_tags(pool: sqlx::PgPool) {
+    let repo = retro_db::RetroRepository::new(pool.clone());
+    let app = app_with_repository(repo.clone());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_NAME, "Host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Tag apply retro","template":"standard","clustering_mode":"auto_on_vote_start"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    for text in ["Deploy alerts noisy", "Deploy alerts owner"] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/cards"))
+                    .header(HEADER_USER_SUBJECT, "host-123")
+                    .header(HEADER_USER_NAME, "Host")
+                    .header(HEADER_USER_EMAIL, "host@example.com")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"column_id":"{column_id}","body_text":"{text}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/reveal"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cluster"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let cluster_id = board["clusters"][0]["id"].as_str().unwrap();
+
+    let artifact = repo
+        .create_ai_artifact(retro_id.parse().unwrap(), "tagging", serde_json::json!({}))
+        .await
+        .unwrap();
+    repo.complete_ai_artifact(
+        artifact.id,
+        serde_json::json!({
+            "clusters": [{"cluster_id": cluster_id, "tags": ["deployment", "ownership", "ignored-extra"]}]
+        }),
+    )
+    .await
+    .unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/tagging/apply"))
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"artifact_id":"{}"}}"#,
+                    artifact.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let clusters: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        clusters[0]["tags"],
+        serde_json::json!(["deployment", "ownership"])
+    );
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
