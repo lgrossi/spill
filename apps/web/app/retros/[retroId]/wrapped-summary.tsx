@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
-import { applyTaggingAction, cloneRetroAction, completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
+import { applyTaggingAction, cloneRetroAction, completeActionItemAction, confirmActionItemAction, startAiJobAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
@@ -98,27 +98,47 @@ function nextDatetimeLocal(value: string) {
 }
 
 function TaggingReview({ board }: { board: RetroBoard }) {
-  const artifact = board.ai_artifacts.find((item) => item.kind === "tagging" && item.status === "succeeded");
-  const suggestions = taggingSuggestions(artifact?.output);
-  if (!artifact || suggestions.length === 0) return null;
+  const latest = [...board.ai_artifacts].reverse().find((item) => item.kind === "tagging");
+  const suggestions = taggingSuggestions(latest?.output);
   return (
     <Tile>
       <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">category tags</p>
-      <div className="mt-3 space-y-2">
-        {suggestions.map((suggestion) => (
-          <div className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2" key={suggestion.clusterId}>
-            <p className="truncate text-[11.5px] font-extrabold text-spill-fg">{clusterTitle(board, suggestion.clusterId)}</p>
-            <p className="mt-1 text-[11px] text-spill-muted">{suggestion.tags.map((tag) => `#${tag}`).join(" ")}</p>
+      {latest?.status === "pending" || latest?.status === "running" ? (
+        <p className="mt-2 text-[11.5px] leading-5 text-spill-muted">Generating tag suggestions...</p>
+      ) : null}
+      {latest?.status === "failed" ? (
+        <p className="mt-2 text-[11.5px] leading-5 text-spill-wrong">Could not suggest tags{latest.error_message ? `: ${latest.error_message}` : "."}</p>
+      ) : null}
+      {suggestions.length > 0 ? (
+        <>
+          <div className="mt-3 space-y-2">
+            {suggestions.map((suggestion) => (
+              <div className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2" key={suggestion.clusterId}>
+                <p className="truncate text-[11.5px] font-extrabold text-spill-fg">{clusterTitle(board, suggestion.clusterId)}</p>
+                <p className="mt-1 text-[11px] text-spill-muted">{suggestion.tags.map((tag) => `#${tag}`).join(" ")}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <form action={applyTaggingAction} className="mt-3">
-        <input name="retro_id" type="hidden" value={board.retro.id} />
-        <input name="artifact_id" type="hidden" value={artifact.id} />
-        <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
-          apply tags
-        </button>
-      </form>
+          <form action={applyTaggingAction} className="mt-3">
+            <input name="retro_id" type="hidden" value={board.retro.id} />
+            <input name="artifact_id" type="hidden" value={latest?.id ?? ""} />
+            <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">
+              apply tags
+            </button>
+          </form>
+        </>
+      ) : latest?.status === "succeeded" ? (
+        <p className="mt-2 text-[11.5px] leading-5 text-spill-muted">No confident tag suggestions.</p>
+      ) : null}
+      {latest?.status !== "pending" && latest?.status !== "running" ? (
+        <form action={startAiJobAction} className="mt-3">
+          <input name="retro_id" type="hidden" value={board.retro.id} />
+          <input name="kind" type="hidden" value="tagging" />
+          <button className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-extrabold text-spill-fg shadow-[var(--shadow-1)]" type="submit">
+            suggest category tags
+          </button>
+        </form>
+      ) : null}
     </Tile>
   );
 }

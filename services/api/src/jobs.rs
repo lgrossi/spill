@@ -57,7 +57,9 @@ impl JobWorkflow {
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
-        let artifact = self.dispatch_ai_job(artifact, retro_id, request.fail).await?;
+        let artifact = self
+            .dispatch_ai_job(artifact, retro_id, request.fail)
+            .await?;
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(artifact)
     }
@@ -246,7 +248,7 @@ impl JobWorkflow {
                 .ok_or_else(|| ApiError::not_found("AI artifact not found"));
         }
 
-        let output = fake_ai_output(&artifact.kind);
+        let output = fake_ai_output(&artifact.kind, &artifact.input);
         self.repository
             .complete_ai_artifact(artifact.id, output)
             .await
@@ -267,7 +269,7 @@ fn validate_delivery_kind(kind: &str) -> Result<(), ApiError> {
         .map_err(domain_error)
 }
 
-fn fake_ai_output(kind: &str) -> serde_json::Value {
+fn fake_ai_output(kind: &str, input: &serde_json::Value) -> serde_json::Value {
     match kind {
         "gif_suggestions" => serde_json::json!({
             "review_required": true,
@@ -292,10 +294,29 @@ fn fake_ai_output(kind: &str) -> serde_json::Value {
         }),
         "tagging" => serde_json::json!({
             "review_required": true,
-            "clusters": []
+            "clusters": fake_tagging_clusters(input)
         }),
         _ => serde_json::json!({"review_required": true}),
     }
+}
+
+fn fake_tagging_clusters(input: &serde_json::Value) -> Vec<serde_json::Value> {
+    input["tagging"]["clusters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|cluster| {
+            let id = cluster["id"].as_str()?;
+            let category = cluster["category"]
+                .as_str()
+                .or_else(|| cluster["title"].as_str())
+                .unwrap_or("follow-up");
+            Some(serde_json::json!({
+                "cluster_id": id,
+                "tags": [category.trim().to_lowercase()]
+            }))
+        })
+        .collect()
 }
 
 fn optional_non_empty(value: Option<String>) -> Option<String> {

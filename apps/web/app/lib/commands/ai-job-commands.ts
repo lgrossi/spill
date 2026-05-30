@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { applyTagging, retryAiJob } from "@/lib/api";
+import { applyTagging, retryAiJob, startAiJob, type AiArtifact } from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function retryAiJobCommand(formData: FormData) {
@@ -19,4 +19,12 @@ export async function applyTaggingCommand(formData: FormData) {
   await applyTagging(retroId, artifactId);
   revalidatePath(`/retros/${retroId}`);
   revalidatePath("/");
+}
+
+export async function startAiJobCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  const kind = field(formData, "kind") as AiArtifact["kind"];
+
+  await startAiJob(retroId, kind);
+  revalidatePath(`/retros/${retroId}`);
 }
