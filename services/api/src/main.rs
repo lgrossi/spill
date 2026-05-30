@@ -329,12 +329,14 @@ async fn update_retro_metadata(
 async fn clone_retro(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<CloneRetroRequest>,
 ) -> Result<(StatusCode, Json<retro_db::RetroBoard>), ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
     retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .clone_retro(user, retro_id, request)
         .await
         .map(|(status, board)| (status, Json(board)))

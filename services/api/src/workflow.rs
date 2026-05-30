@@ -141,11 +141,23 @@ impl RetroWorkflow {
         if !is_host {
             return Err(ApiError::forbidden("only hosts can create the next retro"));
         }
+        let source = self
+            .repository
+            .fetch_retro(source_retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch source retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        let title = if request.suggest_title {
+            self.suggest_next_retro_title(&source.title).await
+        } else {
+            None
+        }
+        .or_else(|| optional_non_empty(request.title));
         let board = self
             .repository
             .clone_retro(CloneRetroInput {
                 source_retro_id,
-                title: optional_non_empty(request.title),
+                title,
                 scheduled_at: optional_non_empty(request.scheduled_at),
                 creator_subject: user.subject,
                 creator_email: user.email,
@@ -157,6 +169,29 @@ impl RetroWorkflow {
             })?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
         Ok((StatusCode::CREATED, board))
+    }
+
+    async fn suggest_next_retro_title(&self, source_title: &str) -> Option<String> {
+        let provider = self.ai_provider.as_ref()?;
+        let prompt = format!(
+            "Suggest one concise title for the next recurring retrospective after \"{}\". Return only the title.",
+            source_title.trim()
+        );
+        let suggested = provider.complete(&prompt).await.ok()?;
+        let title = suggested
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_owned();
+        if title.is_empty() || title.len() > 80 {
+            None
+        } else {
+            Some(title)
+        }
     }
 
     pub async fn create_draft_card(

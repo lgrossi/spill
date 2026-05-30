@@ -64,12 +64,13 @@ export async function updateRetroMetadata(retroId: string, title: string, schedu
   });
 }
 
-export async function cloneRetro(retroId: string, title?: string, scheduledAt?: string): Promise<RetroBoard> {
+export async function cloneRetro(retroId: string, title?: string, scheduledAt?: string, suggestTitle = false): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/clone`, {
     method: "POST",
     body: JSON.stringify({
       title: title || null,
       scheduled_at: scheduledAt || null,
+      suggest_title: suggestTitle,
     }),
     headers: { "content-type": "application/json" },
     cache: "no-store",

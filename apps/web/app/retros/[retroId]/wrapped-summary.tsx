@@ -77,6 +77,10 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
             <input name="source_retro_id" type="hidden" value={board.retro.id} />
             <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="title" defaultValue={`Next: ${board.retro.title}`} aria-label="Next retro title" />
             <input className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12px] font-semibold text-spill-fg" name="scheduled_at" type="datetime-local" defaultValue={nextDatetimeLocal(board.retro.scheduled_at ?? board.retro.created_at)} aria-label="Next retro scheduled date" />
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-spill-muted">
+              <input name="suggest_title" type="checkbox" value="1" />
+              ask AI for the next title if available
+            </label>
             <button className="rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" type="submit">create next retro</button>
           </form>
         </Tile>

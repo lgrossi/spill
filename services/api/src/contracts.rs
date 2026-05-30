@@ -85,6 +85,8 @@ pub struct UpdateRetroMetadataRequest {
 pub struct CloneRetroRequest {
     pub title: Option<String>,
     pub scheduled_at: Option<String>,
+    #[serde(default)]
+    pub suggest_title: bool,
 }
 
 #[derive(Deserialize)]

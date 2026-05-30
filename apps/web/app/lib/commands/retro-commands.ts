@@ -140,8 +140,9 @@ export async function cloneRetroCommand(formData: FormData) {
   const sourceRetroId = String(formData.get("source_retro_id") ?? "");
   const title = String(formData.get("title") ?? "").trim();
   const scheduledAt = String(formData.get("scheduled_at") ?? "").trim();
+  const suggestTitle = formData.get("suggest_title") === "1";
   if (!sourceRetroId) return;
-  const board = await cloneRetro(sourceRetroId, title, scheduledAt);
+  const board = await cloneRetro(sourceRetroId, title, scheduledAt, suggestTitle);
   redirect(`/retros/${board.retro.id}`);
 }
 
