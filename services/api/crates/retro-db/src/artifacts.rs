@@ -161,6 +161,24 @@ impl RetroRepository {
         Ok(row.map(Into::into))
     }
 
+    pub async fn get_ai_artifact(
+        &self,
+        retro_id: Uuid,
+        artifact_id: Uuid,
+    ) -> Result<Option<AiArtifactRecord>, sqlx::Error> {
+        let row = sqlx::query_as::<_, AiArtifactRow>(
+            "SELECT id, retro_id, kind, status, input, output, error_message, retry_count
+             FROM ai_artifacts
+             WHERE id = $1 AND retro_id = $2",
+        )
+        .bind(artifact_id)
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Into::into))
+    }
+
     pub async fn complete_ai_artifact(
         &self,
         artifact_id: Uuid,

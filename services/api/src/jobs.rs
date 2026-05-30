@@ -74,15 +74,21 @@ impl JobWorkflow {
         artifact_id: Uuid,
     ) -> Result<retro_db::AiArtifactRecord, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let existing = self
+            .repository
+            .get_ai_artifact(retro_id, artifact_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch AI job: {error}")))?
+            .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
+        if existing.kind == "tagging" {
+            require_retro_host(&self.repository, retro_id, &user.email).await?;
+        }
         let artifact = self
             .repository
             .retry_ai_artifact(retro_id, artifact_id)
             .await
             .map_err(|error| ApiError::internal(format!("failed to retry AI job: {error}")))?
             .ok_or_else(|| ApiError::not_found("AI artifact not found"))?;
-        if artifact.kind == "tagging" {
-            require_retro_host(&self.repository, retro_id, &user.email).await?;
-        }
         let artifact = self.dispatch_ai_job(artifact, retro_id, false).await?;
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(artifact)
