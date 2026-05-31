@@ -267,7 +267,15 @@ impl RetroRepository {
     }
 
     pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
-        overview::list_retros(&self.pool, subject).await
+        self.list_retros_for_user(subject, "").await
+    }
+
+    pub async fn list_retros_for_user(
+        &self,
+        subject: &str,
+        email: &str,
+    ) -> Result<RetroOverview, sqlx::Error> {
+        overview::list_retros(&self.pool, subject, email).await
     }
 
     pub async fn authorize_retro_participant(
@@ -310,6 +318,30 @@ impl RetroRepository {
         )
         .bind(retro_id)
         .bind(email)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn is_retro_host(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+        email: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM participants
+                WHERE retro_id = $1 AND external_subject = $2 AND role = 'host'
+            ) OR EXISTS (
+                SELECT 1
+                FROM board_grants
+                WHERE retro_id = $1 AND principal_email = lower($3) AND role = 'host'
+            )",
+        )
+        .bind(retro_id)
+        .bind(subject.trim())
+        .bind(email.trim())
         .fetch_one(&self.pool)
         .await
     }
@@ -2532,6 +2564,9 @@ mod tests {
             })
             .await
             .unwrap();
+        repo.add_board_grant(created.retro.id, "lee@example.com", "member")
+            .await
+            .unwrap();
         repo.start_scheduled_retro(created.retro.id).await.unwrap();
         repo.reveal_board(created.retro.id).await.unwrap();
         repo.start_action_discussion(created.retro.id)
@@ -2576,6 +2611,17 @@ mod tests {
             .unwrap();
         assert_eq!(wrapped.series.unwrap().name, "Platform");
         assert_eq!(wrapped.next_retro.unwrap().id, next.retro.id);
+
+        let lee_overview = repo
+            .list_retros_for_user("lee", "lee@example.com")
+            .await
+            .unwrap();
+        assert!(
+            lee_overview
+                .active
+                .iter()
+                .any(|summary| summary.id == next.retro.id)
+        );
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]

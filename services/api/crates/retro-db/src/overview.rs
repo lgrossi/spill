@@ -5,6 +5,7 @@ use crate::{RetroOverview, RetroSummary, RetroSummaryRow};
 pub(super) async fn list_retros(
     pool: &PgPool,
     subject: &str,
+    email: &str,
 ) -> Result<RetroOverview, sqlx::Error> {
     let rows = sqlx::query_as::<_, RetroSummaryRow>(
         "SELECT
@@ -73,11 +74,17 @@ pub(super) async fn list_retros(
              WHERE scoped_participant.retro_id = r.id
                AND scoped_participant.external_subject = $1
                AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
+         ) OR EXISTS (
+             SELECT 1
+             FROM board_grants scoped_grant
+             WHERE scoped_grant.retro_id = r.id
+               AND scoped_grant.principal_email = lower($2)
          )
          GROUP BY r.id, g.name
          ORDER BY last_activity_at DESC, r.created_at DESC",
     )
     .bind(subject)
+    .bind(email.trim())
     .fetch_all(pool)
     .await?;
 

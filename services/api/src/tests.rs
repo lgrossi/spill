@@ -1772,6 +1772,27 @@ async fn complete_retro_without_ai_provider_skips_summary_artifact(pool: sqlx::P
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn only_host_can_complete_retro(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), None);
+    let retro_id = seed_completable_retro(&app).await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/complete"))
+                .header(HEADER_USER_SUBJECT, "lee")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn completing_retro_returns_planned_next_retro(pool: sqlx::PgPool) {
     let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), None);
     let retro_id = seed_completable_retro(&app).await;

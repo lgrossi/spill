@@ -596,6 +596,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        require_completion_host(&self.repository, &user, retro_id).await?;
         self.repository
             .complete_retro(retro_id)
             .await
@@ -652,7 +653,12 @@ impl RetroWorkflow {
         user: &CurrentUser,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         self.repository
-            .fetch_board_for_user_with_email(retro_id, &user.subject, &user.display_name, &user.email)
+            .fetch_board_for_user_with_email(
+                retro_id,
+                &user.subject,
+                &user.display_name,
+                &user.email,
+            )
             .await
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))
@@ -707,6 +713,22 @@ async fn ensure_retro_host(
         Err(ApiError::forbidden(
             "only the board host can manage this retro",
         ))
+    }
+}
+
+async fn require_completion_host(
+    repository: &RetroRepository,
+    user: &CurrentUser,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    let allowed = repository
+        .is_retro_host(retro_id, &user.subject, &user.email)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("only a host can finish this retro"))
     }
 }
 
