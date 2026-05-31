@@ -39,7 +39,6 @@ export default async function OverviewPage({
     <AppChrome
       actions={
         <>
-          <Btn href="/retros/new" kind="primary">+ new board</Btn>
           {identity.source === "local" ? (
             <form action={clearIdentityAction}>
               <input name="return_to" type="hidden" value="/" />
@@ -52,7 +51,10 @@ export default async function OverviewPage({
     >
       <div className="grid flex-1 grid-cols-1 gap-8 overflow-y-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10 lg:px-10">
         <section className="min-w-0">
-          <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
+          <div className="flex items-end justify-between gap-4">
+            <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
+            <Btn aria-label="Create new board" className="h-9 w-9 px-0 text-lg" href="/retros/new" kind="primary" title="Create new board">+</Btn>
+          </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {pinnedBoards.length === 0 ? (
               <Tile className="md:col-span-2">
