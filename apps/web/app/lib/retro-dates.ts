@@ -22,7 +22,7 @@ export function isPlannedForDue(plannedFor: string) {
   return plannedFor <= localDateString(new Date());
 }
 
-function localDateString(date: Date) {
+export function localDateString(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");

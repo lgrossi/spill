@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
 import { createRetroAction } from "@/lib/actions";
 import { InvitePanel } from "@/components/invite-panel";
+import { localDateString } from "@/lib/retro-dates";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -29,7 +30,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString(new Date());
 
   function updateColumn(index: number, value: string) {
     setCustomColumns((columns) => columns.map((column, columnIndex) => (columnIndex === index ? value : column)));

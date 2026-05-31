@@ -1314,7 +1314,8 @@ mod tests {
         let started = repo
             .start_scheduled_retro(created.retro.id)
             .await
-            .expect("start scheduled retro");
+            .expect("start scheduled retro")
+            .expect("scheduled retro transitioned");
 
         assert_eq!(started.phase, "writing");
         assert_eq!(started.planned_for, "2099-05-15");

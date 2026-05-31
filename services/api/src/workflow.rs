@@ -14,8 +14,8 @@ use crate::{
     ai_summary,
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
-        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
-        UpdateDraftCardRequest, RescheduleRetroRequest,
+        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, RescheduleRetroRequest,
+        UpdateActionRequest, UpdateDraftCardRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -53,6 +53,10 @@ impl RetroWorkflow {
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
+        let planned_for = match optional_non_empty(request.planned_for) {
+            Some(value) => Some(require_date_only("planned_for", value)?),
+            None => None,
+        };
         let board = self
             .repository
             .create_retro(CreateRetroInput {
@@ -60,7 +64,7 @@ impl RetroWorkflow {
                 creator_subject: user.subject,
                 creator_email: user.email,
                 creator_display_name: user.display_name,
-                planned_for: optional_non_empty(request.planned_for),
+                planned_for,
                 template: retro_template(&request.template, request.columns)?,
                 vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
                 action_discussion_limit: require_non_negative(
@@ -403,14 +407,30 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
-        self.repository
+        let started = self
+            .repository
             .start_scheduled_retro(retro_id)
             .await
             .map_err(|error| {
                 ApiError::internal(format!("failed to start scheduled retro: {error}"))
             })?;
-        self.event_hub
-            .publish(BoardEvent::PhaseChanged { retro_id });
+        if started.is_some() {
+            self.event_hub
+                .publish(BoardEvent::PhaseChanged { retro_id });
+        } else {
+            let retro = self
+                .repository
+                .fetch_retro(retro_id)
+                .await
+                .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+                .ok_or_else(|| ApiError::not_found("retro not found"))?;
+            if retro.phase != "writing" {
+                return Err(ApiError::bad_request(format!(
+                    "scheduled retro cannot be started from {}",
+                    retro.phase
+                )));
+            }
+        }
         self.fetch_board_for_user(retro_id, &user).await
     }
 

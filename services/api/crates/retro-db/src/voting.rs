@@ -70,7 +70,10 @@ impl RetroRepository {
         Ok(retro)
     }
 
-    pub async fn start_scheduled_retro(&self, retro_id: Uuid) -> Result<RetroRecord, sqlx::Error> {
+    pub async fn start_scheduled_retro(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET phase = 'writing'
@@ -80,7 +83,7 @@ impl RetroRepository {
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(retro_id)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
     }
 

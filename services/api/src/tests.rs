@@ -381,6 +381,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
         .unwrap();
 
     let member_due_start = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -401,6 +402,28 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
     )
     .unwrap();
     assert_eq!(started["retro"]["phase"], "writing");
+
+    let repeated_due_start = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{due_retro_id}/start"))
+                .header(HEADER_USER_SUBJECT, "member")
+                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header(HEADER_USER_NAME, "Member")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(repeated_due_start.status(), StatusCode::OK);
+    let repeated: Value = serde_json::from_slice(
+        &to_bytes(repeated_due_start.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(repeated["retro"]["phase"], "writing");
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
@@ -465,9 +488,12 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert_eq!(host_reschedule.status(), StatusCode::OK);
-    let updated: Value =
-        serde_json::from_slice(&to_bytes(host_reschedule.into_body(), usize::MAX).await.unwrap())
-            .unwrap();
+    let updated: Value = serde_json::from_slice(
+        &to_bytes(host_reschedule.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(updated["retro"]["phase"], "scheduled");
     assert_eq!(updated["retro"]["planned_for"], "2099-05-16");
 
@@ -502,6 +528,30 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert_eq!(writing_reschedule.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn create_retro_rejects_invalid_planned_date(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Bad date","template":"standard","planned_for":"not-a-date"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]

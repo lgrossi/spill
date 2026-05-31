@@ -18,8 +18,9 @@ use contracts::RevealBoardRequest;
 use contracts::{
     AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, ClusterCardsRequest,
     CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
-    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
-    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest, RescheduleRetroRequest,
+    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest,
+    RescheduleRetroRequest, SessionResponse, StartAiJobRequest, UpdateActionRequest,
+    UpdateDraftCardRequest,
 };
 use error::ApiError;
 use events::{BoardEvent, BoardEventHub};
@@ -145,10 +146,7 @@ fn api_router() -> Router<AppState> {
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro).delete(delete_retro))
         .route("/retros/{retro_id}/events", get(board_events))
-        .route(
-            "/retros/{retro_id}/reschedule",
-            post(reschedule_retro),
-        )
+        .route("/retros/{retro_id}/reschedule", post(reschedule_retro))
         .route("/retros/{retro_id}/start", post(start_scheduled_retro))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
@@ -584,7 +582,14 @@ async fn start_scheduled_retro(
         .await
         .map_err(|error| ApiError::internal(format!("failed to check planned date: {error}")))?;
     if !due {
-        require_host(&repo, retro_id, &user.email).await?;
+        let retro = repo
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase != "writing" {
+            require_host(&repo, retro_id, &user.email).await?;
+        }
     }
     retro_workflow(repository, event_hub)?
         .start_scheduled_retro(user, retro_id)

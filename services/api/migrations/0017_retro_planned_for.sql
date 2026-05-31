@@ -5,8 +5,7 @@ ALTER TABLE retros
 UPDATE retros
 SET
   planned_for = COALESCE(completed_at::date, created_at::date, CURRENT_DATE),
-  happened_at = completed_at
-WHERE phase = 'completed';
+  happened_at = CASE WHEN phase = 'completed' THEN completed_at ELSE NULL END;
 
 ALTER TABLE retros DROP CONSTRAINT IF EXISTS retros_phase_check;
 ALTER TABLE retros
