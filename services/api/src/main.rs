@@ -292,7 +292,7 @@ async fn open_retro(
         }
     }
     repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .fetch_board_for_user_with_email(retro_id, &user.subject, &user.display_name, &user.email)
         .await
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)

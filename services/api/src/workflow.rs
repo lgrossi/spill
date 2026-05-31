@@ -603,12 +603,12 @@ impl RetroWorkflow {
             .ok_or_else(|| {
                 ApiError::bad_request("retro must be in action discussion to complete")
             })?;
-        self.event_hub
-            .publish(BoardEvent::PhaseChanged { retro_id });
         self.repository
             .ensure_next_retro(retro_id, &user.subject, &user.email, &user.display_name)
             .await
             .map_err(|error| ApiError::internal(format!("failed to plan next retro: {error}")))?;
+        self.event_hub
+            .publish(BoardEvent::PhaseChanged { retro_id });
         // Auto-trigger the summary AI artifact. We deliberately fire and
         // forget: the artifact lifecycle (`pending` → `running` →
         // `succeeded`/`failed`) is persisted, so any failure becomes
@@ -652,7 +652,7 @@ impl RetroWorkflow {
         user: &CurrentUser,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         self.repository
-            .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+            .fetch_board_for_user_with_email(retro_id, &user.subject, &user.display_name, &user.email)
             .await
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))

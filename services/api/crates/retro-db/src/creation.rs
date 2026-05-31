@@ -21,12 +21,12 @@ pub(super) async fn create_retro(
     let mut tx = pool.begin().await?;
 
     let creator_email = input.creator_email.trim().to_lowercase();
-    let group_id = if let Some(group_name) = input
+    let group_name = input
         .group_name
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+        .filter(|value| !value.is_empty());
+    let group_id = if let Some(group_name) = group_name {
         Some(
             sqlx::query_scalar::<_, uuid::Uuid>(
                 "INSERT INTO retro_groups (name) VALUES ($1) RETURNING id",
@@ -116,9 +116,14 @@ pub(super) async fn create_retro(
 
     tx.commit().await?;
 
+    let series = group_id.map(|id| crate::RetroSeriesRecord {
+        id,
+        name: group_name.unwrap_or_default().to_owned(),
+    });
+
     Ok(RetroBoard {
         retro,
-        series: None,
+        series,
         next_retro: None,
         participants: vec![participant],
         columns: records,

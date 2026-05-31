@@ -134,6 +134,17 @@ impl RetroRepository {
         subject: &str,
         display_name: &str,
     ) -> Result<Option<RetroBoard>, sqlx::Error> {
+        self.fetch_board_for_user_with_email(id, subject, display_name, "")
+            .await
+    }
+
+    pub async fn fetch_board_for_user_with_email(
+        &self,
+        id: Uuid,
+        subject: &str,
+        display_name: &str,
+        email: &str,
+    ) -> Result<Option<RetroBoard>, sqlx::Error> {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
@@ -152,7 +163,15 @@ impl RetroRepository {
         let ready = self.ready_info(id, subject).await?;
         let voting = self.voting_info(id, subject).await?;
         let series = self.fetch_series(id).await?;
-        let next_retro = self.fetch_next_retro(id).await?;
+        let next_retro = if let Some(next_retro) = self.fetch_next_retro(id).await? {
+            if email.trim().is_empty() || self.is_board_member(next_retro.id, email).await? {
+                Some(next_retro)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Ok(Some(RetroBoard {
             retro,
             series,
@@ -1387,6 +1406,29 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn create_retro_returns_created_series(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Payments retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: Some("Payments".to_owned()),
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(created.series.unwrap().name, "Payments");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn future_planned_retro_starts_scheduled_then_host_can_start(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
@@ -2522,6 +2564,8 @@ mod tests {
         assert_eq!(next.retro.planned_for, expected_planned_for);
         assert_eq!(next.retro.vote_limit, 4);
         assert_eq!(next.retro.action_discussion_limit, 2);
+        assert_eq!(next.retro.creator_email, "ava@example.com");
+        assert_eq!(next.participants[0].role, "host");
         assert_eq!(next.series.unwrap().name, "Platform");
         assert_eq!(next.columns.len(), created.columns.len());
 

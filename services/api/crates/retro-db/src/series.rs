@@ -83,11 +83,7 @@ impl RetroRepository {
         .fetch_one(&mut *tx)
         .await?;
         let title = next_title(&source.title);
-        let new_creator_email = if creator_email.trim().is_empty() {
-            source.creator_email.trim().to_lowercase()
-        } else {
-            creator_email.trim().to_lowercase()
-        };
+        let new_creator_email = source.creator_email.trim().to_lowercase();
 
         let retro = sqlx::query_as::<_, RetroRecord>(
             "INSERT INTO retros (
@@ -136,7 +132,7 @@ impl RetroRepository {
 
         let participant = sqlx::query_as::<_, ParticipantRecord>(
             "INSERT INTO participants (retro_id, external_subject, display_name, role)
-             VALUES ($1, $2, $3, 'host')
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (retro_id, external_subject) DO UPDATE
              SET display_name = EXCLUDED.display_name
              RETURNING id, retro_id, external_subject, display_name, role, 0::BIGINT AS card_count, 0::BIGINT AS vote_count",
@@ -144,6 +140,11 @@ impl RetroRepository {
         .bind(retro.id)
         .bind(creator_subject.trim())
         .bind(creator_display_name.trim())
+        .bind(if creator_email.trim().eq_ignore_ascii_case(&new_creator_email) {
+            "host"
+        } else {
+            "member"
+        })
         .fetch_one(&mut *tx)
         .await?;
 
