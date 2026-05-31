@@ -18,6 +18,7 @@ export type {
   RetroPhase,
   RetroSummary,
   RescheduleRetroPayload,
+  UpdateRetroDetailsPayload,
 } from "./contracts";
 import type {
   AiArtifact,
@@ -31,6 +32,7 @@ import type {
   RetroCard,
   RetroOverview,
   RescheduleRetroPayload,
+  UpdateRetroDetailsPayload,
 } from "./contracts";
 
 const API_BASE_URL = process.env.SPILLIO_API_URL ?? "http://127.0.0.1:4000";
@@ -55,6 +57,15 @@ export async function getRetro(retroId: string): Promise<RetroBoard> {
 export async function rescheduleRetro(retroId: string, payload: RescheduleRetroPayload): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/reschedule`, {
     method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function updateRetroDetails(retroId: string, payload: UpdateRetroDetailsPayload): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/details`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
     headers: { "content-type": "application/json" },
     cache: "no-store",

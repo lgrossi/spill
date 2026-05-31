@@ -1,13 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRetro, rescheduleRetro, type CreateRetroPayload } from "@/lib/api";
+import { createRetro, rescheduleRetro, updateRetroDetails, type CreateRetroPayload } from "@/lib/api";
 import type { InviteeRequest } from "@/lib/contracts";
 import { field } from "./form-utils";
 
 export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
   const title = String(formData.get("title") ?? "").trim();
+  const groupName = String(formData.get("group_name") ?? "").trim();
   const plannedFor = String(formData.get("planned_for") ?? "").trim();
   const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
@@ -36,6 +37,7 @@ export async function createRetroCommand(formData: FormData) {
     customColumns,
     template,
     title,
+    groupName,
     plannedFor,
     voteLimit,
     invitees,
@@ -53,6 +55,19 @@ export async function rescheduleRetroCommand(formData: FormData) {
   redirect(`/retros/${retroId}`);
 }
 
+export async function updateRetroDetailsCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  const title = String(formData.get("title") ?? "").trim();
+  const groupName = String(formData.get("group_name") ?? "").trim();
+  const returnTo = String(formData.get("return_to") ?? `/retros/${retroId}`);
+
+  await updateRetroDetails(retroId, {
+    ...(title ? { title } : {}),
+    ...(groupName ? { group_name: groupName } : {}),
+  });
+  redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);
+}
+
 function retroPayload({
   actionDiscussionEnabled,
   actionDiscussionLimit,
@@ -60,6 +75,7 @@ function retroPayload({
   customColumns,
   template,
   title,
+  groupName,
   plannedFor,
   voteLimit,
   invitees,
@@ -70,6 +86,7 @@ function retroPayload({
   customColumns: string[];
   template: string;
   title: string;
+  groupName: string;
   plannedFor: string;
   voteLimit: number;
   invitees: InviteeRequest[];
@@ -91,25 +108,26 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "ssc") {
-    return customPayload(title, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "msg") {
-    return customPayload(title, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "4ls") {
-    return customPayload(title, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "custom") {
-    return customPayload(title, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
   }
-  return customPayload(title, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
+  return customPayload(title, groupName, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
 }
 
 function customPayload(
   title: string,
+  groupName: string,
   plannedFor: string,
   columns: string[],
   columnColors: string[] | undefined,
@@ -119,6 +137,7 @@ function customPayload(
 ): CreateRetroPayload {
   return {
     title,
+    group_name: groupName || null,
     planned_for: plannedFor || null,
     template: "custom",
     columns,

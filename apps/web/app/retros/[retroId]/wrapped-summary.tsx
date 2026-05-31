@@ -3,12 +3,13 @@ import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
-import { displayRetroDate } from "@/lib/retro-dates";
+import { displayRetroDate, formatDateOnly } from "@/lib/retro-dates";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
+import { InlineDetailEditor } from "./inline-detail-editor";
 
-export function WrappedSummary({ board }: { board: RetroBoard }) {
+export function WrappedSummary({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
@@ -39,6 +40,9 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
           <span className="-rotate-2 font-hand text-[24px] text-spill-muted">nice work, team.</span>
         </div>
         <p className="mt-2 text-[13px] font-semibold text-spill-muted">{displayRetroDate(board.retro)}</p>
+        {board.series ? (
+          <p className="mt-1 text-[12px] font-bold text-spill-muted">[{board.series.name}] {board.retro.title}</p>
+        ) : null}
 
         <div className="mt-5 flex items-center gap-5">
           <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
@@ -68,9 +72,71 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
           </div>
         </Tile>
 
+        <ParticipantsSummary board={board} />
+        <NextRetroTile board={board} isHost={isHost} />
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
       </aside>
     </section>
+  );
+}
+
+function ParticipantsSummary({ board }: { board: RetroBoard }) {
+  const hosts = board.participants.filter((participant) => participant.role === "host");
+  return (
+    <Tile>
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">participants</p>
+      <div className="mt-3 flex items-baseline justify-between gap-3">
+        <strong className="text-3xl font-extrabold tracking-[-0.04em] text-spill-fg">{board.participants.length}</strong>
+        <span className="text-[11.5px] font-semibold text-spill-muted">{hosts.length} host{hosts.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        {board.participants.slice(0, 5).map((participant) => (
+          <div className="flex items-center gap-2 text-[12px]" key={participant.id}>
+            <span className="h-2 w-2 rounded-full bg-spill-well" />
+            <span className="min-w-0 flex-1 truncate font-semibold text-spill-fg">{participant.display_name}</span>
+            <Pill tone={participant.role === "host" ? "solid" : "neutral"}>{participant.role}</Pill>
+          </div>
+        ))}
+        {board.participants.length > 5 ? (
+          <p className="text-[11.5px] font-semibold text-spill-muted">+{board.participants.length - 5} more</p>
+        ) : null}
+      </div>
+    </Tile>
+  );
+}
+
+function NextRetroTile({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
+  const next = board.next_retro;
+  const groupName = next?.group_name ?? board.series?.name ?? "";
+  return (
+    <Tile>
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
+      {next ? (
+        <div className="mt-3 space-y-3">
+          <div>
+            {isHost ? (
+              <InlineDetailEditor field="title" label="Next retro title" retroId={next.id} returnTo={`/retros/${board.retro.id}`} value={next.title} />
+            ) : (
+              <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-spill-fg">{next.title}</h3>
+            )}
+            <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">planned for {formatDateOnly(next.planned_for)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">group</p>
+            {isHost ? (
+              <InlineDetailEditor field="group_name" label="Retro group" retroId={next.id} returnTo={`/retros/${board.retro.id}`} value={groupName} />
+            ) : (
+              <p className="mt-0.5 text-[13px] font-bold text-spill-fg">{groupName || "No group"}</p>
+            )}
+          </div>
+          <Link className="inline-flex rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" href={`/retros/${next.id}`}>
+            open next retro
+          </Link>
+        </div>
+      ) : (
+        <p className="mt-3 text-[11.5px] leading-5 text-spill-muted">Next retro is being planned when this board wraps.</p>
+      )}
+    </Tile>
   );
 }
 

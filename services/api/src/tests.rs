@@ -1772,6 +1772,68 @@ async fn complete_retro_without_ai_provider_skips_summary_artifact(pool: sqlx::P
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn completing_retro_returns_planned_next_retro(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), None);
+    let retro_id = seed_completable_retro(&app).await;
+    let completed = post_complete(&app, &retro_id).await;
+
+    assert_eq!(completed["retro"]["phase"], "completed");
+    assert_eq!(completed["next_retro"]["phase"], "scheduled");
+    assert_eq!(completed["next_retro"]["title"], "Next: Retro under test");
+    assert_eq!(completed["series"]["name"], "Retro under test");
+
+    let fetched = fetch_board(&app, &retro_id).await;
+    assert_eq!(fetched["next_retro"]["id"], completed["next_retro"]["id"]);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Old retro","template":"standard","group_name":"Old group"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"New retro","group_name":"New group"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(updated["retro"]["title"], "New retro");
+    assert_eq!(updated["series"]["name"], "New group");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn real_provider_summary_job_before_completion_fails_without_running(pool: sqlx::PgPool) {
     let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
         "should not be generated",

@@ -141,7 +141,7 @@ export default async function OverviewPage({
                 <Link className="group flex justify-between gap-4 py-1 text-spill-fg transition hover:text-spill-wrong" href={`/retros/${board.id}`} key={`recent-${board.id}`}>
                   <span className="flex min-w-0 items-center gap-2 truncate">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: phaseColor(board.phase) }} />
-                    <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{board.title}</span>
+                    <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{boardDisplayTitle(board)}</span>
                   </span>
                   <span className="shrink-0 text-spill-muted">{boardStatusLabel(board)}</span>
                 </Link>
@@ -186,7 +186,7 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
         <span className="absolute -top-2.5 left-3.5">
           <PhaseBadge phase={boardStatusLabel(board)} color={color} />
         </span>
-        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
+        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{boardDisplayTitle(board)}</h2>
         <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
         <div className="mt-auto flex items-end justify-between">
           <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
@@ -209,6 +209,10 @@ function openActionCount(overview: RetroOverview) {
 
 function boardStatusLabel(board: RetroSummary) {
   return board.phase === "scheduled" && isPlannedForDue(board.planned_for) ? "ready" : phaseLabel(board.phase);
+}
+
+function boardDisplayTitle(board: RetroSummary) {
+  return board.group_name ? `[${board.group_name}] ${board.title}` : board.title;
 }
 
 function topRecurringTag(boards: RetroSummary[]) {

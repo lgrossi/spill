@@ -65,6 +65,15 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
         <div>
           <div className="mb-2 flex items-center gap-2">
             <StepNum n="2" />
+            <label className="text-[13px] font-bold text-spill-fg" htmlFor="group_name">Group</label>
+            <span className="text-[11px] text-spill-muted">squad, team, or stream</span>
+          </div>
+          <input id="group_name" name="group_name" placeholder="e.g. Growth squad" className={`${fieldControlClass} min-h-11 w-full max-w-sm`} aria-label="Retro group" />
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <StepNum n="3" />
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="planned_for">Retro date</label>
             <span className="text-[11px] text-spill-muted">future dates wait on the wall</span>
           </div>
@@ -73,7 +82,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="3" />
+            <StepNum n="4" />
             <p className="text-[13px] font-bold text-spill-fg">Pick a shape</p>
           </div>
           <TemplatePicker template={template} setTemplate={setTemplate} />
@@ -84,7 +93,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="4" />
+            <StepNum n="5" />
             <p className="text-[13px] font-bold text-spill-fg">House rules</p>
           </div>
           <div className="grid gap-2.5 md:grid-cols-2">

@@ -18,6 +18,7 @@ pub struct SessionResponse {
 #[derive(Deserialize)]
 pub struct CreateRetroRequest {
     pub title: String,
+    pub group_name: Option<String>,
     pub planned_for: Option<String>,
     pub template: String,
     #[serde(default)]
@@ -36,6 +37,13 @@ pub struct CreateRetroRequest {
 #[serde(deny_unknown_fields)]
 pub struct RescheduleRetroRequest {
     pub planned_for: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRetroDetailsRequest {
+    pub title: Option<String>,
+    pub group_name: Option<String>,
 }
 
 #[derive(Deserialize)]

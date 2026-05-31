@@ -28,7 +28,7 @@ import {
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
 import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
-import { createRetroCommand, rescheduleRetroCommand } from "./commands/retro-commands";
+import { createRetroCommand, rescheduleRetroCommand, updateRetroDetailsCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
   createMeetingNoteCommand,
@@ -65,6 +65,10 @@ export async function createRetroAction(formData: FormData) {
 
 export async function rescheduleRetroAction(formData: FormData) {
   return rescheduleRetroCommand(formData);
+}
+
+export async function updateRetroDetailsAction(formData: FormData) {
+  return updateRetroDetailsCommand(formData);
 }
 
 export async function createDraftCardAction(formData: FormData) {

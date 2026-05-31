@@ -334,6 +334,8 @@ mod tests {
     fn build_prompt_requests_structured_mood_and_picturesque_summary() {
         let prompt = build_prompt(&RetroBoard {
             retro: retro(uuid(1)),
+            series: None,
+            next_retro: None,
             participants: Vec::new(),
             columns: Vec::new(),
             ready: Default::default(),
@@ -482,6 +484,8 @@ mod tests {
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
+            series: None,
+            next_retro: None,
             participants: Vec::new(),
             columns: vec![RetroColumnRecord {
                 id: column_id,
@@ -532,6 +536,8 @@ mod tests {
         let author_id = uuid(3);
         let board = RetroBoard {
             retro: retro(retro_id),
+            series: None,
+            next_retro: None,
             participants: Vec::new(),
             columns: vec![RetroColumnRecord {
                 id: column_id,
@@ -591,6 +597,8 @@ mod tests {
         text_with_media.gif_alt_text = Some("fire alarm gif".to_owned());
         let board = RetroBoard {
             retro: retro(retro_id),
+            series: None,
+            next_retro: None,
             participants: Vec::new(),
             columns: vec![RetroColumnRecord {
                 id: column_id,

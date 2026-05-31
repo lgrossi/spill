@@ -21,11 +21,28 @@ pub(super) async fn create_retro(
     let mut tx = pool.begin().await?;
 
     let creator_email = input.creator_email.trim().to_lowercase();
+    let group_id = if let Some(group_name) = input
+        .group_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(
+            sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO retro_groups (name) VALUES ($1) RETURNING id",
+            )
+            .bind(group_name)
+            .fetch_one(&mut *tx)
+            .await?,
+        )
+    } else {
+        None
+    };
     let retro = sqlx::query_as::<_, RetroRecord>(
         "WITH requested AS (
-            SELECT COALESCE(NULLIF($5, '')::date, CURRENT_DATE) AS planned_for
+            SELECT COALESCE(NULLIF($6, '')::date, CURRENT_DATE) AS planned_for
          )
-         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email)
+         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email, group_id)
          SELECT
             $1,
             CASE WHEN requested.planned_for > CURRENT_DATE THEN 'scheduled' ELSE 'writing' END,
@@ -33,7 +50,8 @@ pub(super) async fn create_retro(
             $2,
             $3,
             'disabled',
-            $4
+            $4,
+            $5
          FROM requested
          RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
             to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
@@ -43,6 +61,7 @@ pub(super) async fn create_retro(
     .bind(input.vote_limit)
     .bind(input.action_discussion_limit)
     .bind(&creator_email)
+    .bind(group_id)
     .bind(input.planned_for.as_deref().map(str::trim).unwrap_or(""))
     .fetch_one(&mut *tx)
     .await?;
@@ -99,6 +118,8 @@ pub(super) async fn create_retro(
 
     Ok(RetroBoard {
         retro,
+        series: None,
+        next_retro: None,
         participants: vec![participant],
         columns: records,
         ready: ReadyInfo::default(),

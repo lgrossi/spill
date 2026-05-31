@@ -16,6 +16,7 @@ pub(super) async fn list_retros(
             to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
             to_char(r.planned_for, 'YYYY-MM-DD') AS planned_for,
             to_char(r.happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at,
+            g.name AS group_name,
             to_char(
                 GREATEST(
                     r.created_at,
@@ -59,6 +60,7 @@ pub(super) async fn list_retros(
                 '[]'::jsonb
             ) AS open_actions
          FROM retros r
+         LEFT JOIN retro_groups g ON g.id = r.group_id
          LEFT JOIN participants p ON p.retro_id = r.id
          LEFT JOIN retro_columns c ON c.retro_id = r.id
          LEFT JOIN participant_ready_marks rm ON rm.retro_id = r.id
@@ -72,7 +74,7 @@ pub(super) async fn list_retros(
                AND scoped_participant.external_subject = $1
                AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
          )
-         GROUP BY r.id
+         GROUP BY r.id, g.name
          ORDER BY last_activity_at DESC, r.created_at DESC",
     )
     .bind(subject)
