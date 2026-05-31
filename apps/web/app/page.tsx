@@ -53,7 +53,7 @@ export default async function OverviewPage({
         <section className="min-w-0">
           <div className="flex items-end justify-between gap-4">
             <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
-            <Link aria-label="Create new board" className="text-[30px] font-extrabold leading-none text-spill-wrong transition hover:scale-105 hover:text-[#a83232] focus-visible:outline-none focus-visible:shadow-[var(--focus)]" href="/retros/new" title="Create new board">+</Link>
+            <Link aria-label="Create new board" className="text-[30px] font-extrabold leading-none transition hover:scale-105 focus-visible:outline-none focus-visible:shadow-[var(--focus)]" href="/retros/new" style={{ color: spillColors.wrong }} title="Create new board">+</Link>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {pinnedBoards.length === 0 ? (
