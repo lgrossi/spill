@@ -14,6 +14,7 @@ import { PhaseLine } from "./phase-line";
 import { PlannedDateEditor } from "./planned-date-editor";
 import { ScheduledAutoStart } from "./scheduled-auto-start";
 import { WrappedSummary } from "./wrapped-summary";
+import { InlineDetailEditor } from "./inline-detail-editor";
 
 type BoardSearchParams = {
   addColumn?: string;
@@ -71,7 +72,7 @@ export default async function RetroBoardPage({
     >
       <BoardSync retroId={board.retro.id} />
       {board.retro.phase === "completed" ? (
-        <WrappedSummary board={board} isHost={isHost} />
+        <WrappedSummary board={board} />
       ) : board.retro.phase === "scheduled" ? (
         <ScheduledBoard board={board} isHost={isHost} query={query} />
       ) : (
@@ -193,6 +194,24 @@ function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: b
           <p className="mx-auto mt-2 max-w-md text-[13px] leading-6 text-[var(--fg-2)]">
             {readyToStart ? "Opening the board now." : "The board is ready, but writing stays closed until the host starts it."}
           </p>
+          {isHost ? (
+            <div className="mx-auto mt-5 max-w-md border-t border-dashed border-spill-line pt-4 text-left">
+              <div className="grid gap-2 text-[13px] font-semibold text-spill-muted">
+                <p>
+                  name{" "}
+                  <span className="text-[18px] font-extrabold tracking-[-0.02em] text-spill-fg">
+                    <InlineDetailEditor field="title" label="Retro title" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.retro.title} />
+                  </span>
+                </p>
+                <p>
+                  group{" "}
+                  <span className="text-[18px] font-extrabold tracking-[-0.02em] text-spill-fg">
+                    <InlineDetailEditor field="group_name" label="Retro group" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.series?.name ?? board.retro.title} />
+                  </span>
+                </p>
+              </div>
+            </div>
+          ) : null}
           {isHost && !readyToStart ? (
             <form action={startScheduledRetroAction} className="mt-5">
               <input name="retro_id" type="hidden" value={board.retro.id} />

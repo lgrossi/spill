@@ -1,15 +1,14 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import { Pill, Tile } from "@/components/spill-ui";
+import { Avatar, CardFooter, Pill, SpillCard, Tile, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { displayRetroDate, formatDateOnly } from "@/lib/retro-dates";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
-import { InlineDetailEditor } from "./inline-detail-editor";
 
-export function WrappedSummary({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
+export function WrappedSummary({ board }: { board: RetroBoard }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
@@ -72,72 +71,63 @@ export function WrappedSummary({ board, isHost }: { board: RetroBoard; isHost: b
           </div>
         </Tile>
 
-        <ParticipantsSummary board={board} />
-        <NextRetroTile board={board} isHost={isHost} />
+        <ParticipantsSummary board={board} cards={cards} />
+        <NextRetroTile board={board} />
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
       </aside>
     </section>
   );
 }
 
-function ParticipantsSummary({ board }: { board: RetroBoard }) {
-  const hosts = board.participants.filter((participant) => participant.role === "host");
+function ParticipantsSummary({ board, cards }: { board: RetroBoard; cards: RetroCard[] }) {
   return (
-    <Tile>
-      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">participants</p>
-      <div className="mt-3 flex items-baseline justify-between gap-3">
-        <strong className="text-3xl font-extrabold tracking-[-0.04em] text-spill-fg">{board.participants.length}</strong>
-        <span className="text-[11.5px] font-semibold text-spill-muted">{hosts.length} host{hosts.length === 1 ? "" : "s"}</span>
-      </div>
-      <div className="mt-3 space-y-1.5">
+    <div>
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">who participated</p>
+      <Tile className="mt-2">
+        <div className="space-y-2.5">
         {board.participants.slice(0, 5).map((participant) => (
-          <div className="flex items-center gap-2 text-[12px]" key={participant.id}>
-            <span className="h-2 w-2 rounded-full bg-spill-well" />
-            <span className="min-w-0 flex-1 truncate font-semibold text-spill-fg">{participant.display_name}</span>
-            <Pill tone={participant.role === "host" ? "solid" : "neutral"}>{participant.role}</Pill>
+          <div className="flex items-center gap-2.5 text-[12.5px]" key={participant.id}>
+            <Avatar color={avatarColorForSeed(participant.id)} k={avatarInitials(participant.display_name)} ring="var(--panel)" size={28} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold text-spill-fg">
+                {participant.display_name}
+                {participant.role === "host" ? <span className="ml-1 text-[10.5px] font-medium text-spill-muted">· host</span> : null}
+              </p>
+              <p className="mt-0.5 text-[10.5px] text-spill-muted">{participantCardCount(cards, participant.id)} cards</p>
+            </div>
           </div>
         ))}
         {board.participants.length > 5 ? (
           <p className="text-[11.5px] font-semibold text-spill-muted">+{board.participants.length - 5} more</p>
         ) : null}
-      </div>
-    </Tile>
+        </div>
+      </Tile>
+    </div>
   );
 }
 
-function NextRetroTile({ board, isHost }: { board: RetroBoard; isHost: boolean }) {
+function NextRetroTile({ board }: { board: RetroBoard }) {
   const next = board.next_retro;
   const groupName = next?.group_name ?? board.series?.name ?? "";
   return (
-    <Tile>
-      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next retro</p>
+    <div className="border-t border-dashed border-spill-line pt-4">
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next time{next ? ` · opens ${formatDateOnly(next.planned_for)}` : ""}</p>
       {next ? (
-        <div className="mt-3 space-y-3">
-          <div>
-            {isHost ? (
-              <InlineDetailEditor field="title" label="Next retro title" retroId={next.id} returnTo={`/retros/${board.retro.id}`} value={next.title} />
-            ) : (
-              <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-spill-fg">{next.title}</h3>
-            )}
-            <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">planned for {formatDateOnly(next.planned_for)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">group</p>
-            {isHost ? (
-              <InlineDetailEditor field="group_name" label="Retro group" retroId={next.id} returnTo={`/retros/${board.retro.id}`} value={groupName} />
-            ) : (
-              <p className="mt-0.5 text-[13px] font-bold text-spill-fg">{groupName || "No group"}</p>
-            )}
-          </div>
-          <Link className="inline-flex rounded-[8px] bg-spill-wrong px-3 py-2 text-[12px] font-extrabold text-white shadow-[var(--shadow-1)]" href={`/retros/${next.id}`}>
-            open next retro
+        <Tile className="mt-2">
+          <Link className="text-[15px] font-extrabold tracking-[-0.02em] text-spill-fg hover:text-spill-wrong hover:underline hover:decoration-spill-wrong/40 hover:underline-offset-4" href={`/retros/${next.id}`}>
+            {next.title}
           </Link>
-        </div>
+          <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">{groupName ? `${groupName} · ` : ""}auto-scheduled · same shape</p>
+        </Tile>
       ) : (
         <p className="mt-3 text-[11.5px] leading-5 text-spill-muted">Next retro is being planned when this board wraps.</p>
       )}
-    </Tile>
+    </div>
   );
+}
+
+function participantCardCount(cards: RetroCard[], participantId: string) {
+  return cards.filter((card) => card.author_participant_id === participantId).length;
 }
 
 type MoodPresentation = {
@@ -264,7 +254,7 @@ function FinalBoard({
                   <span className="ml-auto text-[10.5px] font-semibold text-spill-muted">{visibleCards.length}</span>
                 </div>
                 <div className="space-y-2">
-                  {visibleCards.map((card) => <WrappedBoardCard card={card} key={card.id} />)}
+                  {visibleCards.map((card) => <WrappedBoardCard board={board} card={card} color={semantic.color} semantic={semantic.kind} key={card.id} />)}
                   {visibleCards.length === 0 ? <p className="rounded-[8px] border border-dashed border-spill-line px-3 py-2 text-[11.5px] text-spill-muted">No cards</p> : null}
                 </div>
               </Tile>
@@ -323,26 +313,47 @@ function CommittedActions({
   );
 }
 
-function WrappedBoardCard({ card }: { card: RetroCard }) {
+function WrappedBoardCard({
+  board,
+  card,
+  color,
+  semantic,
+}: {
+  board: RetroBoard;
+  card: RetroCard;
+  color: string;
+  semantic: string;
+}) {
+  const author = participantById(board, card.author_participant_id);
   return (
-    <div className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12.5px] leading-5 text-spill-fg">
+    <SpillCard accent={color}>
       {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
       <div className="flex items-start gap-2">
         <p className="min-w-0 flex-1 whitespace-pre-wrap">{cardLabel(card)}</p>
-        {card.vote_count > 0 ? <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-spill-muted">{voteLabel(card.vote_count)}</span> : null}
+        {card.vote_count > 0 ? <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[var(--card-button-fg)]">{voteLabel(card.vote_count)}</span> : null}
       </div>
       {card.cluster_members.length > 0 ? (
-        <div className="mt-2 space-y-1 border-t border-spill-line pt-2">
+        <div className="mt-2 space-y-1.5 border-t border-white/20 pt-2">
           {card.cluster_members.map((member) => (
-            <div className="rounded-[6px] bg-white/55 px-2 py-1 text-[11.5px] text-spill-muted" key={member.id}>
+            <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-white/90" key={member.id}>
               {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
               <p className="mt-1 first:mt-0">{member.body_text || member.gif_alt_text || "media card"}</p>
             </div>
           ))}
         </div>
       ) : null}
-    </div>
+      <CardFooter
+        author={avatarInitials(author?.display_name)}
+        authorName={shortAuthorName(author?.display_name)}
+        color={avatarColorForSeed(author?.id)}
+        tag={semantic}
+      />
+    </SpillCard>
   );
+}
+
+function participantById(board: RetroBoard, participantId: string) {
+  return board.participants.find((participant) => participant.id === participantId);
 }
 
 function actionCheckClass(checked: boolean) {

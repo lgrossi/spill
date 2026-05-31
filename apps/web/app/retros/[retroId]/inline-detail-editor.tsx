@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { updateRetroDetailsAction } from "@/lib/actions";
 
 export function InlineDetailEditor({
@@ -16,6 +16,7 @@ export function InlineDetailEditor({
   value: string;
   returnTo: string;
 }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
   const [currentValue, setCurrentValue] = useState(value);
   const [isPending, startTransition] = useTransition();
 
@@ -23,8 +24,10 @@ export function InlineDetailEditor({
     const trimmed = nextValue.trim();
     if (!trimmed || trimmed === value) {
       setCurrentValue(value);
+      if (ref.current) ref.current.textContent = value;
       return;
     }
+    setCurrentValue(trimmed);
     const formData = new FormData();
     formData.set("retro_id", retroId);
     formData.set("return_to", returnTo);
@@ -35,12 +38,12 @@ export function InlineDetailEditor({
   }
 
   return (
-    <input
+    <span
       aria-label={label}
-      className="min-w-0 rounded-none border-0 border-b border-dashed border-spill-muted/70 bg-transparent px-0.5 py-0 text-[inherit] font-[inherit] leading-[inherit] tracking-[inherit] text-spill-fg outline-none transition placeholder:text-spill-muted/70 focus:border-spill-fg focus:bg-[rgba(207,138,63,0.08)] disabled:cursor-wait disabled:opacity-70"
-      disabled={isPending}
-      onBlur={(event) => save(event.currentTarget.value)}
-      onChange={(event) => setCurrentValue(event.currentTarget.value)}
+      className={`inline-block min-w-[8ch] max-w-full border-b border-dashed border-spill-muted/70 px-0.5 text-[inherit] font-[inherit] leading-[inherit] tracking-[inherit] text-spill-fg outline-none transition focus:border-spill-fg ${isPending ? "cursor-wait opacity-70" : "cursor-text"}`}
+      contentEditable={!isPending}
+      onBlur={(event) => save(event.currentTarget.textContent ?? "")}
+      onInput={(event) => setCurrentValue(event.currentTarget.textContent ?? "")}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -48,10 +51,16 @@ export function InlineDetailEditor({
         }
         if (event.key === "Escape") {
           setCurrentValue(value);
+          event.currentTarget.textContent = value;
           event.currentTarget.blur();
         }
       }}
-      value={currentValue}
-    />
+      ref={ref}
+      role="textbox"
+      style={{ width: `${Math.max(currentValue.length + 1, 8)}ch` }}
+      suppressContentEditableWarning
+    >
+      {currentValue}
+    </span>
   );
 }
