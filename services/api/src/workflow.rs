@@ -14,8 +14,8 @@ use crate::{
     ai_summary,
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
-        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, UpdateActionRequest,
-        UpdateDraftCardRequest,
+        CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, RescheduleRetroRequest,
+        UpdateActionRequest, UpdateDraftCardRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -53,6 +53,10 @@ impl RetroWorkflow {
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
+        let planned_for = match optional_non_empty(request.planned_for) {
+            Some(value) => Some(require_date_only("planned_for", value)?),
+            None => None,
+        };
         let board = self
             .repository
             .create_retro(CreateRetroInput {
@@ -60,6 +64,7 @@ impl RetroWorkflow {
                 creator_subject: user.subject,
                 creator_email: user.email,
                 creator_display_name: user.display_name,
+                planned_for,
                 template: retro_template(&request.template, request.columns)?,
                 vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
                 action_discussion_limit: require_non_negative(
@@ -79,7 +84,8 @@ impl RetroWorkflow {
             }
             if invitee.role != "host" && invitee.role != "member" {
                 return Err(ApiError::bad_request(format!(
-                    "role must be \"host\" or \"member\", got: {}", invitee.role
+                    "role must be \"host\" or \"member\", got: {}",
+                    invitee.role
                 )));
             }
             self.repository
@@ -98,6 +104,17 @@ impl RetroWorkflow {
         request: CreateDraftCardRequest,
     ) -> Result<(StatusCode, retro_db::CardRecord), ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase == "scheduled" || retro.phase == "completed" {
+            return Err(ApiError::bad_request(
+                "cards can only be created after the retro has started",
+            ));
+        }
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
         let card = self
@@ -116,6 +133,45 @@ impl RetroWorkflow {
 
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok((StatusCode::CREATED, card))
+    }
+
+    pub async fn reschedule_retro(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+        request: RescheduleRetroRequest,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let planned_for = require_date_only(
+            "planned_for",
+            require_non_empty(
+                "planned_for",
+                request
+                    .planned_for
+                    .ok_or_else(|| ApiError::bad_request("planned_for is required"))?,
+            )?,
+        )?;
+        if let Some(retro) = self
+            .repository
+            .reschedule_scheduled_retro(retro_id, &planned_for)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to reschedule retro: {error}")))?
+        {
+            self.event_hub
+                .publish(BoardEvent::PhaseChanged { retro_id: retro.id });
+            return self.fetch_board_for_user(retro_id, &user).await;
+        }
+
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        Err(ApiError::bad_request(format!(
+            "planned_for can only be rescheduled while scheduled, current phase is {}",
+            retro.phase
+        )))
     }
 
     pub async fn ingest_item(
@@ -353,6 +409,39 @@ impl RetroWorkflow {
             .map_err(voting_error)?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
+        self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    pub async fn start_scheduled_retro(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let started = self
+            .repository
+            .start_scheduled_retro(retro_id)
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to start scheduled retro: {error}"))
+            })?;
+        if started.is_some() {
+            self.event_hub
+                .publish(BoardEvent::PhaseChanged { retro_id });
+        } else {
+            let retro = self
+                .repository
+                .fetch_retro(retro_id)
+                .await
+                .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+                .ok_or_else(|| ApiError::not_found("retro not found"))?;
+            if retro.phase != "writing" {
+                return Err(ApiError::bad_request(format!(
+                    "scheduled retro cannot be started from {}",
+                    retro.phase
+                )));
+            }
+        }
         self.fetch_board_for_user(retro_id, &user).await
     }
 
@@ -612,6 +701,40 @@ pub fn require_non_empty(field: &'static str, value: String) -> Result<String, A
     }
 }
 
+fn require_date_only(field: &'static str, value: String) -> Result<String, ApiError> {
+    let bytes = value.as_bytes();
+    let valid_shape = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    if !valid_shape {
+        return Err(ApiError::bad_request(format!(
+            "{field} must use YYYY-MM-DD"
+        )));
+    }
+
+    let year = value[0..4].parse::<i32>().unwrap_or(0);
+    let month = value[5..7].parse::<u32>().unwrap_or(0);
+    let day = value[8..10].parse::<u32>().unwrap_or(0);
+    let leap_year = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap_year => 29,
+        2 => 28,
+        _ => 0,
+    };
+    if day == 0 || day > max_day {
+        return Err(ApiError::bad_request(format!(
+            "{field} is not a valid date"
+        )));
+    }
+    Ok(value)
+}
+
 fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError> {
     if value >= 0 {
         Ok(value)
@@ -675,16 +798,5 @@ fn domain_error(error: DomainError) -> ApiError {
             ApiError::bad_request(format!("invalid {domain}: {value}"))
         }
         other => ApiError::bad_request(format!("domain validation failed: {other:?}")),
-    }
-}
-
-fn validate_invitee_role(role: Option<&str>) -> Result<String, ApiError> {
-    let r = role.unwrap_or("member");
-    if r == "host" || r == "member" {
-        Ok(r.to_owned())
-    } else {
-        Err(ApiError::bad_request(format!(
-            "role must be \"host\" or \"member\", got: {r}"
-        )))
     }
 }

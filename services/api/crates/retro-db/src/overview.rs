@@ -14,6 +14,8 @@ pub(super) async fn list_retros(
             r.vote_limit,
             r.action_discussion_limit,
             to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,
+            to_char(r.planned_for, 'YYYY-MM-DD') AS planned_for,
+            to_char(r.happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at,
             to_char(
                 GREATEST(
                     r.created_at,

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
 import { createRetroAction } from "@/lib/actions";
 import { InvitePanel } from "@/components/invite-panel";
+import { localDateString } from "@/lib/retro-dates";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -29,6 +30,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
+  const today = localDateString(new Date());
 
   function updateColumn(index: number, value: string) {
     setCustomColumns((columns) => columns.map((column, columnIndex) => (columnIndex === index ? value : column)));
@@ -63,6 +65,15 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
         <div>
           <div className="mb-2 flex items-center gap-2">
             <StepNum n="2" />
+            <label className="text-[13px] font-bold text-spill-fg" htmlFor="planned_for">Retro date</label>
+            <span className="text-[11px] text-spill-muted">future dates wait on the wall</span>
+          </div>
+          <input id="planned_for" name="planned_for" type="date" defaultValue={today} className={`${fieldControlClass} min-h-11 w-full max-w-sm`} />
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <StepNum n="3" />
             <p className="text-[13px] font-bold text-spill-fg">Pick a shape</p>
           </div>
           <TemplatePicker template={template} setTemplate={setTemplate} />
@@ -73,7 +84,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="3" />
+            <StepNum n="4" />
             <p className="text-[13px] font-bold text-spill-fg">House rules</p>
           </div>
           <div className="grid gap-2.5 md:grid-cols-2">
@@ -159,7 +170,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="4" />
+            <StepNum n="5" />
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
           <InvitePanel mode="create" onInviteesChange={setInvitees} />
@@ -178,7 +189,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <Tile className="border-spill-action/60 bg-spill-action/10">
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.1em] text-spill-action">how it works</p>
-          <p className="mt-2 text-[12.5px] leading-6 text-[var(--fg-2)]">Board opens in writing mode. Drafts stay private until everyone marks ready. Board access is invite-only. The host grants access before sharing the link.</p>
+          <p className="mt-2 text-[12.5px] leading-6 text-[var(--fg-2)]">Today and past dates open in writing mode. Future dates wait on the wall until the host starts them. Board access is invite-only.</p>
         </Tile>
 
         <Tile>

@@ -1,15 +1,18 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { BoardAccessDenied, IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
-import { AppChrome, Stack, avatarColorForSeed, avatarInitials } from "@/components/spill-ui";
+import { AppChrome, Btn, Stack, Tile, avatarColorForSeed, avatarInitials, spillColors } from "@/components/spill-ui";
 import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
+import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
-import { listGrantsAction, markReadyAction, unmarkReadyAction } from "@/lib/actions";
+import { listGrantsAction, markReadyAction, startScheduledRetroAction, unmarkReadyAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
 import { PhaseControls } from "./phase-controls";
 import { PhaseLine } from "./phase-line";
+import { PlannedDateEditor } from "./planned-date-editor";
+import { ScheduledAutoStart } from "./scheduled-auto-start";
 import { WrappedSummary } from "./wrapped-summary";
 
 type BoardSearchParams = {
@@ -69,6 +72,8 @@ export default async function RetroBoardPage({
       <BoardSync retroId={board.retro.id} />
       {board.retro.phase === "completed" ? (
         <WrappedSummary board={board} />
+      ) : board.retro.phase === "scheduled" ? (
+        <ScheduledBoard board={board} isHost={isHost} query={query} />
       ) : (
         <BoardColumns board={board} query={query} />
       )}
@@ -128,6 +133,7 @@ function ReadyCheckbox({ retroId, checked }: { retroId: string; checked: boolean
 
 function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
   const phase = board.retro.phase;
+  if (phase === "scheduled") return <span>{displayRetroDate(board.retro)}</span>;
   if (phase === "writing") {
     return <ReadyCheckbox retroId={board.retro.id} checked={board.ready.current_user_ready} />;
   }
@@ -147,7 +153,7 @@ function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
 function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }): ReactNode {
   // The completed phase swaps in WrappedSummary on its own page, so no
   // center widget is needed there.
-  if (board.retro.phase === "completed") return null;
+  if (board.retro.phase === "completed" || board.retro.phase === "scheduled") return null;
   const allReady =
     board.ready.participant_count > 0 &&
     board.ready.ready_count >= board.ready.participant_count;
@@ -160,6 +166,46 @@ function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }):
       readyCount={board.ready.ready_count}
       allReady={allReady}
     />
+  );
+}
+
+function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: boolean; query: BoardSearchParams }) {
+  const date = displayRetroDate(board.retro);
+  const readyToStart = isPlannedForDue(board.retro.planned_for);
+  return (
+    <div className="relative flex min-h-0 flex-1">
+      <BoardColumns board={board} query={query} />
+      {readyToStart ? <ScheduledAutoStart retroId={board.retro.id} /> : null}
+      <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(243,232,207,0.78)] p-6 backdrop-blur-[2px]">
+        <Tile className="sp-panel-grain max-w-xl border-spill-mood/50 bg-spill-panel p-6 text-center shadow-[var(--shadow-3)]">
+          <p className="-rotate-1 font-hand text-[30px] leading-none text-spill-fg">{readyToStart ? "ready to start" : "not on the wall yet"}</p>
+          <h2 className="mt-3 text-[26px] font-extrabold tracking-[-0.03em] text-spill-fg">
+            {readyToStart ? (
+              `This retro was planned for ${date}.`
+            ) : isHost ? (
+              <>
+                This retro is planned for <PlannedDateEditor plannedFor={board.retro.planned_for} retroId={board.retro.id} />.
+              </>
+            ) : (
+              `This retro is planned for ${date}.`
+            )}
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-[13px] leading-6 text-[var(--fg-2)]">
+            {readyToStart ? "Opening the board now." : "The board is ready, but writing stays closed until the host starts it."}
+          </p>
+          {isHost && !readyToStart ? (
+            <form action={startScheduledRetroAction} className="mt-5">
+              <input name="retro_id" type="hidden" value={board.retro.id} />
+              <Btn kind="primary" type="submit" accent={spillColors.wrong}>start now</Btn>
+            </form>
+          ) : !readyToStart ? (
+            <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted">waiting for the host</p>
+          ) : (
+            <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted">starting</p>
+          )}
+        </Tile>
+      </div>
+    </div>
   );
 }
 

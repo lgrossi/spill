@@ -17,16 +17,17 @@ impl RetroRepository {
 
         sqlx::query_as::<_, CardRecord>(
             "INSERT INTO cards (retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position)
-             VALUES (
+             SELECT
                 $1,
                 $2,
                 $3,
                 $4,
                 $5,
                 $6,
-                (SELECT CASE WHEN phase = 'writing' THEN 'draft' ELSE 'revealed' END FROM retros WHERE id = $1),
+                CASE WHEN phase = 'writing' THEN 'draft' ELSE 'revealed' END,
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
-             )
+             FROM retros
+             WHERE id = $1 AND phase NOT IN ('scheduled', 'completed')
              RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, NULL::UUID AS cluster_id, NULL::UUID AS parent_card_id, NULL::TEXT AS cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(input.retro_id)

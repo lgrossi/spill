@@ -35,6 +35,7 @@ export function cardLabel(card: RetroCard) {
 }
 
 export function presenceForPhase(phase: RetroBoard["retro"]["phase"]) {
+  if (phase === "scheduled") return "away" as const;
   if (phase === "voting") return "voting" as const;
   if (phase === "completed" || phase === "action_discussion") return "ready" as const;
   return "writing" as const;

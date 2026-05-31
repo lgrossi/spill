@@ -15,7 +15,8 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
   const columns = board.columns;
   const activeColumnId = query.editCard ? undefined : query.addColumn;
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
-  const canAddCards = board.retro.phase !== "completed";
+  const isInteractive = board.retro.phase !== "completed" && board.retro.phase !== "scheduled";
+  const canAddCards = isInteractive;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col p-3 md:p-4" id="board">
@@ -32,7 +33,7 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
               const semantic = columnSemantic(column, index);
               const visibleCards = sortedCards(column.cards, board.retro.phase);
               const isActiveColumn = activeColumnId === column.id;
-              const canDrag = board.retro.phase !== "completed";
+              const canDrag = isInteractive;
 
               return (
                 <DropColumn columnId={column.id} enabled={canDrag} key={column.id}>

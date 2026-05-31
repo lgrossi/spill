@@ -38,7 +38,13 @@ impl RetroRepository {
     }
 
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
-        sqlx::query_as::<_, RetroRecord>("SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email FROM retros WHERE id = $1")
+        sqlx::query_as::<_, RetroRecord>(
+            "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
+             FROM retros
+             WHERE id = $1",
+        )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
@@ -50,6 +56,38 @@ impl RetroRepository {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn reschedule_scheduled_retro(
+        &self,
+        id: Uuid,
+        planned_for: &str,
+    ) -> Result<Option<RetroRecord>, sqlx::Error> {
+        sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET planned_for = $2::date
+             WHERE id = $1 AND phase = 'scheduled'
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
+        )
+        .bind(id)
+        .bind(planned_for)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn is_scheduled_retro_due(&self, id: Uuid) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM retros
+                WHERE id = $1 AND phase = 'scheduled' AND planned_for <= CURRENT_DATE
+            )",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     pub async fn create_retro(&self, input: CreateRetroInput) -> Result<RetroBoard, sqlx::Error> {
@@ -134,10 +172,7 @@ impl RetroRepository {
     /// what an anonymous viewer would see — the empty subject here is
     /// safe for any completed retro, which is the only state in which
     /// the runner is expected to be called.
-    pub async fn fetch_board_readonly(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<RetroBoard>, sqlx::Error> {
+    pub async fn fetch_board_readonly(&self, id: Uuid) -> Result<Option<RetroBoard>, sqlx::Error> {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
@@ -303,13 +338,12 @@ impl RetroRepository {
         email: &str,
     ) -> Result<bool, sqlx::Error> {
         let subject = email_subject(email);
-        let result = sqlx::query(
-            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
-        )
-        .bind(retro_id)
-        .bind(subject)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2")
+                .bind(retro_id)
+                .bind(subject)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -318,13 +352,12 @@ impl RetroRepository {
         retro_id: Uuid,
         subject: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2",
-        )
-        .bind(retro_id)
-        .bind(subject)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM participants WHERE retro_id = $1 AND external_subject = $2")
+                .bind(retro_id)
+                .bind(subject)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -595,6 +628,8 @@ pub struct RetroRecord {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub creator_email: String,
+    pub planned_for: String,
+    pub happened_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -941,6 +976,8 @@ pub struct RetroSummary {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub created_at: String,
+    pub planned_for: String,
+    pub happened_at: Option<String>,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
     pub participant_count: i64,
@@ -966,6 +1003,8 @@ struct RetroSummaryRow {
     vote_limit: i32,
     action_discussion_limit: i32,
     created_at: String,
+    planned_for: String,
+    happened_at: Option<String>,
     last_activity_at: String,
     last_opened_at: Option<String>,
     participant_count: i64,
@@ -985,6 +1024,8 @@ impl From<RetroSummaryRow> for RetroSummary {
             vote_limit: row.vote_limit,
             action_discussion_limit: row.action_discussion_limit,
             created_at: row.created_at,
+            planned_for: row.planned_for,
+            happened_at: row.happened_at,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
@@ -1017,6 +1058,7 @@ pub struct CreateRetroInput {
     pub creator_subject: String,
     pub creator_email: String,
     pub creator_display_name: String,
+    pub planned_for: Option<String>,
     pub template: RetroTemplate,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
@@ -1220,6 +1262,7 @@ mod tests {
                 creator_subject: "user-123".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1230,6 +1273,7 @@ mod tests {
 
         assert_eq!(created.retro.title, "Sprint 43");
         assert_eq!(created.retro.phase, "writing");
+        assert_eq!(created.retro.happened_at, None);
         assert_eq!(
             created
                 .columns
@@ -1247,6 +1291,70 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn future_planned_retro_starts_scheduled_then_host_can_start(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Future retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                planned_for: Some("2099-05-15".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .expect("create future retro");
+
+        assert_eq!(created.retro.phase, "scheduled");
+        assert_eq!(created.retro.planned_for, "2099-05-15");
+
+        let started = repo
+            .start_scheduled_retro(created.retro.id)
+            .await
+            .expect("start scheduled retro")
+            .expect("scheduled retro transitioned");
+
+        assert_eq!(started.phase, "writing");
+        assert_eq!(started.planned_for, "2099-05-15");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn completed_retro_sets_system_owned_happened_at(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Done retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                planned_for: Some("2000-01-02".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 0,
+                action_discussion_limit: 0,
+                column_colors: Vec::new(),
+            })
+            .await
+            .expect("create retro");
+
+        repo.reveal_board(created.retro.id).await.expect("reveal");
+        repo.start_action_discussion(created.retro.id)
+            .await
+            .expect("start action discussion");
+        let completed = repo
+            .complete_retro(created.retro.id)
+            .await
+            .expect("complete")
+            .expect("completed retro");
+
+        assert_eq!(completed.phase, "completed");
+        assert_eq!(completed.planned_for, "2000-01-02");
+        assert!(completed.happened_at.is_some());
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn creates_custom_retro_with_supplied_columns(pool: PgPool) {
         let repo = RetroRepository::new(pool);
 
@@ -1256,6 +1364,7 @@ mod tests {
                 creator_subject: "user-456".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Lee".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Custom {
                     columns: vec![
                         "Kudos".to_owned(),
@@ -1293,6 +1402,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1384,6 +1494,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1467,6 +1578,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1523,6 +1635,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1560,6 +1673,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1632,6 +1746,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1699,6 +1814,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1774,6 +1890,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -1848,6 +1965,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 2,
@@ -1985,6 +2103,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -2076,6 +2195,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -2147,6 +2267,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 3,
@@ -2200,6 +2321,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
                 action_discussion_limit: 1,

@@ -22,12 +22,13 @@ import {
   markReadyCommand,
   removeVoteCommand,
   revealRetroCommand,
+  startScheduledRetroCommand,
   startActionDiscussionCommand,
   startVotingCommand,
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
 import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
-import { createRetroCommand } from "./commands/retro-commands";
+import { createRetroCommand, rescheduleRetroCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
   createMeetingNoteCommand,
@@ -60,6 +61,10 @@ function safeReturnTo(value: string) {
 
 export async function createRetroAction(formData: FormData) {
   return createRetroCommand(formData);
+}
+
+export async function rescheduleRetroAction(formData: FormData) {
+  return rescheduleRetroCommand(formData);
 }
 
 export async function createDraftCardAction(formData: FormData) {
@@ -164,6 +169,10 @@ export async function removeGrantAction(retroId: string, email: string): Promise
 
 export async function forceRevealRetroAction(formData: FormData): Promise<void> {
   return forceRevealRetroCommand(formData);
+}
+
+export async function startScheduledRetroAction(formData: FormData): Promise<void> {
+  return startScheduledRetroCommand(formData);
 }
 
 export async function autoAdvanceAction(formData: FormData): Promise<void> {

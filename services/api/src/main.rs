@@ -14,25 +14,26 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use clap::{Parser, Subcommand};
+use contracts::RevealBoardRequest;
 use contracts::{
     AcceptDeckItemRequest, AddGrantRequest, CastVoteRequest, ClusterCardsRequest,
     CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
-    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest, SessionResponse,
-    StartAiJobRequest, UpdateActionRequest, UpdateDraftCardRequest,
+    HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest,
+    RescheduleRetroRequest, SessionResponse, StartAiJobRequest, UpdateActionRequest,
+    UpdateDraftCardRequest,
 };
-use contracts::RevealBoardRequest;
 use error::ApiError;
 use events::{BoardEvent, BoardEventHub};
+#[cfg(test)]
+use identity::HEADER_USER_EMAIL;
 use identity::{AccessModel, CurrentUser, LinkAccessPolicy};
 #[cfg(test)]
 use identity::{HEADER_USER_NAME, HEADER_USER_SUBJECT};
-#[cfg(test)]
-use identity::HEADER_USER_EMAIL;
 use retro_db::{BoardGrant, RetroOverview, RetroRepository};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::{net::TcpListener, sync::broadcast};
-use tracing_subscriber::prelude::*;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
+use tracing_subscriber::prelude::*;
 use uuid::Uuid;
 
 mod ai_provider;
@@ -132,7 +133,10 @@ fn app_with_state(state: AppState) -> Router {
         .with_state(state)
         // DefaultMakeSpan creates spans at DEBUG by default; INFO keeps them
         // visible through the EnvFilter and lets tracing-opentelemetry export them.
-        .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
+        )
 }
 
 fn api_router() -> Router<AppState> {
@@ -142,6 +146,8 @@ fn api_router() -> Router<AppState> {
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro).delete(delete_retro))
         .route("/retros/{retro_id}/events", get(board_events))
+        .route("/retros/{retro_id}/reschedule", post(reschedule_retro))
+        .route("/retros/{retro_id}/start", post(start_scheduled_retro))
         .route("/retros/{retro_id}/cards", post(create_draft_card))
         .route(
             "/retros/{retro_id}/cards/{card_id}",
@@ -212,7 +218,10 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/deliveries/{delivery_id}/retry",
             post(retry_delivery),
         )
-        .route("/retros/{retro_id}/grants", get(list_grants).post(add_grant))
+        .route(
+            "/retros/{retro_id}/grants",
+            get(list_grants).post(add_grant),
+        )
         .route("/retros/{retro_id}/grants/remove", post(remove_grant))
         .route(
             "/retros/{retro_id}/participants/{subject}",
@@ -274,7 +283,9 @@ async fn open_retro(
         let allowed = repository
             .is_board_member(retro_id, &user.email)
             .await
-            .map_err(|error| ApiError::internal(format!("failed to check board access: {error}")))?;
+            .map_err(|error| {
+                ApiError::internal(format!("failed to check board access: {error}"))
+            })?;
         if !allowed {
             return Err(ApiError::forbidden("not a member of this board"));
         }
@@ -303,6 +314,22 @@ async fn delete_retro(
         return Err(ApiError::not_found("retro not found"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn reschedule_retro(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<RescheduleRetroRequest>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    let repo = configured_repository(repository.clone())?;
+    require_host(&repo, retro_id, &user.email).await?;
+    retro_workflow(repository, event_hub)?
+        .reschedule_retro(user, retro_id, request)
+        .await
+        .map(Json)
 }
 
 async fn create_draft_card(
@@ -531,6 +558,45 @@ async fn reveal_board(
         .map(Json)
 }
 
+async fn start_scheduled_retro(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    let repo = configured_repository(repository.clone())?;
+    if !user.email.is_empty() {
+        let allowed = repo
+            .is_board_member(retro_id, &user.email)
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to check board access: {error}"))
+            })?;
+        if !allowed {
+            return Err(ApiError::forbidden("not a member of this board"));
+        }
+    }
+    let due = repo
+        .is_scheduled_retro_due(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check planned date: {error}")))?;
+    if !due {
+        let retro = repo
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase != "writing" {
+            require_host(&repo, retro_id, &user.email).await?;
+        }
+    }
+    retro_workflow(repository, event_hub)?
+        .start_scheduled_retro(user, retro_id)
+        .await
+        .map(Json)
+}
+
 async fn remove_participant_from_session(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
@@ -649,7 +715,15 @@ async fn confirm_action(
     Path((retro_id, action_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<retro_db::ActionItemRecord>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
-    set_action_status(repository, event_hub, user, retro_id, action_id, "confirmed").await
+    set_action_status(
+        repository,
+        event_hub,
+        user,
+        retro_id,
+        action_id,
+        "confirmed",
+    )
+    .await
 }
 
 async fn complete_action(
@@ -696,7 +770,6 @@ async fn complete_retro(
         .await
         .map(Json)
 }
-
 
 async fn set_action_status(
     repository: Option<RetroRepository>,
@@ -786,9 +859,9 @@ async fn list_grants(
         .map_err(|e| ApiError::internal(format!("failed to list grants: {e}")))?;
     // Any board member may list grants — the frontend uses the response to
     // determine the current user's role and show/hide invite controls.
-    let is_member = grants.iter().any(|g| {
-        g.principal_email.eq_ignore_ascii_case(&user.email)
-    });
+    let is_member = grants
+        .iter()
+        .any(|g| g.principal_email.eq_ignore_ascii_case(&user.email));
     if !user.email.is_empty() && !is_member {
         return Err(ApiError::forbidden("not a member of this board"));
     }
@@ -808,7 +881,7 @@ async fn add_grant(
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::bad_request("invalid email address"));
     }
-        validate_role(&request.role)?;
+    validate_role(&request.role)?;
     if email == user.email.trim().to_lowercase() {
         let grants = repository
             .list_board_grants(retro_id)
@@ -878,7 +951,9 @@ async fn require_host(
         .map(|g| g.role.as_str());
     let is_host = grant_role == Some("host");
     if !is_host && !is_creator {
-        return Err(ApiError::forbidden("only the board host can manage grants"));
+        return Err(ApiError::forbidden(
+            "only the board host can manage this retro",
+        ));
     }
     if is_creator && !is_host {
         repository
@@ -909,8 +984,8 @@ async fn check_is_host(
         .await
         .map_err(|e| ApiError::internal(format!("failed to fetch retro: {e}")))?
         .ok_or_else(|| ApiError::not_found("retro not found"))?;
-    let is_creator = !retro.creator_email.is_empty()
-        && retro.creator_email == email.trim().to_lowercase();
+    let is_creator =
+        !retro.creator_email.is_empty() && retro.creator_email == email.trim().to_lowercase();
     Ok(is_host || is_creator)
 }
 

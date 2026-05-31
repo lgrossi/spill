@@ -10,6 +10,7 @@ import {
   markReady,
   removeVote,
   revealRetro,
+  startScheduledRetro,
   startActionDiscussion,
   startVoting,
   unmarkReady,
@@ -41,6 +42,13 @@ export async function forceRevealRetroCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await forceRevealRetro(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function startScheduledRetroCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+
+  await startScheduledRetro(retroId);
   redirect(`/retros/${retroId}`);
 }
 
