@@ -25,11 +25,6 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       .filter((id): id is string => Boolean(id)),
   );
   const adhocActionCards = actionColumnCards.filter((card) => !linkedCardIds.has(card.id));
-  const totalActions = board.actions.length + adhocActionCards.length;
-  const actionCounts = board.actions.reduce(
-    (counts, action) => ({ ...counts, [action.status]: (counts[action.status] ?? 0) + 1 }),
-    {} as Record<string, number>,
-  );
 
   return (
     <section className="grid flex-1 grid-cols-1 gap-8 overflow-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -61,17 +56,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       </main>
 
       <aside className="space-y-5 border-t border-spill-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-        <Tile>
-          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">board totals</p>
-          <div className="mt-3 grid gap-2 text-[12.5px] text-spill-fg">
-            <div className="flex justify-between gap-3"><span>Cards</span><strong>{cards.length}</strong></div>
-            <div className="flex justify-between gap-3"><span>Votes cast</span><strong>{cards.reduce((sum, card) => sum + card.vote_count, 0)}</strong></div>
-            <div className="flex justify-between gap-3"><span>Actions</span><strong>{totalActions}</strong></div>
-            <div className="flex justify-between gap-3"><span>Done</span><strong>{actionCounts.done ?? 0}</strong></div>
-          </div>
-        </Tile>
-
-        <ParticipantsSummary board={board} cards={cards} />
+        <ParticipantsSummary board={board} />
         <NextRetroTile board={board} />
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
       </aside>
@@ -79,7 +64,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
   );
 }
 
-function ParticipantsSummary({ board, cards }: { board: RetroBoard; cards: RetroCard[] }) {
+function ParticipantsSummary({ board }: { board: RetroBoard }) {
   return (
     <div>
       <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">who participated</p>
@@ -93,7 +78,7 @@ function ParticipantsSummary({ board, cards }: { board: RetroBoard; cards: Retro
                 {participant.display_name}
                 {participant.role === "host" ? <span className="ml-1 text-[10.5px] font-medium text-spill-muted">· host</span> : null}
               </p>
-              <p className="mt-0.5 text-[10.5px] text-spill-muted">{participantCardCount(cards, participant.id)} cards</p>
+              <p className="mt-0.5 text-[10.5px] text-spill-muted">{countLabel(participant.card_count ?? 0, "card")} · {countLabel(participant.vote_count ?? 0, "vote")}</p>
             </div>
           </div>
         ))}
@@ -115,9 +100,9 @@ function NextRetroTile({ board }: { board: RetroBoard }) {
       {next ? (
         <Tile className="mt-2">
           <Link className="text-[15px] font-extrabold tracking-[-0.02em] text-spill-fg hover:text-spill-wrong hover:underline hover:decoration-spill-wrong/40 hover:underline-offset-4" href={`/retros/${next.id}`}>
-            {next.title}
+            {groupName ? `[${groupName}] ` : ""}{next.title}
           </Link>
-          <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">{groupName ? `${groupName} · ` : ""}auto-scheduled · same shape</p>
+          <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">auto-scheduled · same settings</p>
         </Tile>
       ) : (
         <p className="mt-3 text-[11.5px] leading-5 text-spill-muted">Next retro is being planned when this board wraps.</p>
@@ -126,8 +111,8 @@ function NextRetroTile({ board }: { board: RetroBoard }) {
   );
 }
 
-function participantCardCount(cards: RetroCard[], participantId: string) {
-  return cards.filter((card) => card.author_participant_id === participantId).length;
+function countLabel(count: number, noun: string) {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
 type MoodPresentation = {

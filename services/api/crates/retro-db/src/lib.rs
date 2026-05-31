@@ -420,10 +420,28 @@ impl RetroRepository {
         retro_id: Uuid,
     ) -> Result<Vec<ParticipantRecord>, sqlx::Error> {
         sqlx::query_as::<_, ParticipantRecord>(
-            "SELECT id, retro_id, external_subject, display_name, role
-             FROM participants
-             WHERE retro_id = $1
-             ORDER BY CASE role WHEN 'host' THEN 0 ELSE 1 END, created_at ASC, id ASC",
+            "SELECT
+                p.id,
+                p.retro_id,
+                p.external_subject,
+                p.display_name,
+                p.role,
+                (
+                    SELECT COUNT(*)::BIGINT
+                    FROM cards c
+                    WHERE c.retro_id = p.retro_id
+                      AND c.author_participant_id = p.id
+                      AND c.state = 'revealed'
+                ) AS card_count,
+                (
+                    SELECT COALESCE(SUM(v.count), 0)::BIGINT
+                    FROM votes v
+                    WHERE v.retro_id = p.retro_id
+                      AND v.participant_id = p.id
+                ) AS vote_count
+             FROM participants p
+             WHERE p.retro_id = $1
+             ORDER BY CASE p.role WHEN 'host' THEN 0 ELSE 1 END, p.created_at ASC, p.id ASC",
         )
         .bind(retro_id)
         .fetch_all(&self.pool)
@@ -718,6 +736,8 @@ pub struct ParticipantRecord {
     pub external_subject: Option<String>,
     pub display_name: String,
     pub role: String,
+    pub card_count: i64,
+    pub vote_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

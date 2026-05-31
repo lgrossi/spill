@@ -77,6 +77,8 @@ export type RetroParticipant = {
   external_subject: string | null;
   display_name: string;
   role: "host" | "member";
+  card_count: number;
+  vote_count: number;
 };
 
 export type GifResult = {

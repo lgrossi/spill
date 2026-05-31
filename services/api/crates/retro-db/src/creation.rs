@@ -83,7 +83,7 @@ pub(super) async fn create_retro(
          VALUES ($1, $2, $3, 'host')
          ON CONFLICT (retro_id, external_subject) DO UPDATE
          SET display_name = EXCLUDED.display_name
-         RETURNING id, retro_id, external_subject, display_name, role",
+         RETURNING id, retro_id, external_subject, display_name, role, 0::BIGINT AS card_count, 0::BIGINT AS vote_count",
     )
     .bind(retro.id)
     .bind(input.creator_subject.trim())
