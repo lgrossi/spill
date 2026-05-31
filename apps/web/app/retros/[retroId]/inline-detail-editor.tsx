@@ -40,7 +40,7 @@ export function InlineDetailEditor({
   return (
     <span
       aria-label={label}
-      className={`inline-block min-w-[8ch] max-w-full border-b border-dashed border-spill-muted/70 px-0.5 text-[inherit] font-[inherit] leading-[inherit] tracking-[inherit] text-spill-fg outline-none transition focus:border-spill-fg ${isPending ? "cursor-wait opacity-70" : "cursor-text"}`}
+      className={`inline border-b border-dashed border-spill-muted/70 px-0.5 text-[inherit] font-[inherit] leading-[inherit] tracking-[inherit] text-spill-fg outline-none transition focus:border-spill-fg ${isPending ? "cursor-wait opacity-70" : "cursor-text"}`}
       contentEditable={!isPending}
       onBlur={(event) => save(event.currentTarget.textContent ?? "")}
       onInput={(event) => setCurrentValue(event.currentTarget.textContent ?? "")}
@@ -57,7 +57,6 @@ export function InlineDetailEditor({
       }}
       ref={ref}
       role="textbox"
-      style={{ width: `${Math.max(currentValue.length + 1, 8)}ch` }}
       suppressContentEditableWarning
     >
       {currentValue}

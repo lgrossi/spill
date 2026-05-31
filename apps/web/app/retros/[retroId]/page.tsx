@@ -173,6 +173,7 @@ function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }):
 function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: boolean; query: BoardSearchParams }) {
   const date = displayRetroDate(board.retro);
   const readyToStart = isPlannedForDue(board.retro.planned_for);
+  const groupName = board.series?.name ?? "Group";
   return (
     <div className="relative flex min-h-0 flex-1">
       <BoardColumns board={board} query={query} />
@@ -182,36 +183,32 @@ function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: b
           <p className="-rotate-1 font-hand text-[30px] leading-none text-spill-fg">{readyToStart ? "ready to start" : "not on the wall yet"}</p>
           <h2 className="mt-3 text-[26px] font-extrabold tracking-[-0.03em] text-spill-fg">
             {readyToStart ? (
-              `This retro was planned for ${date}.`
+              isHost ? (
+                <>
+                  <span className="block">
+                    [<InlineDetailEditor field="group_name" label="Retro group" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={groupName} />]{" "}
+                    <InlineDetailEditor field="title" label="Retro title" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.retro.title} />
+                  </span>
+                  <span className="block">was planned for {date}.</span>
+                </>
+              ) : (
+                `${board.series ? `[${board.series.name}] ` : ""}${board.retro.title} was planned for ${date}.`
+              )
             ) : isHost ? (
               <>
-                This retro is planned for <PlannedDateEditor plannedFor={board.retro.planned_for} retroId={board.retro.id} />.
+                <span className="block">
+                  [<InlineDetailEditor field="group_name" label="Retro group" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={groupName} />]{" "}
+                  <InlineDetailEditor field="title" label="Retro title" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.retro.title} />
+                </span>
+                <span className="block">is scheduled for <PlannedDateEditor plannedFor={board.retro.planned_for} retroId={board.retro.id} />.</span>
               </>
             ) : (
-              `This retro is planned for ${date}.`
+              `${board.series ? `[${board.series.name}] ` : ""}${board.retro.title} is scheduled for ${date}.`
             )}
           </h2>
           <p className="mx-auto mt-2 max-w-md text-[13px] leading-6 text-[var(--fg-2)]">
             {readyToStart ? "Opening the board now." : "The board is ready, but writing stays closed until the host starts it."}
           </p>
-          {isHost ? (
-            <div className="mx-auto mt-5 max-w-md border-t border-dashed border-spill-line pt-4 text-left">
-              <div className="grid gap-2 text-[13px] font-semibold text-spill-muted">
-                <p>
-                  name{" "}
-                  <span className="text-[18px] font-extrabold tracking-[-0.02em] text-spill-fg">
-                    <InlineDetailEditor field="title" label="Retro title" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.retro.title} />
-                  </span>
-                </p>
-                <p>
-                  group{" "}
-                  <span className="text-[18px] font-extrabold tracking-[-0.02em] text-spill-fg">
-                    <InlineDetailEditor field="group_name" label="Retro group" retroId={board.retro.id} returnTo={`/retros/${board.retro.id}`} value={board.series?.name ?? board.retro.title} />
-                  </span>
-                </p>
-              </div>
-            </div>
-          ) : null}
           {isHost && !readyToStart ? (
             <form action={startScheduledRetroAction} className="mt-5">
               <input name="retro_id" type="hidden" value={board.retro.id} />
