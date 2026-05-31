@@ -5,12 +5,14 @@ import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RetroSummary } from "@/lib/api";
 import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
+import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 import { DeleteBoardButton } from "./delete-board-button";
 
 const pageSize = 5;
 const phaseOptions = [
   ["all", "all statuses"],
+  ["scheduled", "planned"],
   ["writing", "writing"],
   ["discussion", "review"],
   ["voting", "voting"],
@@ -160,7 +162,7 @@ export function BoardHistory({
                 <span className="min-w-0">
                   <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
                   <span className="text-[11px] text-spill-muted">
-                    updated {formatBoardDate(board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
+                    {displayRetroDate(board)} . {lastSeenText(board.last_opened_at ?? board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
                   </span>
                 </span>
                 <span
@@ -171,7 +173,7 @@ export function BoardHistory({
                     color: phaseColor(board.phase),
                   } as CSSProperties}
                 >
-                  {phaseLabel(board.phase)}
+                  {board.phase === "scheduled" && isPlannedForDue(board.planned_for) ? "ready" : phaseLabel(board.phase)}
                 </span>
               </Link>
               <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
@@ -217,13 +219,23 @@ function historyHref(query: string, status: string, shown: number) {
 
 function formatBoardDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "updated recently";
+  if (Number.isNaN(date.getTime())) return "recently";
   const now = new Date();
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
   }).format(date);
+}
+
+function lastSeenText(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "last seen recently";
+  const elapsedMs = Math.max(0, Date.now() - date.getTime());
+  const elapsedDays = Math.floor(elapsedMs / 86_400_000);
+  if (elapsedDays <= 0) return "last seen today";
+  if (elapsedDays === 1) return "last seen 1d ago";
+  return `last seen ${elapsedDays}d ago`;
 }
 
 function normalizeStatus(status: string) {

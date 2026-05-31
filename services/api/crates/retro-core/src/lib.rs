@@ -30,6 +30,7 @@ macro_rules! domain_string_enum {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetroPhase {
+    Scheduled,
     Writing,
     Discussion,
     Voting,
@@ -41,7 +42,8 @@ impl RetroPhase {
     pub fn transition_to(self, next: Self) -> Result<Self, DomainError> {
         matches!(
             (self, next),
-            (Self::Writing, Self::Discussion)
+            (Self::Scheduled, Self::Writing)
+                | (Self::Writing, Self::Discussion)
                 | (Self::Discussion, Self::Voting)
                 | (Self::Voting, Self::ActionDiscussion)
                 | (Self::ActionDiscussion, Self::Completed)
@@ -59,6 +61,7 @@ impl RetroPhase {
 }
 
 domain_string_enum!(RetroPhase, "retro_phase", {
+    Scheduled => "scheduled",
     Writing => "writing",
     Discussion => "discussion",
     Voting => "voting",
@@ -394,8 +397,9 @@ mod tests {
 
     #[test]
     fn accepts_the_ordered_mvp_phase_flow() {
-        let phase = RetroPhase::Writing
-            .transition_to(RetroPhase::Discussion)
+        let phase = RetroPhase::Scheduled
+            .transition_to(RetroPhase::Writing)
+            .and_then(|phase| phase.transition_to(RetroPhase::Discussion))
             .and_then(|phase| phase.transition_to(RetroPhase::Voting))
             .and_then(|phase| phase.transition_to(RetroPhase::ActionDiscussion))
             .and_then(|phase| phase.transition_to(RetroPhase::Completed))

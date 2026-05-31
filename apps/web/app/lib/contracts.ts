@@ -1,4 +1,4 @@
-export type RetroPhase = "writing" | "discussion" | "voting" | "action_discussion" | "completed";
+export type RetroPhase = "scheduled" | "writing" | "discussion" | "voting" | "action_discussion" | "completed";
 
 export type RetroSummary = {
   id: string;
@@ -7,6 +7,8 @@ export type RetroSummary = {
   vote_limit: number;
   action_discussion_limit: number;
   created_at: string;
+  planned_for: string;
+  happened_at: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
@@ -97,6 +99,8 @@ export type RetroBoard = {
     phase: RetroPhase;
     vote_limit: number;
     action_discussion_limit: number;
+    planned_for: string;
+    happened_at: string | null;
   };
   participants: RetroParticipant[];
   columns: RetroColumn[];
@@ -183,6 +187,7 @@ export type InviteeRequest = {
 export type CreateRetroPayload =
   | {
       title: string;
+      planned_for?: string | null;
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
@@ -190,6 +195,7 @@ export type CreateRetroPayload =
     }
   | {
       title: string;
+      planned_for?: string | null;
       template: "custom";
       columns: string[];
       column_colors?: string[];
@@ -197,6 +203,10 @@ export type CreateRetroPayload =
       action_discussion_limit: number;
       invitees?: InviteeRequest[];
     };
+
+export type RescheduleRetroPayload = {
+  planned_for?: string | null;
+};
 
 export type Grant = {
   id: string;

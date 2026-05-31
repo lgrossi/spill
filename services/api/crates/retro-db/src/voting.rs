@@ -14,11 +14,12 @@ impl RetroRepository {
             .await?;
         sqlx::query(
             "INSERT INTO participant_ready_marks (participant_id, retro_id, phase)
-             VALUES (
+             SELECT
                 $1,
                 $2,
-                (SELECT CASE WHEN phase = 'voting' THEN 'voting' ELSE 'writing' END FROM retros WHERE id = $2)
-             )
+                CASE WHEN phase = 'voting' THEN 'voting' ELSE 'writing' END
+             FROM retros
+             WHERE id = $2 AND phase IN ('writing', 'voting')
              ON CONFLICT (participant_id, phase) DO NOTHING",
         )
         .bind(participant_id)
@@ -52,7 +53,9 @@ impl RetroRepository {
             "UPDATE retros
              SET phase = 'discussion'
              WHERE id = $1 AND phase = 'writing'
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(retro_id)
         .fetch_one(&mut *tx)
@@ -67,12 +70,28 @@ impl RetroRepository {
         Ok(retro)
     }
 
+    pub async fn start_scheduled_retro(&self, retro_id: Uuid) -> Result<RetroRecord, sqlx::Error> {
+        sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET phase = 'writing'
+             WHERE id = $1 AND phase = 'scheduled'
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
+        )
+        .bind(retro_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn start_voting(&self, retro_id: Uuid) -> Result<RetroRecord, VotingError> {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET phase = 'voting'
              WHERE id = $1 AND phase = 'discussion' AND vote_limit > 0
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(retro_id)
         .fetch_one(&self.pool)

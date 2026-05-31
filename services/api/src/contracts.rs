@@ -18,6 +18,7 @@ pub struct SessionResponse {
 #[derive(Deserialize)]
 pub struct CreateRetroRequest {
     pub title: String,
+    pub planned_for: Option<String>,
     pub template: String,
     #[serde(default)]
     pub columns: Vec<String>,
@@ -28,7 +29,13 @@ pub struct CreateRetroRequest {
     #[serde(default = "default_action_discussion_limit")]
     pub action_discussion_limit: i32,
     #[serde(default)]
-   pub invitees: Vec<InviteeRequest>,
+    pub invitees: Vec<InviteeRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RescheduleRetroRequest {
+    pub planned_for: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -198,6 +205,7 @@ mod tests {
             "MeetingNote",
             "Delivery",
             "CreateRetroPayload",
+            "RescheduleRetroPayload",
         ] {
             assert!(
                 frontend_contracts.contains(&format!("export type {contract_name}")),
@@ -215,6 +223,7 @@ mod tests {
             &frontend_contracts,
             "RetroPhase",
             &[
+                "\"scheduled\"",
                 "\"writing\"",
                 "\"discussion\"",
                 "\"voting\"",

@@ -10,7 +10,9 @@ impl RetroRepository {
             "UPDATE retros
              SET phase = 'action_discussion'
              WHERE id = $1 AND phase IN ('discussion', 'voting')
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(retro_id)
         .fetch_one(&mut *tx)
@@ -96,9 +98,11 @@ impl RetroRepository {
     pub async fn complete_retro(&self, retro_id: Uuid) -> Result<Option<RetroRecord>, ActionError> {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
-             SET phase = 'completed', completed_at = NOW()
+             SET phase = 'completed', completed_at = NOW(), happened_at = NOW()
              WHERE id = $1 AND phase = 'action_discussion'
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email",
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(retro_id)
         .fetch_optional(&self.pool)

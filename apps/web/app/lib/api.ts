@@ -17,6 +17,7 @@ export type {
   RetroParticipant,
   RetroPhase,
   RetroSummary,
+  RescheduleRetroPayload,
 } from "./contracts";
 import type {
   AiArtifact,
@@ -29,6 +30,7 @@ import type {
   RetroBoard,
   RetroCard,
   RetroOverview,
+  RescheduleRetroPayload,
 } from "./contracts";
 
 const API_BASE_URL = process.env.SPILLIO_API_URL ?? "http://127.0.0.1:4000";
@@ -48,6 +50,15 @@ export async function createRetro(payload: CreateRetroPayload): Promise<RetroBoa
 
 export async function getRetro(retroId: string): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}`, { cache: "no-store" });
+}
+
+export async function rescheduleRetro(retroId: string, payload: RescheduleRetroPayload): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
 }
 
 export async function createDraftCard(retroId: string, columnId: string, bodyText: string, gifUrl?: string, gifAltText?: string): Promise<RetroCard> {
@@ -98,6 +109,13 @@ export async function forceRevealRetro(retroId: string): Promise<RetroBoard> {
     method: "POST",
     body: JSON.stringify({ force: true }),
     headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+}
+
+export async function startScheduledRetro(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/start`, {
+    method: "POST",
     cache: "no-store",
   });
 }

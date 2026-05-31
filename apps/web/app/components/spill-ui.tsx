@@ -566,6 +566,7 @@ export function PhaseBadge({ phase, color }: { phase: string; color?: string }) 
 }
 
 export function phaseColor(phase: string) {
+  if (phase === "scheduled") return spillColors.mood;
   if (phase === "writing") return spillColors.mood;
   if (phase === "discussion") return spillColors.action;
   if (phase === "voting") return spillColors.action;
@@ -575,6 +576,7 @@ export function phaseColor(phase: string) {
 }
 
 export function phaseLabel(phase: string) {
+  if (phase === "scheduled") return "planned";
   if (phase === "discussion") return "review";
   if (phase === "action_discussion") return "action";
   if (phase === "completed") return "done";

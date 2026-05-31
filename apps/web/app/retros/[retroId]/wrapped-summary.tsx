@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { Pill, Tile } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
+import { displayRetroDate } from "@/lib/retro-dates";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
@@ -37,6 +38,7 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
           <h1 className="text-[38px] font-extrabold leading-none tracking-[-0.035em] text-spill-fg">That's a wrap.</h1>
           <span className="-rotate-2 font-hand text-[24px] text-spill-muted">nice work, team.</span>
         </div>
+        <p className="mt-2 text-[13px] font-semibold text-spill-muted">{displayRetroDate(board.retro)}</p>
 
         <div className="mt-5 flex items-center gap-5">
           <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>

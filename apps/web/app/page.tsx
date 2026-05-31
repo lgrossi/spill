@@ -6,6 +6,7 @@ import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarCol
 import { DeleteBoardButton } from "@/components/delete-board-button";
 import { listRetros, type RetroOverview, type RetroSummary } from "@/lib/api";
 import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
+import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { clearIdentityAction, completeActionItemAction } from "@/lib/actions";
 import { currentIdentity, localIdentityEnabled, type SpillIdentity } from "@/lib/identity";
 
@@ -142,7 +143,7 @@ export default async function OverviewPage({
                     <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: phaseColor(board.phase) }} />
                     <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{board.title}</span>
                   </span>
-                  <span className="shrink-0 text-spill-muted">{phaseLabel(board.phase)}</span>
+                  <span className="shrink-0 text-spill-muted">{boardStatusLabel(board)}</span>
                 </Link>
                 ))
               )}
@@ -183,10 +184,10 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
         style={{ "--board-phase-color": color } as CSSProperties}
       >
         <span className="absolute -top-2.5 left-3.5">
-          <PhaseBadge phase={phaseLabel(board.phase)} color={color} />
+          <PhaseBadge phase={boardStatusLabel(board)} color={color} />
         </span>
         <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
-        <p className="mt-2 text-[12.5px] text-spill-muted">{boardSubtitle(board)}</p>
+        <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
         <div className="mt-auto flex items-end justify-between">
           <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
             {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
@@ -202,16 +203,12 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   );
 }
 
-function boardSubtitle(board: RetroOverview["active"][number]) {
-  if (board.phase === "writing") return `${board.ready_count} of ${board.participant_count} ready`;
-  if (board.phase === "voting") return `${board.participant_count} people voting`;
-  if (board.phase === "discussion") return `${board.participant_count} people reviewing cards`;
-  if (board.phase === "action_discussion") return "turning top themes into actions";
-  return "wrapped and searchable";
-}
-
 function openActionCount(overview: RetroOverview) {
   return [...overview.active, ...overview.completed].reduce((sum, board) => sum + board.unresolved_action_count, 0);
+}
+
+function boardStatusLabel(board: RetroSummary) {
+  return board.phase === "scheduled" && isPlannedForDue(board.planned_for) ? "ready" : phaseLabel(board.phase);
 }
 
 function topRecurringTag(boards: RetroSummary[]) {

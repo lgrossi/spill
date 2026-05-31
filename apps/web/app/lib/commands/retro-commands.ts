@@ -1,12 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRetro, type CreateRetroPayload } from "@/lib/api";
+import { createRetro, rescheduleRetro, type CreateRetroPayload } from "@/lib/api";
 import type { InviteeRequest } from "@/lib/contracts";
+import { field } from "./form-utils";
 
 export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
   const title = String(formData.get("title") ?? "").trim();
+  const plannedFor = String(formData.get("planned_for") ?? "").trim();
   const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
   const actionDiscussionEnabled = formData.getAll("action_discussion_enabled").at(-1) === "1";
@@ -34,12 +36,21 @@ export async function createRetroCommand(formData: FormData) {
     customColumns,
     template,
     title,
+    plannedFor,
     voteLimit,
     invitees,
   });
 
   const board = await createRetro(payload);
   redirect(`/retros/${board.retro.id}`);
+}
+
+export async function rescheduleRetroCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  const plannedFor = field(formData, "planned_for").trim();
+
+  await rescheduleRetro(retroId, { planned_for: plannedFor || null });
+  redirect(`/retros/${retroId}`);
 }
 
 function retroPayload({
@@ -49,6 +60,7 @@ function retroPayload({
   customColumns,
   template,
   title,
+  plannedFor,
   voteLimit,
   invitees,
 }: {
@@ -58,6 +70,7 @@ function retroPayload({
   customColumns: string[];
   template: string;
   title: string;
+  plannedFor: string;
   voteLimit: number;
   invitees: InviteeRequest[];
 }): CreateRetroPayload {
@@ -78,25 +91,26 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "ssc") {
-    return customPayload(title, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "msg") {
-    return customPayload(title, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "4ls") {
-    return customPayload(title, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "custom") {
-    return customPayload(title, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
   }
-  return customPayload(title, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
+  return customPayload(title, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
 }
 
 function customPayload(
   title: string,
+  plannedFor: string,
   columns: string[],
   columnColors: string[] | undefined,
   voteLimit: number,
@@ -105,6 +119,7 @@ function customPayload(
 ): CreateRetroPayload {
   return {
     title,
+    planned_for: plannedFor || null,
     template: "custom",
     columns,
     column_colors: columnColors,
