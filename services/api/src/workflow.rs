@@ -53,6 +53,13 @@ impl RetroWorkflow {
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
+        for invitee in &invitees {
+            let email = invitee.email.trim().to_lowercase();
+            if email.is_empty() || !email.contains('@') || email == creator_email_lc {
+                continue;
+            }
+            validate_invitee_role(&invitee.role)?;
+        }
         let planned_for = match optional_non_empty(request.planned_for) {
             Some(value) => Some(require_date_only("planned_for", value)?),
             None => None,
@@ -81,12 +88,6 @@ impl RetroWorkflow {
             let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {
                 continue;
-            }
-            if invitee.role != "host" && invitee.role != "member" {
-                return Err(ApiError::bad_request(format!(
-                    "role must be \"host\" or \"member\", got: {}",
-                    invitee.role
-                )));
             }
             self.repository
                 .add_board_grant(retro_id, &email, &invitee.role)
@@ -733,6 +734,16 @@ fn require_date_only(field: &'static str, value: String) -> Result<String, ApiEr
         )));
     }
     Ok(value)
+}
+
+fn validate_invitee_role(role: &str) -> Result<(), ApiError> {
+    if role == "host" || role == "member" {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "role must be \"host\" or \"member\", got: {role}"
+        )))
+    }
 }
 
 fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError> {

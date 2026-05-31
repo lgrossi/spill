@@ -151,6 +151,46 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn invalid_invitee_role_does_not_create_retro(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_NAME, "Host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Bad invitee retro","template":"standard","invitees":[{"email":"member@example.com","role":"owner"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host-123")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let overview: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(overview["active"].as_array().unwrap().len(), 0);
+    assert_eq!(overview["completed"].as_array().unwrap().len(), 0);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
