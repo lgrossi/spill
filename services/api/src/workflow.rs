@@ -104,6 +104,17 @@ impl RetroWorkflow {
         request: CreateDraftCardRequest,
     ) -> Result<(StatusCode, retro_db::CardRecord), ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase == "scheduled" || retro.phase == "completed" {
+            return Err(ApiError::bad_request(
+                "cards can only be created after the retro has started",
+            ));
+        }
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
         let card = self

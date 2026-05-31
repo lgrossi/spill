@@ -555,6 +555,56 @@ async fn create_retro_rejects_invalid_planned_date(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn scheduled_retro_rejects_card_creation_with_controlled_error(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Future planned retro","template":"standard","planned_for":"2099-05-15"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created: Value = serde_json::from_slice(
+        &to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    let card_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"too early"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(card_response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn gif_endpoints_search_attach_and_degrade_gracefully(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
 
