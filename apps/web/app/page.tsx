@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { BoardHistory } from "@/components/board-history";
-import { CoverSquare } from "@/components/retro-cover-picker";
+import { CoverSquare, RetroCoverPicker } from "@/components/retro-cover-picker";
 import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, phaseLabel, spillColors } from "@/components/spill-ui";
 import { DeleteBoardButton } from "@/components/delete-board-button";
@@ -179,20 +179,26 @@ function QuickStartLink({ href, title, detail }: { href: string; title: string; 
 
 function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   const color = phaseColor(board.phase);
+  const canAddCover = board.current_user_role === "host" && !board.cover_gif_url;
   return (
     <div className="group relative">
-      <Link
+      <div
         className="sp-panel-grain relative grid h-[156px] grid-cols-[92px_minmax(0,1fr)] gap-3 rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
-        href={`/retros/${board.id}`}
         style={{ "--board-phase-color": color } as CSSProperties}
       >
         <span className="absolute -top-2.5 left-3.5">
           <PhaseBadge phase={boardStatusLabel(board)} color={color} />
         </span>
-        <div className="mt-4">
-          <CoverSquare cover={{ url: board.cover_gif_url, altText: board.cover_gif_alt_text }} size="large" />
+        <div className="relative z-10 mt-4">
+          {canAddCover ? (
+            <RetroCoverPicker mode="update" retroId={board.id} returnTo="/" size="large" />
+          ) : (
+            <Link aria-label={`Open ${boardDisplayTitle(board)}`} href={`/retros/${board.id}`}>
+              <CoverSquare cover={{ url: board.cover_gif_url, altText: board.cover_gif_alt_text }} size="large" />
+            </Link>
+          )}
         </div>
-        <div className="mt-4 flex min-w-0 flex-col">
+        <Link className="mt-4 flex min-w-0 flex-col focus-visible:outline-none focus-visible:shadow-[var(--focus)]" href={`/retros/${board.id}`}>
           <h2 className="truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{boardDisplayTitle(board)}</h2>
           <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
           <div className="mt-auto flex items-end justify-between">
@@ -202,8 +208,8 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
             </span>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
           </div>
-        </div>
-      </Link>
+        </Link>
+      </div>
       {board.current_user_role === "host" ? (
         <div className="absolute right-2 top-2">
           <DeleteBoardButton retroId={board.id} boardTitle={board.title} />

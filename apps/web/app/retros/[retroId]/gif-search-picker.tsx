@@ -36,14 +36,13 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   }
 
   return (
-    <div className="relative mt-2 min-w-0" onBlurCapture={submitCardIfLeavingForm} onPointerDown={suppressCardAutosubmit}>
+    <div className="relative" onBlurCapture={submitCardIfLeavingForm} onPointerDown={suppressCardAutosubmit}>
       <button
-        className={`flex h-7 w-full items-center justify-between rounded-[7px] border border-white/25 px-2.5 text-[11.5px] font-extrabold text-white/85 transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
+        className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-full border border-white/35 px-2.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span>GIF</span>
-        <span>{open ? "−" : "+"}</span>
+        <span>gif</span>
       </button>
 
       {open ? (

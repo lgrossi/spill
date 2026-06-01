@@ -31,6 +31,9 @@ export function RetroCoverPicker({
 
   function choose(gif: GifResult) {
     setCover({ url: gif.url, altText: gif.alt_text });
+    if (mode === "create") {
+      setOpen(false);
+    }
   }
 
   return (
@@ -45,6 +48,32 @@ export function RetroCoverPicker({
       >
         <CoverSquare cover={cover} interactive size={size} />
       </button>
+      {cover.url ? (
+        mode === "update" ? (
+          <form action={updateRetroDetailsAction} className="absolute right-1.5 top-1.5 z-10">
+            <input name="retro_id" type="hidden" value={retroId ?? ""} />
+            <input name="return_to" type="hidden" value={returnTo ?? (retroId ? `/retros/${retroId}` : "/")} />
+            <input name="remove_cover_gif" type="hidden" value="1" />
+            <button
+              aria-label="Remove cover GIF"
+              className="grid h-6 w-6 place-items-center rounded-full border border-white/40 bg-black/45 text-[13px] font-extrabold leading-none text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-black/60 focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+              disabled={!retroId}
+              type="submit"
+            >
+              ×
+            </button>
+          </form>
+        ) : (
+          <button
+            aria-label="Remove cover GIF"
+            className="absolute right-1.5 top-1.5 z-10 grid h-6 w-6 place-items-center rounded-full border border-white/40 bg-black/45 text-[13px] font-extrabold leading-none text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-black/60 focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+            onClick={() => setCover({ url: null, altText: null })}
+            type="button"
+          >
+            ×
+          </button>
+        )
+      ) : null}
       {open ? (
         <CoverPickerPopover
           cover={cover}
@@ -157,7 +186,22 @@ function CoverPickerPopover({
           <div className="sp-scroll mt-3 grid max-h-[330px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
             {results.map((gif) => {
               const selected = cover.url === gif.url;
-              return (
+              return mode === "update" ? (
+                <form action={updateRetroDetailsAction} key={`${gif.id}-${gif.url}`}>
+                  <input name="retro_id" type="hidden" value={retroId ?? ""} />
+                  <input name="return_to" type="hidden" value={returnTo ?? (retroId ? `/retros/${retroId}` : "/")} />
+                  <input name="cover_gif_url" type="hidden" value={gif.url} />
+                  <input name="cover_gif_alt_text" type="hidden" value={gif.alt_text} />
+                  <button
+                    className={`relative aspect-square w-full overflow-hidden rounded-[9px] border bg-[var(--panel-hi)] p-1 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
+                    disabled={!retroId}
+                    type="submit"
+                  >
+                    {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
+                    <img alt="" className="h-full w-full rounded-[7px] object-cover" loading="lazy" src={gif.preview_url || gif.url} />
+                  </button>
+                </form>
+              ) : (
                 <button
                   className={`relative aspect-square overflow-hidden rounded-[9px] border bg-[var(--panel-hi)] p-1 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
                   key={`${gif.id}-${gif.url}`}
@@ -178,40 +222,10 @@ function CoverPickerPopover({
 
         {degraded ? <p className="mt-2 text-[11px] font-semibold text-spill-wrong">GIF search unavailable.</p> : null}
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[11.5px] font-extrabold text-spill-fg transition hover:border-spill-wrong/50" disabled={loading || degraded} onClick={loadMore} type="button">
             more
           </button>
-          <div className="flex gap-2">
-            {cover.url ? (
-              <button className="rounded-[8px] border border-spill-line bg-transparent px-3 py-2 text-[11.5px] font-extrabold text-spill-muted transition hover:text-spill-wrong" onClick={() => setCover({ url: null, altText: null })} type="button">
-                clear
-              </button>
-            ) : null}
-            <button className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[11.5px] font-extrabold text-spill-fg transition hover:border-spill-wrong/50" onClick={onClose} type="button">
-              cancel
-            </button>
-            {mode === "update" ? (
-              <form action={updateRetroDetailsAction}>
-                <input name="retro_id" type="hidden" value={retroId ?? ""} />
-                <input name="return_to" type="hidden" value={returnTo ?? (retroId ? `/retros/${retroId}` : "/")} />
-                <input name="cover_gif_url" type="hidden" value={cover.url ?? ""} />
-                <input name="cover_gif_alt_text" type="hidden" value={cover.altText ?? ""} />
-                {!cover.url ? <input name="remove_cover_gif" type="hidden" value="1" /> : null}
-                <button
-                  className="rounded-[8px] border border-spill-wrong/70 bg-spill-wrong px-3 py-2 text-[11.5px] font-extrabold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] transition hover:bg-spill-wrong/90 disabled:pointer-events-none disabled:opacity-50"
-                  disabled={mode === "update" && !retroId}
-                  type="submit"
-                >
-                  {cover.url ? "use cover" : "remove cover"}
-                </button>
-              </form>
-            ) : (
-              <button className="rounded-[8px] border border-spill-wrong/70 bg-spill-wrong px-3 py-2 text-[11.5px] font-extrabold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] transition hover:bg-spill-wrong/90" onClick={onClose} type="button">
-                use cover
-              </button>
-            )}
-          </div>
         </div>
     </div>
   );
