@@ -122,8 +122,11 @@ function CoverPickerPopover({
 }) {
   const { degraded, loadMore, loading, query, results, setQuery } = useGifSearch(true);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/20 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true">
-      <div className="sp-panel-grain w-full max-w-[470px] rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 shadow-[var(--shadow-3)]">
+    <div
+      className="sp-panel-grain absolute left-0 top-full z-50 mt-3 w-[min(470px,calc(100vw-2rem))] rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 shadow-[var(--shadow-3)]"
+      role="region"
+      aria-label="Cover GIF picker"
+    >
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">opened from square</p>
@@ -138,6 +141,11 @@ function CoverPickerPopover({
           autoFocus
           className="mt-3 h-10 w-full rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 text-[13px] font-bold text-spill-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
           onChange={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+            }
+          }}
           placeholder="team celebration"
           type="search"
           value={query}
@@ -203,7 +211,6 @@ function CoverPickerPopover({
             )}
           </div>
         </div>
-      </div>
     </div>
   );
 }
