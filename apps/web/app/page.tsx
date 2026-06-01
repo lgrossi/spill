@@ -181,7 +181,7 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   const color = phaseColor(board.phase);
   const canAddCover = board.current_user_role === "host" && !board.cover_gif_url;
   return (
-    <div className="group relative">
+    <div className="group relative focus-within:z-[120]">
       <div
         className="sp-panel-grain relative grid h-[156px] grid-cols-[92px_minmax(0,1fr)] gap-3 rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
         style={{ "--board-phase-color": color } as CSSProperties}

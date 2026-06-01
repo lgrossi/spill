@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { GifResult } from "@/lib/contracts";
 import { updateRetroDetailsAction } from "@/lib/actions";
-import { useGifSearch } from "@/retros/[retroId]/gif-search-data";
+import { GifPickerOverlay } from "./gif-picker-overlay";
 
 type CoverValue = {
   url: string | null;
@@ -151,82 +151,44 @@ function CoverPickerPopover({
   retroId?: string;
   setCover: (cover: CoverValue) => void;
 }) {
-  const { degraded, loadMore, loading, query, results, setQuery } = useGifSearch(true);
   return (
-    <div
-      className="sp-panel-grain absolute left-0 top-full z-50 mt-3 w-[min(470px,calc(100vw-2rem))] rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 shadow-[var(--shadow-3)]"
-      role="region"
-      aria-label="Cover GIF picker"
-    >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">opened from square</p>
-            <h2 className="mt-1 text-[19px] font-extrabold tracking-[-0.02em] text-spill-fg">Pick a cover GIF</h2>
-          </div>
-          <button className="grid h-8 w-8 place-items-center rounded-[8px] border border-spill-line bg-[var(--panel-hi)] text-[18px] font-extrabold leading-none text-spill-muted transition hover:text-spill-fg" onClick={onClose} type="button">
-            ×
-          </button>
-        </div>
-
-        <input
-          autoFocus
-          className="mt-3 h-10 w-full rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 text-[13px] font-bold text-spill-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-            }
-          }}
-          placeholder="team celebration"
-          type="search"
-          value={query}
-        />
-
-        {results.length > 0 ? (
-          <div className="sp-scroll mt-3 grid max-h-[330px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
-            {results.map((gif) => {
-              const selected = cover.url === gif.url;
-              return mode === "update" ? (
-                <form action={updateRetroDetailsAction} key={`${gif.id}-${gif.url}`}>
-                  <input name="retro_id" type="hidden" value={retroId ?? ""} />
-                  <input name="return_to" type="hidden" value={returnTo ?? (retroId ? `/retros/${retroId}` : "/")} />
-                  <input name="cover_gif_url" type="hidden" value={gif.url} />
-                  <input name="cover_gif_alt_text" type="hidden" value={gif.alt_text} />
-                  <button
-                    className={`relative aspect-square w-full overflow-hidden rounded-[9px] border bg-[var(--panel-hi)] p-1 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
-                    disabled={!retroId}
-                    type="submit"
-                  >
-                    {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
-                    <img alt="" className="h-full w-full rounded-[7px] object-cover" loading="lazy" src={gif.preview_url || gif.url} />
-                  </button>
-                </form>
-              ) : (
-                <button
-                  className={`relative aspect-square overflow-hidden rounded-[9px] border bg-[var(--panel-hi)] p-1 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
-                  key={`${gif.id}-${gif.url}`}
-                  onClick={() => onChoose(gif)}
-                  type="button"
-                >
-                  {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
-                  <img alt="" className="h-full w-full rounded-[7px] object-cover" loading="lazy" src={gif.preview_url || gif.url} />
-                </button>
-              );
-            })}
-          </div>
+    <GifPickerOverlay
+      ariaLabel="Cover GIF picker"
+      columns="cover"
+      emptyText="Search for a GIF to use as the board cover."
+      kicker="opened from square"
+      onClose={onClose}
+      placeholder="team celebration"
+      selected={(gif) => cover.url === gif.url}
+      title="Pick a cover GIF"
+      renderResult={(gif, selected, className, image) =>
+        mode === "update" ? (
+          <form action={updateRetroDetailsAction} key={`${gif.id}-${gif.url}`}>
+            <input name="retro_id" type="hidden" value={retroId ?? ""} />
+            <input name="return_to" type="hidden" value={returnTo ?? (retroId ? `/retros/${retroId}` : "/")} />
+            <input name="cover_gif_url" type="hidden" value={gif.url} />
+            <input name="cover_gif_alt_text" type="hidden" value={gif.alt_text} />
+            <button
+              className={`${className} ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
+              disabled={!retroId}
+              type="submit"
+            >
+              {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
+              {image}
+            </button>
+          </form>
         ) : (
-          <div className="mt-3 rounded-[10px] border border-dashed border-spill-line bg-[var(--panel-hi)] p-4 text-center text-[12px] font-semibold text-spill-muted">
-            {query.trim().length < 2 ? "Search for a GIF to use as the board cover." : loading ? "Searching..." : "No GIFs found."}
-          </div>
-        )}
-
-        {degraded ? <p className="mt-2 text-[11px] font-semibold text-spill-wrong">GIF search unavailable.</p> : null}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[11.5px] font-extrabold text-spill-fg transition hover:border-spill-wrong/50" disabled={loading || degraded} onClick={loadMore} type="button">
-            more
+          <button
+            className={`${className} ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
+            key={`${gif.id}-${gif.url}`}
+            onClick={() => onChoose(gif)}
+            type="button"
+          >
+            {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
+            {image}
           </button>
-        </div>
-    </div>
+        )
+      }
+    />
   );
 }

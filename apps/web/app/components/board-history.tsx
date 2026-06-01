@@ -152,7 +152,7 @@ export function BoardHistory({
         ) : (
           rows.map((board) => (
             <div
-              className="group relative grid grid-cols-[48px_minmax(0,1fr)_auto] items-start gap-3 border-b border-spill-line px-3.5 py-2.5 pr-11 text-[12px] last:border-b-0 hover:bg-[var(--panel-hi)]"
+              className="group relative grid grid-cols-[48px_minmax(0,1fr)_auto] items-start gap-3 border-b border-spill-line px-3.5 py-2.5 pr-11 text-[12px] last:border-b-0 hover:z-10 hover:bg-[var(--panel-hi)] focus-within:z-[120]"
               key={`${board.id}-${board.title}`}
             >
               {board.current_user_role === "host" && !board.cover_gif_url ? (
