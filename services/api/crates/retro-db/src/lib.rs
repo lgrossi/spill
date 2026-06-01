@@ -1114,6 +1114,7 @@ pub struct RetroSummary {
     pub planned_for: String,
     pub happened_at: Option<String>,
     pub group_name: Option<String>,
+    pub current_user_role: String,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
     pub participant_count: i64,
@@ -1142,6 +1143,7 @@ struct RetroSummaryRow {
     planned_for: String,
     happened_at: Option<String>,
     group_name: Option<String>,
+    current_user_role: String,
     last_activity_at: String,
     last_opened_at: Option<String>,
     participant_count: i64,
@@ -1164,6 +1166,7 @@ impl From<RetroSummaryRow> for RetroSummary {
             planned_for: row.planned_for,
             happened_at: row.happened_at,
             group_name: row.group_name,
+            current_user_role: row.current_user_role,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
@@ -2616,12 +2619,117 @@ mod tests {
             .list_retros_for_user("lee", "lee@example.com")
             .await
             .unwrap();
-        assert!(
-            lee_overview
-                .active
-                .iter()
-                .any(|summary| summary.id == next.retro.id)
-        );
+        let lee_next = lee_overview
+            .active
+            .iter()
+            .find(|summary| summary.id == next.retro.id)
+            .unwrap();
+        assert_eq!(lee_next.current_user_role, "member");
+        let ava_overview = repo
+            .list_retros_for_user("ava", "ava@example.com")
+            .await
+            .unwrap();
+        let ava_next = ava_overview
+            .active
+            .iter()
+            .find(|summary| summary.id == next.retro.id)
+            .unwrap();
+        assert_eq!(ava_next.current_user_role, "host");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn next_retro_uses_previous_series_cadence(pool: PgPool) {
+        let repo = RetroRepository::new(pool.clone());
+        let first = repo
+            .create_retro(CreateRetroInput {
+                title: "Platform retro 1".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: Some("Platform".to_owned()),
+                planned_for: Some("2099-05-01".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 4,
+                action_discussion_limit: 2,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_retro(CreateRetroInput {
+                title: "Platform retro 2".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                planned_for: Some("2099-05-08".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 4,
+                action_discussion_limit: 2,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE retros
+             SET group_id = (SELECT group_id FROM retros WHERE id = $1)
+             WHERE id = $2",
+        )
+        .bind(first.retro.id)
+        .bind(second.retro.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let next = repo
+            .ensure_next_retro(second.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(next.retro.planned_for, "2099-05-15");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn new_series_does_not_inherit_unrelated_same_settings_cadence(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        repo.create_retro(CreateRetroInput {
+            title: "Unrelated retro".to_owned(),
+            creator_subject: "ava".to_owned(),
+            creator_email: "ava@example.com".to_owned(),
+            creator_display_name: "Ava".to_owned(),
+            group_name: Some("Unrelated".to_owned()),
+            planned_for: Some("2099-05-01".to_owned()),
+            template: RetroTemplate::Standard,
+            vote_limit: 4,
+            action_discussion_limit: 2,
+            column_colors: Vec::new(),
+        })
+        .await
+        .unwrap();
+        let source = repo
+            .create_retro(CreateRetroInput {
+                title: "New series retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                planned_for: Some("2099-05-08".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 4,
+                action_discussion_limit: 2,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let next = repo
+            .ensure_next_retro(source.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(next.retro.planned_for, "2099-05-22");
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]

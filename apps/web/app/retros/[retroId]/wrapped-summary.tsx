@@ -43,10 +43,10 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
             {mood?.badge ?? "mood"}
           </div>
           <div>
-            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "waiting for summary"}</p>
-            <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">{mood?.title ?? "Mood pending."}</h2>
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "reading the room"}</p>
+            <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">{mood?.title ?? "AI is still reading the room."}</h2>
             <p className="mt-1 max-w-xl text-[13.5px] leading-6 text-[var(--fg-2)]">
-              {mood ? "Generated from the summary artifact using board cards, votes, actions, and meeting notes." : "AI mood appears here once the completed-retro summary finishes."}
+              {mood ? "Generated from the summary artifact using board cards, votes, actions, and meeting notes." : "We are turning the board into a mood. Give it a second."}
             </p>
           </div>
         </div>

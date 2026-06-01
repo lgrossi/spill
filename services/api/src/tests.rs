@@ -151,6 +151,46 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn create_retro_rejects_invalid_invitee_role_before_persisting(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Bad invite","template":"standard","invitees":[{"email":"lee@example.com","role":"owner"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let overview: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(overview["active"].as_array().unwrap().len(), 0);
+    assert_eq!(overview["completed"].as_array().unwrap().len(), 0);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
@@ -1805,6 +1845,68 @@ async fn completing_retro_returns_planned_next_retro(pool: sqlx::PgPool) {
 
     let fetched = fetch_board(&app, &retro_id).await;
     assert_eq!(fetched["next_retro"]["id"], completed["next_retro"]["id"]);
+}
+
+async fn wait_for_next_retro_title(app: &axum::Router, retro_id: &str, expected_title: &str) {
+    for _ in 0..200 {
+        let board = fetch_board(app, retro_id).await;
+        if board["next_retro"]["title"] == expected_title {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for next retro title {expected_title}");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn ai_provider_suggests_next_retro_title_after_completion(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "\"Platform pulse check\"",
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let retro_id = seed_completable_retro(&app).await;
+    let completed = post_complete(&app, &retro_id).await;
+
+    assert_eq!(completed["next_retro"]["title"], "Generating title...");
+    let stored = fetch_board(&app, &retro_id).await;
+    assert_ne!(stored["next_retro"]["title"], "Generating title...");
+    wait_for_next_retro_title(&app, &retro_id, "Platform pulse check").await;
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn failed_ai_next_title_keeps_deterministic_title(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::failing_with(
+        "title service unavailable",
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+    let retro_id = seed_completable_retro(&app).await;
+    let completed = post_complete(&app, &retro_id).await;
+
+    assert_eq!(completed["next_retro"]["title"], "Generating title...");
+    wait_for_next_retro_title(&app, &retro_id, "Next: Retro under test").await;
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "AI-picked title",
+    )));
+    let repo = retro_db::RetroRepository::new(pool);
+    let app = app_with_repository_and_ai(repo.clone(), Some(provider));
+    let retro_id = seed_completable_retro(&app).await;
+    let completed = post_complete(&app, &retro_id).await;
+    assert_eq!(completed["next_retro"]["title"], "Generating title...");
+
+    let next_id = completed["next_retro"]["id"].as_str().unwrap();
+    repo.update_retro_details(retro_db::UpdateRetroDetailsInput {
+        retro_id: Uuid::parse_str(next_id).unwrap(),
+        title: Some("Manual title".to_owned()),
+        group_name: None,
+    })
+    .await
+    .unwrap();
+
+    wait_for_next_retro_title(&app, &retro_id, "Manual title").await;
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
