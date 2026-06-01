@@ -53,6 +53,13 @@ impl RetroWorkflow {
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
+        for invitee in &invitees {
+            let email = invitee.email.trim().to_lowercase();
+            if email.is_empty() || !email.contains('@') || email == creator_email_lc {
+                continue;
+            }
+            validate_invitee_role(Some(&invitee.role))?;
+        }
         let planned_for = match optional_non_empty(request.planned_for) {
             Some(value) => Some(require_date_only("planned_for", value)?),
             None => None,
@@ -82,12 +89,6 @@ impl RetroWorkflow {
             let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {
                 continue;
-            }
-            if invitee.role != "host" && invitee.role != "member" {
-                return Err(ApiError::bad_request(format!(
-                    "role must be \"host\" or \"member\", got: {}",
-                    invitee.role
-                )));
             }
             self.repository
                 .add_board_grant(retro_id, &email, &invitee.role)
@@ -608,6 +609,7 @@ impl RetroWorkflow {
             .ensure_next_retro(retro_id, &user.subject, &user.email, &user.display_name)
             .await
             .map_err(|error| ApiError::internal(format!("failed to plan next retro: {error}")))?;
+        self.spawn_next_title_if_configured(retro_id).await;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
         // Auto-trigger the summary AI artifact. We deliberately fire and
@@ -617,7 +619,41 @@ impl RetroWorkflow {
         // WebSocket update — the completion request itself is never
         // blocked or rejected by an AI failure.
         self.spawn_summary_if_configured(retro_id).await;
-        self.fetch_board_for_user(retro_id, &user).await
+        let mut board = self.fetch_board_for_user(retro_id, &user).await?;
+        if self.ai_provider.is_some() {
+            if let Some(next_retro) = board.next_retro.as_mut() {
+                next_retro.title = "Generating title...".to_owned();
+            }
+        }
+        Ok(board)
+    }
+
+    async fn spawn_next_title_if_configured(&self, retro_id: Uuid) {
+        let Some(provider) = self.ai_provider.clone() else {
+            return;
+        };
+        if self
+            .repository
+            .finish_next_retro_title(retro_id, "Generating title...")
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let repository = self.repository.clone();
+        let event_hub = self.event_hub.clone();
+        tokio::spawn(async move {
+            let fallback = repository
+                .fetch_retro(retro_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|retro| next_title(&retro.title))
+                .unwrap_or_else(|| "Next retro".to_owned());
+            let title = suggest_next_title(provider, &fallback).await.unwrap_or(fallback);
+            let _ = repository.finish_next_retro_title(retro_id, &title).await;
+            event_hub.publish(BoardEvent::CardChanged { retro_id });
+        });
     }
 
     async fn spawn_summary_if_configured(&self, retro_id: Uuid) {
@@ -732,6 +768,36 @@ async fn require_completion_host(
     }
 }
 
+async fn suggest_next_title(provider: Arc<AiProvider>, fallback: &str) -> Option<String> {
+    let prompt = format!(
+        "Suggest one concise title for the next recurring retrospective. Return only the title. Fallback title: {fallback}"
+    );
+    let suggested = provider.complete(&prompt).await.ok()?;
+    let title = suggested
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_owned();
+    if title.is_empty() || title.len() > 80 {
+        None
+    } else {
+        Some(title)
+    }
+}
+
+fn next_title(source_title: &str) -> String {
+    let trimmed = source_title.trim();
+    if let Some(rest) = trimmed.strip_prefix("Next: ") {
+        format!("Next: {rest}")
+    } else {
+        format!("Next: {trimmed}")
+    }
+}
+
 struct CardBodyPayload {
     body_text: Option<String>,
     gif_url: Option<String>,
@@ -836,6 +902,16 @@ fn require_non_negative(field: &'static str, value: i32) -> Result<i32, ApiError
         Err(ApiError::bad_request(format!(
             "{field} must be zero or positive"
         )))
+    }
+}
+
+fn validate_invitee_role(role: Option<&str>) -> Result<String, ApiError> {
+    match role.unwrap_or("member") {
+        "host" => Ok("host".to_owned()),
+        "member" => Ok("member".to_owned()),
+        other => Err(ApiError::bad_request(format!(
+            "role must be \"host\" or \"member\", got: {other}"
+        ))),
     }
 }
 

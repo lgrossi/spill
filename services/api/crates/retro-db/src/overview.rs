@@ -18,6 +18,27 @@ pub(super) async fn list_retros(
             to_char(r.planned_for, 'YYYY-MM-DD') AS planned_for,
             to_char(r.happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at,
             g.name AS group_name,
+            CASE
+                WHEN r.creator_email <> '' AND r.creator_email = lower($2) THEN 'host'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM board_grants bg
+                    WHERE bg.retro_id = r.id
+                      AND bg.principal_email = lower($2)
+                      AND bg.role = 'host'
+                ) THEN 'host'
+                ELSE COALESCE(
+                    (
+                        SELECT scoped_participant.role
+                        FROM participants scoped_participant
+                        WHERE scoped_participant.retro_id = r.id
+                          AND scoped_participant.external_subject = $1
+                        ORDER BY CASE WHEN scoped_participant.role = 'host' THEN 0 ELSE 1 END
+                        LIMIT 1
+                    ),
+                    'member'
+                )
+            END AS current_user_role,
             to_char(
                 GREATEST(
                     r.created_at,

@@ -73,15 +73,9 @@ impl RetroRepository {
             group_id
         };
 
-        let planned_for = sqlx::query_scalar::<_, String>(
-            "SELECT to_char(
-                GREATEST($1::date + INTERVAL '14 days', CURRENT_DATE + INTERVAL '7 days')::date,
-                'YYYY-MM-DD'
-            )",
-        )
-        .bind(&source.planned_for)
-        .fetch_one(&mut *tx)
-        .await?;
+        let planned_for = self
+            .infer_next_planned_for(source.id, &source.planned_for)
+            .await?;
         let title = next_title(&source.title);
         let new_creator_email = source.creator_email.trim().to_lowercase();
 
@@ -188,6 +182,73 @@ impl RetroRepository {
             meeting_notes: Vec::new(),
             deliveries: Vec::new(),
         }))
+    }
+
+    pub async fn finish_next_retro_title(
+        &self,
+        source_retro_id: Uuid,
+        title: &str,
+    ) -> Result<Option<RetroRecord>, sqlx::Error> {
+        sqlx::query_as::<_, RetroRecord>(
+            "UPDATE retros
+             SET title = $2
+             WHERE previous_retro_id = $1
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+                to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
+        )
+        .bind(source_retro_id)
+        .bind(title.trim())
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    async fn infer_next_planned_for(
+        &self,
+        source_retro_id: Uuid,
+        source_planned_for: &str,
+    ) -> Result<String, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT id, planned_for, group_id, vote_limit, action_discussion_limit
+                FROM retros
+                WHERE id = $1
+             ),
+             previous AS (
+                SELECT previous.planned_for
+                FROM retros previous
+                JOIN source ON TRUE
+                WHERE previous.id <> source.id
+                  AND previous.planned_for < source.planned_for
+                  AND (
+                    previous.group_id = source.group_id
+                    OR (
+                        source.group_id IS NULL
+                        AND previous.vote_limit = source.vote_limit
+                        AND previous.action_discussion_limit = source.action_discussion_limit
+                    )
+                  )
+                ORDER BY previous.planned_for DESC
+                LIMIT 1
+             ),
+             cadence AS (
+                SELECT COALESCE(
+                    (SELECT source.planned_for - previous.planned_for FROM source, previous),
+                    14
+                )::int AS days
+             )
+             SELECT to_char(
+                GREATEST(
+                    $2::date + make_interval(days => (SELECT days FROM cadence)),
+                    CURRENT_DATE + INTERVAL '7 days'
+                )::date,
+                'YYYY-MM-DD'
+             )",
+        )
+        .bind(source_retro_id)
+        .bind(source_planned_for)
+        .fetch_one(&self.pool)
+        .await
     }
 
     pub async fn update_retro_details(
