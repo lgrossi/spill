@@ -634,7 +634,7 @@ impl RetroWorkflow {
         };
         if self
             .repository
-            .finish_next_retro_title(retro_id, "Generating title...")
+            .finish_next_retro_title(retro_id, "Generating title...", None)
             .await
             .is_err()
         {
@@ -651,8 +651,17 @@ impl RetroWorkflow {
                 .map(|retro| next_title(&retro.title))
                 .unwrap_or_else(|| "Next retro".to_owned());
             let title = suggest_next_title(provider, &fallback).await.unwrap_or(fallback);
-            let _ = repository.finish_next_retro_title(retro_id, &title).await;
+            let updated = repository
+                .finish_next_retro_title(retro_id, &title, Some("Generating title..."))
+                .await
+                .ok()
+                .flatten();
             event_hub.publish(BoardEvent::CardChanged { retro_id });
+            if let Some(next_retro) = updated {
+                event_hub.publish(BoardEvent::CardChanged {
+                    retro_id: next_retro.id,
+                });
+            }
         });
     }
 

@@ -74,7 +74,7 @@ impl RetroRepository {
         };
 
         let planned_for = self
-            .infer_next_planned_for(source.id, &source.planned_for)
+            .infer_next_planned_for(source.id, group_id, &source.planned_for)
             .await?;
         let title = next_title(&source.title);
         let new_creator_email = source.creator_email.trim().to_lowercase();
@@ -188,17 +188,20 @@ impl RetroRepository {
         &self,
         source_retro_id: Uuid,
         title: &str,
+        expected_current_title: Option<&str>,
     ) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "UPDATE retros
              SET title = $2
              WHERE previous_retro_id = $1
+               AND ($3::text IS NULL OR title = $3)
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
         .bind(source_retro_id)
         .bind(title.trim())
+        .bind(expected_current_title)
         .fetch_optional(&self.pool)
         .await
     }
@@ -206,11 +209,12 @@ impl RetroRepository {
     async fn infer_next_planned_for(
         &self,
         source_retro_id: Uuid,
+        group_id: Uuid,
         source_planned_for: &str,
     ) -> Result<String, sqlx::Error> {
         sqlx::query_scalar::<_, String>(
             "WITH source AS (
-                SELECT id, planned_for, group_id, vote_limit, action_discussion_limit
+                SELECT id, planned_for
                 FROM retros
                 WHERE id = $1
              ),
@@ -220,14 +224,7 @@ impl RetroRepository {
                 JOIN source ON TRUE
                 WHERE previous.id <> source.id
                   AND previous.planned_for < source.planned_for
-                  AND (
-                    previous.group_id = source.group_id
-                    OR (
-                        source.group_id IS NULL
-                        AND previous.vote_limit = source.vote_limit
-                        AND previous.action_discussion_limit = source.action_discussion_limit
-                    )
-                  )
+                  AND previous.group_id = $2
                 ORDER BY previous.planned_for DESC
                 LIMIT 1
              ),
@@ -239,13 +236,14 @@ impl RetroRepository {
              )
              SELECT to_char(
                 GREATEST(
-                    $2::date + make_interval(days => (SELECT days FROM cadence)),
+                    $3::date + make_interval(days => (SELECT days FROM cadence)),
                     CURRENT_DATE + INTERVAL '7 days'
                 )::date,
                 'YYYY-MM-DD'
              )",
         )
         .bind(source_retro_id)
+        .bind(group_id)
         .bind(source_planned_for)
         .fetch_one(&self.pool)
         .await

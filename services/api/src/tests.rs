@@ -1885,6 +1885,29 @@ async fn failed_ai_next_title_keeps_deterministic_title(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        "AI-picked title",
+    )));
+    let repo = retro_db::RetroRepository::new(pool);
+    let app = app_with_repository_and_ai(repo.clone(), Some(provider));
+    let retro_id = seed_completable_retro(&app).await;
+    let completed = post_complete(&app, &retro_id).await;
+    assert_eq!(completed["next_retro"]["title"], "Generating title...");
+
+    let next_id = completed["next_retro"]["id"].as_str().unwrap();
+    repo.update_retro_details(retro_db::UpdateRetroDetailsInput {
+        retro_id: Uuid::parse_str(next_id).unwrap(),
+        title: Some("Manual title".to_owned()),
+        group_name: None,
+    })
+    .await
+    .unwrap();
+
+    wait_for_next_retro_title(&app, &retro_id, "Manual title").await;
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app

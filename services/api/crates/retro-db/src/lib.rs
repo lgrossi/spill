@@ -2691,6 +2691,48 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn new_series_does_not_inherit_unrelated_same_settings_cadence(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        repo.create_retro(CreateRetroInput {
+            title: "Unrelated retro".to_owned(),
+            creator_subject: "ava".to_owned(),
+            creator_email: "ava@example.com".to_owned(),
+            creator_display_name: "Ava".to_owned(),
+            group_name: Some("Unrelated".to_owned()),
+            planned_for: Some("2099-05-01".to_owned()),
+            template: RetroTemplate::Standard,
+            vote_limit: 4,
+            action_discussion_limit: 2,
+            column_colors: Vec::new(),
+        })
+        .await
+        .unwrap();
+        let source = repo
+            .create_retro(CreateRetroInput {
+                title: "New series retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                planned_for: Some("2099-05-08".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 4,
+                action_discussion_limit: 2,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let next = repo
+            .ensure_next_retro(source.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(next.retro.planned_for, "2099-05-22");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn retro_details_update_title_and_group(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
