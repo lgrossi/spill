@@ -1868,6 +1868,8 @@ async fn ai_provider_suggests_next_retro_title_after_completion(pool: sqlx::PgPo
     let completed = post_complete(&app, &retro_id).await;
 
     assert_eq!(completed["next_retro"]["title"], "Generating title...");
+    let stored = fetch_board(&app, &retro_id).await;
+    assert_ne!(stored["next_retro"]["title"], "Generating title...");
     wait_for_next_retro_title(&app, &retro_id, "Platform pulse check").await;
 }
 

@@ -632,14 +632,6 @@ impl RetroWorkflow {
         let Some(provider) = self.ai_provider.clone() else {
             return;
         };
-        if self
-            .repository
-            .finish_next_retro_title(retro_id, "Generating title...", None)
-            .await
-            .is_err()
-        {
-            return;
-        }
         let repository = self.repository.clone();
         let event_hub = self.event_hub.clone();
         tokio::spawn(async move {
@@ -650,9 +642,11 @@ impl RetroWorkflow {
                 .flatten()
                 .map(|retro| next_title(&retro.title))
                 .unwrap_or_else(|| "Next retro".to_owned());
-            let title = suggest_next_title(provider, &fallback).await.unwrap_or(fallback);
+            let title = suggest_next_title(provider, &fallback)
+                .await
+                .unwrap_or_else(|| fallback.clone());
             let updated = repository
-                .finish_next_retro_title(retro_id, &title, Some("Generating title..."))
+                .finish_next_retro_title(retro_id, &title, Some(&fallback))
                 .await
                 .ok()
                 .flatten();
