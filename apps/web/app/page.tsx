@@ -198,9 +198,11 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
         </div>
       </Link>
-      <div className="absolute right-2 top-2">
-        <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
-      </div>
+      {board.current_user_role === "host" ? (
+        <div className="absolute right-2 top-2">
+          <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+        </div>
+      ) : null}
     </div>
   );
 }

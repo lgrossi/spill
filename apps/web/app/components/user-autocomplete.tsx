@@ -10,6 +10,7 @@ export type Picked = { email: string; name: string; role?: "host" | "member" };
 export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DirectoryEntry[]>([]);
+  const [searchedQuery, setSearchedQuery] = useState('');
   const [isPending, startTransition] = useTransition();
   const latestQuery = useRef('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -17,6 +18,7 @@ export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void
   useEffect(() => {
     if (query.length < 2) {
       setResults([]);
+      setSearchedQuery('');
       return;
     }
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -24,7 +26,10 @@ export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void
       const snapshot = query;
       startTransition(async () => {
         const users = await searchDirectoryAction(snapshot);
-        if (latestQuery.current === snapshot) setResults(users);
+        if (latestQuery.current === snapshot) {
+          setResults(users);
+          setSearchedQuery(snapshot);
+        }
       });
     }, 300);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
@@ -44,18 +49,44 @@ export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void
     }
     setQuery('');
     setResults([]);
+    setSearchedQuery('');
   }
+
+  function pickTypedEmail() {
+    const email = normalizeEmail(query);
+    if (!email) return;
+    onPick([{ email, name: email }]);
+    setQuery('');
+    setResults([]);
+    setSearchedQuery('');
+  }
+
+  const typedEmail = normalizeEmail(query);
+  const canPickTypedEmail = Boolean(
+    typedEmail && !results.some((result) => result.email.toLowerCase() === typedEmail),
+  );
+  const showDirectoryEmptyHint =
+    canPickTypedEmail &&
+    searchedQuery === query &&
+    !isPending &&
+    results.length === 0;
 
   return (
     <div className="relative">
       <input
         className={`${fieldControlClass} w-full`}
         onChange={handleChange}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && canPickTypedEmail) {
+            event.preventDefault();
+            pickTypedEmail();
+          }
+        }}
         placeholder="Search by name or email..."
         type="text"
         value={query}
       />
-      {results.length > 0 && (
+      {(results.length > 0 || canPickTypedEmail) && (
         <Tile className="absolute left-0 right-0 top-full z-10 mt-1 flex flex-col gap-0.5 p-1">
           {results.map((user) => (
             <button
@@ -77,6 +108,26 @@ export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void
               </div>
             </button>
           ))}
+          {canPickTypedEmail ? (
+            <button
+              className="flex w-full items-center gap-2.5 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--panel-hi)] focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
+              onClick={pickTypedEmail}
+              type="button"
+            >
+              <Avatar
+                color={avatarColorForSeed(typedEmail ?? query)}
+                k={avatarInitials(typedEmail ?? query)}
+                size={24}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-semibold text-spill-fg">Invite &quot;{typedEmail}&quot;</div>
+                <div className="truncate text-[11px] text-spill-muted">Use this email as a member</div>
+              </div>
+            </button>
+          ) : null}
+          {showDirectoryEmptyHint ? (
+            <p className="px-2 pb-1 text-[10.5px] text-spill-muted">No directory match. Typed email still works.</p>
+          ) : null}
         </Tile>
       )}
       {isPending && query.length >= 2 && results.length === 0 && (
@@ -84,4 +135,10 @@ export function UserAutocomplete({ onPick }: { onPick: (users: Picked[]) => void
       )}
     </div>
   );
+}
+
+function normalizeEmail(value: string) {
+  const email = value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
 }

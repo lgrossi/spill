@@ -176,9 +176,11 @@ export function BoardHistory({
                   {board.phase === "scheduled" && isPlannedForDue(board.planned_for) ? "ready" : phaseLabel(board.phase)}
                 </span>
               </Link>
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
-                <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
-              </div>
+              {board.current_user_role === "host" ? (
+                <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
+                  <DeleteBoardButton retroId={board.id} boardTitle={board.title} />
+                </div>
+              ) : null}
             </div>
           ))
         )}

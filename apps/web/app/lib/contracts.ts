@@ -10,6 +10,7 @@ export type RetroSummary = {
   planned_for: string;
   happened_at: string | null;
   group_name: string | null;
+  current_user_role: "host" | "member";
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
