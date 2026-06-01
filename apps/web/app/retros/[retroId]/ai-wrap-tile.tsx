@@ -1,15 +1,21 @@
 import { Tile } from "@/components/spill-ui";
 import type { AiArtifact } from "@/lib/contracts";
 import { retryAiJobAction } from "@/lib/actions";
+import { AiWrapTilePoller } from "./ai-wrap-tile-poller";
 
 /**
  * AI wrap-up tile.
  *
  * Server component that reads the summary AI artifact (kind === "summary")
  * off the board payload — the backend auto-triggers it when the retro
- * is completed and the board WebSocket pushes status updates as it
- * progresses (board-sync.tsx calls router.refresh() on CardChanged,
- * which re-renders this server component with the new artifact state).
+ * is completed. Status updates reach the UI through two paths:
+ *   1. The board-sync WebSocket — refreshes the page when the runner
+ *      publishes `card_changed` on terminal status.
+ *   2. `AiWrapTilePoller` — mounted only while the artifact is
+ *      non-terminal, drives `router.refresh()` on a short cadence as
+ *      a fallback for deployments where the WS path is not reachable
+ *      from the browser. Self-disposes once this component re-renders
+ *      with a terminal status (so no longer mounts the poller).
  *
  * Visibility:
  *   - no artifact          → tile hidden (AI provider not configured,
@@ -29,13 +35,14 @@ export function AiWrapTile({
   if (!summary) {
     return null;
   }
+  const isPending = summary.status === "pending" || summary.status === "running";
 
   return (
     <Tile className="border-spill-action/50 bg-spill-action/10">
       <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-action">
         AI wrap-up
       </p>
-      {summary.status === "pending" || summary.status === "running" ? (
+      {isPending ? (
         <p className="mt-2 text-[11.5px] leading-5 text-spill-muted">
           Generating summary…
         </p>
@@ -64,6 +71,7 @@ export function AiWrapTile({
           </form>
         </>
       ) : null}
+      {isPending ? <AiWrapTilePoller /> : null}
     </Tile>
   );
 }
