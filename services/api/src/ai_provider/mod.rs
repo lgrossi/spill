@@ -40,6 +40,12 @@ pub enum AiError {
         status: reqwest::StatusCode,
         body: String,
     },
+    /// Surfaced when the runtime cannot mint a credential — typically
+    /// running outside a GCP environment so the metadata server is
+    /// unreachable. The runner records this as a normal artifact
+    /// failure; callers should not retry without environment changes.
+    #[error("ai provider: identity unavailable: {0}")]
+    Identity(String),
 }
 
 impl AiProvider {
