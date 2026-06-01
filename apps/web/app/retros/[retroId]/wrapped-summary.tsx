@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import { Pill, Tile } from "@/components/spill-ui";
+import { Avatar, CardFooter, Pill, SpillCard, Tile, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
-import { displayRetroDate } from "@/lib/retro-dates";
+import { displayRetroDate, formatDateOnly } from "@/lib/retro-dates";
 import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
@@ -25,11 +25,6 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       .filter((id): id is string => Boolean(id)),
   );
   const adhocActionCards = actionColumnCards.filter((card) => !linkedCardIds.has(card.id));
-  const totalActions = board.actions.length + adhocActionCards.length;
-  const actionCounts = board.actions.reduce(
-    (counts, action) => ({ ...counts, [action.status]: (counts[action.status] ?? 0) + 1 }),
-    {} as Record<string, number>,
-  );
 
   return (
     <section className="grid flex-1 grid-cols-1 gap-8 overflow-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -39,6 +34,9 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
           <span className="-rotate-2 font-hand text-[24px] text-spill-muted">nice work, team.</span>
         </div>
         <p className="mt-2 text-[13px] font-semibold text-spill-muted">{displayRetroDate(board.retro)}</p>
+        {board.series ? (
+          <p className="mt-1 text-[12px] font-bold text-spill-muted">[{board.series.name}] {board.retro.title}</p>
+        ) : null}
 
         <div className="mt-5 flex items-center gap-5">
           <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
@@ -58,20 +56,63 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       </main>
 
       <aside className="space-y-5 border-t border-spill-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-        <Tile>
-          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">board totals</p>
-          <div className="mt-3 grid gap-2 text-[12.5px] text-spill-fg">
-            <div className="flex justify-between gap-3"><span>Cards</span><strong>{cards.length}</strong></div>
-            <div className="flex justify-between gap-3"><span>Votes cast</span><strong>{cards.reduce((sum, card) => sum + card.vote_count, 0)}</strong></div>
-            <div className="flex justify-between gap-3"><span>Actions</span><strong>{totalActions}</strong></div>
-            <div className="flex justify-between gap-3"><span>Done</span><strong>{actionCounts.done ?? 0}</strong></div>
-          </div>
-        </Tile>
-
+        <ParticipantsSummary board={board} />
+        <NextRetroTile board={board} />
         <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
       </aside>
     </section>
   );
+}
+
+function ParticipantsSummary({ board }: { board: RetroBoard }) {
+  return (
+    <div>
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">who participated</p>
+      <Tile className="mt-2">
+        <div className="space-y-2.5">
+        {board.participants.slice(0, 5).map((participant) => (
+          <div className="flex items-center gap-2.5 text-[12.5px]" key={participant.id}>
+            <Avatar color={avatarColorForSeed(participant.id)} k={avatarInitials(participant.display_name)} ring="var(--panel)" size={28} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold text-spill-fg">
+                {participant.display_name}
+                {participant.role === "host" ? <span className="ml-1 text-[10.5px] font-medium text-spill-muted">· host</span> : null}
+              </p>
+              <p className="mt-0.5 text-[10.5px] text-spill-muted">{countLabel(participant.card_count ?? 0, "card")} · {countLabel(participant.vote_count ?? 0, "vote")}</p>
+            </div>
+          </div>
+        ))}
+        {board.participants.length > 5 ? (
+          <p className="text-[11.5px] font-semibold text-spill-muted">+{board.participants.length - 5} more</p>
+        ) : null}
+        </div>
+      </Tile>
+    </div>
+  );
+}
+
+function NextRetroTile({ board }: { board: RetroBoard }) {
+  const next = board.next_retro;
+  const groupName = next?.group_name ?? board.series?.name ?? "";
+  return (
+    <div className="border-t border-dashed border-spill-line pt-4">
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">next time{next ? ` · opens ${formatDateOnly(next.planned_for)}` : ""}</p>
+      {next ? (
+        <Tile className="mt-2">
+          <Link className="text-[15px] font-extrabold tracking-[-0.02em] text-spill-fg hover:text-spill-wrong hover:underline hover:decoration-spill-wrong/40 hover:underline-offset-4" href={`/retros/${next.id}`}>
+            {groupName ? `[${groupName}] ` : ""}{next.title}
+          </Link>
+          <p className="mt-1 text-[11.5px] font-semibold text-spill-muted">auto-scheduled · same settings</p>
+        </Tile>
+      ) : (
+        <p className="mt-3 text-[11.5px] leading-5 text-spill-muted">Next retro is being planned when this board wraps.</p>
+      )}
+    </div>
+  );
+}
+
+function countLabel(count: number, noun: string) {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
 type MoodPresentation = {
@@ -198,7 +239,7 @@ function FinalBoard({
                   <span className="ml-auto text-[10.5px] font-semibold text-spill-muted">{visibleCards.length}</span>
                 </div>
                 <div className="space-y-2">
-                  {visibleCards.map((card) => <WrappedBoardCard card={card} key={card.id} />)}
+                  {visibleCards.map((card) => <WrappedBoardCard board={board} card={card} color={semantic.color} semantic={semantic.kind} key={card.id} />)}
                   {visibleCards.length === 0 ? <p className="rounded-[8px] border border-dashed border-spill-line px-3 py-2 text-[11.5px] text-spill-muted">No cards</p> : null}
                 </div>
               </Tile>
@@ -257,26 +298,47 @@ function CommittedActions({
   );
 }
 
-function WrappedBoardCard({ card }: { card: RetroCard }) {
+function WrappedBoardCard({
+  board,
+  card,
+  color,
+  semantic,
+}: {
+  board: RetroBoard;
+  card: RetroCard;
+  color: string;
+  semantic: string;
+}) {
+  const author = participantById(board, card.author_participant_id);
   return (
-    <div className="rounded-[8px] border border-spill-line bg-[var(--panel-hi)] px-3 py-2 text-[12.5px] leading-5 text-spill-fg">
+    <SpillCard accent={color}>
       {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
       <div className="flex items-start gap-2">
         <p className="min-w-0 flex-1 whitespace-pre-wrap">{cardLabel(card)}</p>
-        {card.vote_count > 0 ? <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-spill-muted">{voteLabel(card.vote_count)}</span> : null}
+        {card.vote_count > 0 ? <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[var(--card-button-fg)]">{voteLabel(card.vote_count)}</span> : null}
       </div>
       {card.cluster_members.length > 0 ? (
-        <div className="mt-2 space-y-1 border-t border-spill-line pt-2">
+        <div className="mt-2 space-y-1.5 border-t border-white/20 pt-2">
           {card.cluster_members.map((member) => (
-            <div className="rounded-[6px] bg-white/55 px-2 py-1 text-[11.5px] text-spill-muted" key={member.id}>
+            <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-white/90" key={member.id}>
               {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
               <p className="mt-1 first:mt-0">{member.body_text || member.gif_alt_text || "media card"}</p>
             </div>
           ))}
         </div>
       ) : null}
-    </div>
+      <CardFooter
+        author={avatarInitials(author?.display_name)}
+        authorName={shortAuthorName(author?.display_name)}
+        color={avatarColorForSeed(author?.id)}
+        tag={semantic}
+      />
+    </SpillCard>
   );
+}
+
+function participantById(board: RetroBoard, participantId: string) {
+  return board.participants.find((participant) => participant.id === participantId);
 }
 
 function actionCheckClass(checked: boolean) {

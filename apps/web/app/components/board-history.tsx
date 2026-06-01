@@ -160,7 +160,7 @@ export function BoardHistory({
                 href={`/retros/${board.id}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-extrabold text-spill-fg">{board.title}</span>
+                  <span className="block truncate font-extrabold text-spill-fg">{boardDisplayTitle(board)}</span>
                   <span className="text-[11px] text-spill-muted">
                     {displayRetroDate(board)} . {lastSeenText(board.last_opened_at ?? board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
                   </span>
@@ -201,10 +201,15 @@ function filterBoards(boards: RetroSummary[], query: string, status: string) {
   const q = query.trim().toLowerCase();
   return boards.filter((board) => {
     const tags = board.recurring_tags.filter((tag) => !SYSTEM_RECURRING_TAGS.has(tag.toLowerCase()));
-    const matchesQuery = !q || board.title.toLowerCase().includes(q) || tags.some((tag) => tag.toLowerCase().includes(q));
+    const groupName = board.group_name ?? "";
+    const matchesQuery = !q || board.title.toLowerCase().includes(q) || groupName.toLowerCase().includes(q) || tags.some((tag) => tag.toLowerCase().includes(q));
     const matchesStatus = status === "all" || board.phase === status;
     return matchesQuery && matchesStatus;
   });
+}
+
+function boardDisplayTitle(board: RetroSummary) {
+  return board.group_name ? `[${board.group_name}] ${board.title}` : board.title;
 }
 
 function historyHref(query: string, status: string, shown: number) {

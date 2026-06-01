@@ -5,7 +5,7 @@ use retro_core::{CardBody, DomainError, IngestedItemPlacement, IngestionSource};
 use retro_db::{
     AcceptDeckItemInput, CastVoteInput, ClusterCardsInput, ClusterError, CreateRetroInput,
     DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate, UpdateActionInput,
-    VotingError,
+    UpdateRetroDetailsInput, VotingError,
 };
 use uuid::Uuid;
 
@@ -15,7 +15,7 @@ use crate::{
     contracts::{
         AcceptDeckItemRequest, CastVoteRequest, ClusterCardsRequest, CreateDraftCardRequest,
         CreateRetroRequest, IngestItemRequest, MoveDraftCardRequest, RescheduleRetroRequest,
-        UpdateActionRequest, UpdateDraftCardRequest,
+        UpdateActionRequest, UpdateDraftCardRequest, UpdateRetroDetailsRequest,
     },
     error::ApiError,
     events::{BoardEvent, BoardEventHub},
@@ -64,6 +64,7 @@ impl RetroWorkflow {
                 creator_subject: user.subject,
                 creator_email: user.email,
                 creator_display_name: user.display_name,
+                group_name: optional_non_empty(request.group_name),
                 planned_for,
                 template: retro_template(&request.template, request.columns)?,
                 vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
@@ -172,6 +173,40 @@ impl RetroWorkflow {
             "planned_for can only be rescheduled while scheduled, current phase is {}",
             retro.phase
         )))
+    }
+
+    pub async fn update_retro_details(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+        request: UpdateRetroDetailsRequest,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        let title = match request.title {
+            Some(value) => Some(require_non_empty("title", value)?),
+            None => None,
+        };
+        let group_name = match request.group_name {
+            Some(value) => Some(require_non_empty("group_name", value)?),
+            None => None,
+        };
+        if title.is_none() && group_name.is_none() {
+            return Err(ApiError::bad_request("title or group_name is required"));
+        }
+
+        self.repository
+            .update_retro_details(UpdateRetroDetailsInput {
+                retro_id,
+                title,
+                group_name,
+            })
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to update retro details: {error}"))
+            })?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        self.fetch_board_for_user(retro_id, &user).await
     }
 
     pub async fn ingest_item(
@@ -561,6 +596,7 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        require_completion_host(&self.repository, &user, retro_id).await?;
         self.repository
             .complete_retro(retro_id)
             .await
@@ -568,6 +604,10 @@ impl RetroWorkflow {
             .ok_or_else(|| {
                 ApiError::bad_request("retro must be in action discussion to complete")
             })?;
+        self.repository
+            .ensure_next_retro(retro_id, &user.subject, &user.email, &user.display_name)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to plan next retro: {error}")))?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
         // Auto-trigger the summary AI artifact. We deliberately fire and
@@ -613,7 +653,12 @@ impl RetroWorkflow {
         user: &CurrentUser,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         self.repository
-            .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+            .fetch_board_for_user_with_email(
+                retro_id,
+                &user.subject,
+                &user.display_name,
+                &user.email,
+            )
             .await
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))
@@ -635,6 +680,55 @@ pub(crate) async fn authorize_retro_participant(
         Ok(())
     } else {
         Err(ApiError::not_found("retro not found"))
+    }
+}
+
+async fn ensure_retro_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<(), ApiError> {
+    if email.is_empty() {
+        return Err(ApiError::unauthorized("email required"));
+    }
+    let email_lc = email.trim().to_lowercase();
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    if !retro.creator_email.is_empty() && retro.creator_email == email_lc {
+        return Ok(());
+    }
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host: {error}")))?;
+    if grants
+        .iter()
+        .any(|grant| grant.principal_email.eq_ignore_ascii_case(email) && grant.role == "host")
+    {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(
+            "only the board host can manage this retro",
+        ))
+    }
+}
+
+async fn require_completion_host(
+    repository: &RetroRepository,
+    user: &CurrentUser,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    let allowed = repository
+        .is_retro_host(retro_id, &user.subject, &user.email)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host access: {error}")))?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("only a host can finish this retro"))
     }
 }
 

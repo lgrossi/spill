@@ -1,0 +1,61 @@
+"use client";
+
+import { useRef, useTransition } from "react";
+import { updateRetroDetailsAction } from "@/lib/actions";
+
+export function InlineDetailEditor({
+  field,
+  label,
+  retroId,
+  value,
+  returnTo,
+}: {
+  field: "title" | "group_name";
+  label: string;
+  retroId: string;
+  value: string;
+  returnTo: string;
+}) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function save(nextValue: string) {
+    const trimmed = nextValue.trim();
+    if (!trimmed || trimmed === value) {
+      if (ref.current) ref.current.textContent = value;
+      return;
+    }
+    if (ref.current) ref.current.textContent = trimmed;
+    const formData = new FormData();
+    formData.set("retro_id", retroId);
+    formData.set("return_to", returnTo);
+    formData.set(field, trimmed);
+    startTransition(() => {
+      void updateRetroDetailsAction(formData);
+    });
+  }
+
+  return (
+    <span
+      aria-label={label}
+      className={`inline border-b border-dashed border-spill-muted/70 px-0.5 text-[inherit] font-[inherit] leading-[inherit] tracking-[inherit] text-spill-fg outline-none transition focus:border-spill-fg ${isPending ? "cursor-wait opacity-70" : "cursor-text"}`}
+      contentEditable={!isPending}
+      onBlur={(event) => save(event.currentTarget.textContent ?? "")}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+        if (event.key === "Escape") {
+          event.currentTarget.textContent = value;
+          event.currentTarget.blur();
+        }
+      }}
+      ref={ref}
+      role="textbox"
+      suppressContentEditableWarning
+    >
+      {value}
+    </span>
+  );
+}

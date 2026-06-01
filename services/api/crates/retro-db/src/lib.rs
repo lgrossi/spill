@@ -18,6 +18,7 @@ mod creation;
 mod domain_mapping;
 mod ingestion;
 mod overview;
+mod series;
 mod voting;
 
 fn email_subject(email: &str) -> String {
@@ -108,8 +109,12 @@ impl RetroRepository {
         let deliveries = self.fetch_deliveries(id).await?;
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
+        let series = self.fetch_series(id).await?;
+        let next_retro = self.fetch_next_retro(id).await?;
         Ok(Some(RetroBoard {
             retro,
+            series,
+            next_retro,
             participants,
             columns,
             ready,
@@ -129,6 +134,17 @@ impl RetroRepository {
         subject: &str,
         display_name: &str,
     ) -> Result<Option<RetroBoard>, sqlx::Error> {
+        self.fetch_board_for_user_with_email(id, subject, display_name, "")
+            .await
+    }
+
+    pub async fn fetch_board_for_user_with_email(
+        &self,
+        id: Uuid,
+        subject: &str,
+        display_name: &str,
+        email: &str,
+    ) -> Result<Option<RetroBoard>, sqlx::Error> {
         let Some(retro) = self.fetch_retro(id).await? else {
             return Ok(None);
         };
@@ -146,8 +162,20 @@ impl RetroRepository {
         attach_cards_to_columns(&mut columns, cards);
         let ready = self.ready_info(id, subject).await?;
         let voting = self.voting_info(id, subject).await?;
+        let series = self.fetch_series(id).await?;
+        let next_retro = if let Some(next_retro) = self.fetch_next_retro(id).await? {
+            if email.trim().is_empty() || self.is_board_member(next_retro.id, email).await? {
+                Some(next_retro)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Ok(Some(RetroBoard {
             retro,
+            series,
+            next_retro,
             participants,
             columns,
             ready,
@@ -188,8 +216,12 @@ impl RetroRepository {
         attach_cards_to_columns(&mut columns, cards);
         let ready = self.ready_info(id, "").await?;
         let voting = self.voting_info(id, "").await?;
+        let series = self.fetch_series(id).await?;
+        let next_retro = self.fetch_next_retro(id).await?;
         Ok(Some(RetroBoard {
             retro,
+            series,
+            next_retro,
             participants,
             columns,
             ready,
@@ -235,7 +267,15 @@ impl RetroRepository {
     }
 
     pub async fn list_retros(&self, subject: &str) -> Result<RetroOverview, sqlx::Error> {
-        overview::list_retros(&self.pool, subject).await
+        self.list_retros_for_user(subject, "").await
+    }
+
+    pub async fn list_retros_for_user(
+        &self,
+        subject: &str,
+        email: &str,
+    ) -> Result<RetroOverview, sqlx::Error> {
+        overview::list_retros(&self.pool, subject, email).await
     }
 
     pub async fn authorize_retro_participant(
@@ -278,6 +318,30 @@ impl RetroRepository {
         )
         .bind(retro_id)
         .bind(email)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn is_retro_host(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+        email: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM participants
+                WHERE retro_id = $1 AND external_subject = $2 AND role = 'host'
+            ) OR EXISTS (
+                SELECT 1
+                FROM board_grants
+                WHERE retro_id = $1 AND principal_email = lower($3) AND role = 'host'
+            )",
+        )
+        .bind(retro_id)
+        .bind(subject.trim())
+        .bind(email.trim())
         .fetch_one(&self.pool)
         .await
     }
@@ -407,10 +471,28 @@ impl RetroRepository {
         retro_id: Uuid,
     ) -> Result<Vec<ParticipantRecord>, sqlx::Error> {
         sqlx::query_as::<_, ParticipantRecord>(
-            "SELECT id, retro_id, external_subject, display_name, role
-             FROM participants
-             WHERE retro_id = $1
-             ORDER BY CASE role WHEN 'host' THEN 0 ELSE 1 END, created_at ASC, id ASC",
+            "SELECT
+                p.id,
+                p.retro_id,
+                p.external_subject,
+                p.display_name,
+                p.role,
+                (
+                    SELECT COUNT(*)::BIGINT
+                    FROM cards c
+                    WHERE c.retro_id = p.retro_id
+                      AND c.author_participant_id = p.id
+                      AND c.state = 'revealed'
+                ) AS card_count,
+                (
+                    SELECT COALESCE(SUM(v.count), 0)::BIGINT
+                    FROM votes v
+                    WHERE v.retro_id = p.retro_id
+                      AND v.participant_id = p.id
+                ) AS vote_count
+             FROM participants p
+             WHERE p.retro_id = $1
+             ORDER BY CASE p.role WHEN 'host' THEN 0 ELSE 1 END, p.created_at ASC, p.id ASC",
         )
         .bind(retro_id)
         .fetch_all(&self.pool)
@@ -618,6 +700,40 @@ impl RetroRepository {
 
         Ok(row.map(Into::into))
     }
+
+    async fn fetch_series(&self, retro_id: Uuid) -> Result<Option<RetroSeriesRecord>, sqlx::Error> {
+        sqlx::query_as::<_, RetroSeriesRecord>(
+            "SELECT g.id, g.name
+             FROM retros r
+             JOIN retro_groups g ON g.id = r.group_id
+             WHERE r.id = $1",
+        )
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    async fn fetch_next_retro(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Option<NextRetroRecord>, sqlx::Error> {
+        sqlx::query_as::<_, NextRetroRecord>(
+            "SELECT
+                next.id,
+                next.title,
+                next.phase,
+                to_char(next.planned_for, 'YYYY-MM-DD') AS planned_for,
+                g.name AS group_name
+             FROM retros next
+             LEFT JOIN retro_groups g ON g.id = next.group_id
+             WHERE next.previous_retro_id = $1
+             ORDER BY next.created_at ASC
+             LIMIT 1",
+        )
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
@@ -635,6 +751,8 @@ pub struct RetroRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct RetroBoard {
     pub retro: RetroRecord,
+    pub series: Option<RetroSeriesRecord>,
+    pub next_retro: Option<NextRetroRecord>,
     pub participants: Vec<ParticipantRecord>,
     pub columns: Vec<RetroColumnRecord>,
     pub ready: ReadyInfo,
@@ -648,12 +766,29 @@ pub struct RetroBoard {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct RetroSeriesRecord {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
+pub struct NextRetroRecord {
+    pub id: Uuid,
+    pub title: String,
+    pub phase: String,
+    pub planned_for: String,
+    pub group_name: Option<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
 pub struct ParticipantRecord {
     pub id: Uuid,
     pub retro_id: Uuid,
     pub external_subject: Option<String>,
     pub display_name: String,
     pub role: String,
+    pub card_count: i64,
+    pub vote_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -978,6 +1113,7 @@ pub struct RetroSummary {
     pub created_at: String,
     pub planned_for: String,
     pub happened_at: Option<String>,
+    pub group_name: Option<String>,
     pub last_activity_at: String,
     pub last_opened_at: Option<String>,
     pub participant_count: i64,
@@ -1005,6 +1141,7 @@ struct RetroSummaryRow {
     created_at: String,
     planned_for: String,
     happened_at: Option<String>,
+    group_name: Option<String>,
     last_activity_at: String,
     last_opened_at: Option<String>,
     participant_count: i64,
@@ -1026,6 +1163,7 @@ impl From<RetroSummaryRow> for RetroSummary {
             created_at: row.created_at,
             planned_for: row.planned_for,
             happened_at: row.happened_at,
+            group_name: row.group_name,
             last_activity_at: row.last_activity_at,
             last_opened_at: row.last_opened_at,
             participant_count: row.participant_count,
@@ -1058,11 +1196,19 @@ pub struct CreateRetroInput {
     pub creator_subject: String,
     pub creator_email: String,
     pub creator_display_name: String,
+    pub group_name: Option<String>,
     pub planned_for: Option<String>,
     pub template: RetroTemplate,
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub column_colors: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateRetroDetailsInput {
+    pub retro_id: Uuid,
+    pub title: Option<String>,
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1262,6 +1408,7 @@ mod tests {
                 creator_subject: "user-123".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1291,6 +1438,29 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn create_retro_returns_created_series(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Payments retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: Some("Payments".to_owned()),
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(created.series.unwrap().name, "Payments");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn future_planned_retro_starts_scheduled_then_host_can_start(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
@@ -1299,6 +1469,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "ava@example.com".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: Some("2099-05-15".to_owned()),
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1330,6 +1501,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "ava@example.com".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: Some("2000-01-02".to_owned()),
                 template: RetroTemplate::Standard,
                 vote_limit: 0,
@@ -1364,6 +1536,7 @@ mod tests {
                 creator_subject: "user-456".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Lee".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Custom {
                     columns: vec![
@@ -1402,6 +1575,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1494,6 +1668,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1578,6 +1753,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1635,6 +1811,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1673,6 +1850,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1746,6 +1924,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1814,6 +1993,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1890,6 +2070,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -1965,6 +2146,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2103,6 +2285,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2195,6 +2378,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2267,6 +2451,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2321,6 +2506,7 @@ mod tests {
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
+                group_name: None,
                 planned_for: None,
                 template: RetroTemplate::Standard,
                 vote_limit: 3,
@@ -2358,5 +2544,120 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(board.deliveries.len(), 1);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn completing_a_series_retro_plans_one_next_retro(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Platform retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: Some("Platform".to_owned()),
+                planned_for: Some("2026-05-15".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 4,
+                action_discussion_limit: 2,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        repo.add_board_grant(created.retro.id, "lee@example.com", "member")
+            .await
+            .unwrap();
+        repo.start_scheduled_retro(created.retro.id).await.unwrap();
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_action_discussion(created.retro.id)
+            .await
+            .unwrap();
+        repo.complete_retro(created.retro.id).await.unwrap();
+
+        let next = repo
+            .ensure_next_retro(created.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let repeated = repo
+            .ensure_next_retro(created.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.retro.id, repeated.retro.id);
+        assert_eq!(next.retro.phase, "scheduled");
+        assert_eq!(next.retro.title, "Next: Platform retro");
+        let expected_planned_for = sqlx::query_scalar::<_, String>(
+            "SELECT to_char(
+                GREATEST('2026-05-15'::date + INTERVAL '14 days', CURRENT_DATE + INTERVAL '7 days')::date,
+                'YYYY-MM-DD'
+            )",
+        )
+        .fetch_one(&repo.pool)
+        .await
+        .unwrap();
+        assert_eq!(next.retro.planned_for, expected_planned_for);
+        assert_eq!(next.retro.vote_limit, 4);
+        assert_eq!(next.retro.action_discussion_limit, 2);
+        assert_eq!(next.retro.creator_email, "ava@example.com");
+        assert_eq!(next.participants[0].role, "host");
+        assert_eq!(next.series.unwrap().name, "Platform");
+        assert_eq!(next.columns.len(), created.columns.len());
+
+        let wrapped = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(wrapped.series.unwrap().name, "Platform");
+        assert_eq!(wrapped.next_retro.unwrap().id, next.retro.id);
+
+        let lee_overview = repo
+            .list_retros_for_user("lee", "lee@example.com")
+            .await
+            .unwrap();
+        assert!(
+            lee_overview
+                .active
+                .iter()
+                .any(|summary| summary.id == next.retro.id)
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn retro_details_update_title_and_group(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Old retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        repo.update_retro_details(UpdateRetroDetailsInput {
+            retro_id: created.retro.id,
+            title: Some("New retro".to_owned()),
+            group_name: Some("Payments".to_owned()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.retro.title, "New retro");
+        assert_eq!(board.series.unwrap().name, "Payments");
     }
 }

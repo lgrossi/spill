@@ -20,7 +20,7 @@ use contracts::{
     CreateDeliveryRequest, CreateDraftCardRequest, CreateMeetingNoteRequest, CreateRetroRequest,
     HealthResponse, IngestItemRequest, MoveDraftCardRequest, RemoveGrantRequest,
     RescheduleRetroRequest, SessionResponse, StartAiJobRequest, UpdateActionRequest,
-    UpdateDraftCardRequest,
+    UpdateDraftCardRequest, UpdateRetroDetailsRequest,
 };
 use error::ApiError;
 use events::{BoardEvent, BoardEventHub};
@@ -145,6 +145,7 @@ fn api_router() -> Router<AppState> {
         .route("/gifs/search", get(media::search_gifs))
         .route("/retros", get(list_retros).post(create_retro))
         .route("/retros/{retro_id}", get(open_retro).delete(delete_retro))
+        .route("/retros/{retro_id}/details", patch(update_retro_details))
         .route("/retros/{retro_id}/events", get(board_events))
         .route("/retros/{retro_id}/reschedule", post(reschedule_retro))
         .route("/retros/{retro_id}/start", post(start_scheduled_retro))
@@ -252,7 +253,7 @@ async fn list_retros(
     let repository = configured_repository(repository)?;
     let user = CurrentUser::from_headers(&headers)?;
     repository
-        .list_retros(&user.subject)
+        .list_retros_for_user(&user.subject, &user.email)
         .await
         .map(Json)
         .map_err(|error| ApiError::internal(format!("failed to list retros: {error}")))
@@ -291,7 +292,7 @@ async fn open_retro(
         }
     }
     repository
-        .fetch_board_for_user(retro_id, &user.subject, &user.display_name)
+        .fetch_board_for_user_with_email(retro_id, &user.subject, &user.display_name, &user.email)
         .await
         .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
         .map(Json)
@@ -328,6 +329,20 @@ async fn reschedule_retro(
     require_host(&repo, retro_id, &user.email).await?;
     retro_workflow(repository, event_hub)?
         .reschedule_retro(user, retro_id, request)
+        .await
+        .map(Json)
+}
+
+async fn update_retro_details(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+    Json(request): Json<UpdateRetroDetailsRequest>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .update_retro_details(user, retro_id, request)
         .await
         .map(Json)
 }

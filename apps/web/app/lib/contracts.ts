@@ -9,6 +9,7 @@ export type RetroSummary = {
   created_at: string;
   planned_for: string;
   happened_at: string | null;
+  group_name: string | null;
   last_activity_at: string;
   last_opened_at: string | null;
   participant_count: number;
@@ -76,6 +77,8 @@ export type RetroParticipant = {
   external_subject: string | null;
   display_name: string;
   role: "host" | "member";
+  card_count: number;
+  vote_count: number;
 };
 
 export type GifResult = {
@@ -102,6 +105,17 @@ export type RetroBoard = {
     planned_for: string;
     happened_at: string | null;
   };
+  series: {
+    id: string;
+    name: string;
+  } | null;
+  next_retro: {
+    id: string;
+    title: string;
+    phase: RetroPhase;
+    planned_for: string;
+    group_name: string | null;
+  } | null;
   participants: RetroParticipant[];
   columns: RetroColumn[];
   ready: {
@@ -187,6 +201,7 @@ export type InviteeRequest = {
 export type CreateRetroPayload =
   | {
       title: string;
+      group_name?: string | null;
       planned_for?: string | null;
       template: "standard";
       vote_limit: number;
@@ -195,6 +210,7 @@ export type CreateRetroPayload =
     }
   | {
       title: string;
+      group_name?: string | null;
       planned_for?: string | null;
       template: "custom";
       columns: string[];
@@ -206,6 +222,11 @@ export type CreateRetroPayload =
 
 export type RescheduleRetroPayload = {
   planned_for?: string | null;
+};
+
+export type UpdateRetroDetailsPayload = {
+  title?: string | null;
+  group_name?: string | null;
 };
 
 export type Grant = {

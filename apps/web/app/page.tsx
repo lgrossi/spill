@@ -39,7 +39,6 @@ export default async function OverviewPage({
     <AppChrome
       actions={
         <>
-          <Btn href="/retros/new" kind="primary">+ new board</Btn>
           {identity.source === "local" ? (
             <form action={clearIdentityAction}>
               <input name="return_to" type="hidden" value="/" />
@@ -52,7 +51,10 @@ export default async function OverviewPage({
     >
       <div className="grid flex-1 grid-cols-1 gap-8 overflow-y-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10 lg:px-10">
         <section className="min-w-0">
-          <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
+          <div className="flex items-end justify-between gap-4">
+            <SectionTitle kicker="boards in motion">Still pinned</SectionTitle>
+            <Link aria-label="Create new board" className="text-[30px] font-extrabold leading-none transition hover:scale-105 focus-visible:outline-none focus-visible:shadow-[var(--focus)]" href="/retros/new" style={{ color: spillColors.wrong }} title="Create new board">+</Link>
+          </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {pinnedBoards.length === 0 ? (
               <Tile className="md:col-span-2">
@@ -141,7 +143,7 @@ export default async function OverviewPage({
                 <Link className="group flex justify-between gap-4 py-1 text-spill-fg transition hover:text-spill-wrong" href={`/retros/${board.id}`} key={`recent-${board.id}`}>
                   <span className="flex min-w-0 items-center gap-2 truncate">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: phaseColor(board.phase) }} />
-                    <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{board.title}</span>
+                    <span className="truncate group-hover:underline group-hover:decoration-spill-wrong/40 group-hover:underline-offset-2">{boardDisplayTitle(board)}</span>
                   </span>
                   <span className="shrink-0 text-spill-muted">{boardStatusLabel(board)}</span>
                 </Link>
@@ -186,7 +188,7 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
         <span className="absolute -top-2.5 left-3.5">
           <PhaseBadge phase={boardStatusLabel(board)} color={color} />
         </span>
-        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{board.title}</h2>
+        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{boardDisplayTitle(board)}</h2>
         <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
         <div className="mt-auto flex items-end justify-between">
           <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
@@ -209,6 +211,10 @@ function openActionCount(overview: RetroOverview) {
 
 function boardStatusLabel(board: RetroSummary) {
   return board.phase === "scheduled" && isPlannedForDue(board.planned_for) ? "ready" : phaseLabel(board.phase);
+}
+
+function boardDisplayTitle(board: RetroSummary) {
+  return board.group_name ? `[${board.group_name}] ${board.title}` : board.title;
 }
 
 function topRecurringTag(boards: RetroSummary[]) {
