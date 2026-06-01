@@ -8,6 +8,7 @@ import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 import { DeleteBoardButton } from "./delete-board-button";
+import { CoverSquare } from "./retro-cover-picker";
 
 const pageSize = 5;
 const phaseOptions = [
@@ -155,10 +156,11 @@ export function BoardHistory({
               key={`${board.id}-${board.title}`}
             >
               <Link
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 pr-11 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
+                className="grid grid-cols-[48px_minmax(0,1fr)_auto] items-start gap-3 px-3.5 py-2.5 pr-11 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
                 data-board-row
                 href={`/retros/${board.id}`}
               >
+                <CoverSquare cover={{ url: board.cover_gif_url, altText: board.cover_gif_alt_text }} size="small" />
                 <span className="min-w-0">
                   <span className="block truncate font-extrabold text-spill-fg">{boardDisplayTitle(board)}</span>
                   <span className="text-[11px] text-spill-muted">

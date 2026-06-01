@@ -19,6 +19,8 @@ pub struct SessionResponse {
 pub struct CreateRetroRequest {
     pub title: String,
     pub group_name: Option<String>,
+    pub cover_gif_url: Option<String>,
+    pub cover_gif_alt_text: Option<String>,
     pub planned_for: Option<String>,
     pub template: String,
     #[serde(default)]
@@ -44,6 +46,10 @@ pub struct RescheduleRetroRequest {
 pub struct UpdateRetroDetailsRequest {
     pub title: Option<String>,
     pub group_name: Option<String>,
+    pub cover_gif_url: Option<String>,
+    pub cover_gif_alt_text: Option<String>,
+    #[serde(default)]
+    pub remove_cover_gif: bool,
 }
 
 #[derive(Deserialize)]
@@ -256,6 +262,8 @@ mod tests {
             "RetroBoard",
             &[
                 "retro:",
+                "cover_gif_url: string | null",
+                "cover_gif_alt_text: string | null",
                 "columns: RetroColumn[]",
                 "ready:",
                 "voting:",
@@ -265,6 +273,22 @@ mod tests {
                 "ai_artifacts: AiArtifact[]",
                 "meeting_notes: MeetingNote[]",
                 "deliveries: Delivery[]",
+            ],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "RetroSummary",
+            &[
+                "cover_gif_url: string | null",
+                "cover_gif_alt_text: string | null",
+            ],
+        );
+        assert_contract_contains(
+            &frontend_contracts,
+            "CreateRetroPayload",
+            &[
+                "cover_gif_url?: string | null",
+                "cover_gif_alt_text?: string | null",
             ],
         );
     }

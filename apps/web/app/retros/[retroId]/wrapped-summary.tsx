@@ -1,6 +1,6 @@
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { Avatar, CardFooter, Pill, SpillCard, Tile, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
+import { CoverSquare, RetroCoverPicker } from "@/components/retro-cover-picker";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { displayRetroDate, formatDateOnly } from "@/lib/retro-dates";
@@ -8,7 +8,7 @@ import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
 
-export function WrappedSummary({ board }: { board: RetroBoard }) {
+export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; isHost?: boolean }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
@@ -39,9 +39,17 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         ) : null}
 
         <div className="mt-5 flex items-center gap-5">
-          <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
-            {mood?.badge ?? "mood"}
-          </div>
+          {isHost ? (
+            <RetroCoverPicker
+              initialCover={{ url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text }}
+              mode="update"
+              retroId={board.retro.id}
+              returnTo={`/retros/${board.retro.id}`}
+              size="hero"
+            />
+          ) : (
+            <CoverSquare cover={{ url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text }} size="hero" />
+          )}
           <div>
             <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "reading the room"}</p>
             <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">{mood?.title ?? "AI is still reading the room."}</h2>
@@ -116,80 +124,33 @@ function countLabel(count: number, noun: string) {
 }
 
 type MoodPresentation = {
-  badge: string;
   title: string;
-  style: CSSProperties;
-};
-
-const fallbackMoodStyle: CSSProperties = {
-  background: "radial-gradient(circle at 35% 30%, #8a8177, #62564d 70%)",
-  borderColor: "#62564d",
 };
 
 const moodPresentations: Record<string, MoodPresentation> = {
   "quietly-proud": {
-    badge: "quietly proud",
     title: "Quietly proud.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #79c38c, #3b8f58 70%)",
-      borderColor: "#2d7646",
-    },
   },
   "smooth-sailing": {
-    badge: "smooth sailing",
     title: "Smooth sailing.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #6fb6d6, #347fa2 70%)",
-      borderColor: "#246983",
-    },
   },
   "good-sparks": {
-    badge: "good sparks",
     title: "Good sparks.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #f3b64f, #c9792d 70%)",
-      borderColor: "#a35f24",
-    },
   },
   "productive-chaos": {
-    badge: "productive chaos",
     title: "Productive chaos.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #cf8a3f, #9f5f30 70%)",
-      borderColor: "#804923",
-    },
   },
   foggy: {
-    badge: "foggy",
     title: "Foggy.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #9ca3af, #64748b 70%)",
-      borderColor: "#475569",
-    },
   },
   spicy: {
-    badge: "spicy",
     title: "Spicy.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #ef6f5e, #b64232 70%)",
-      borderColor: "#8f3328",
-    },
   },
   "stuck-in-mud": {
-    badge: "stuck in mud",
     title: "Stuck in mud.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #8f7660, #5f4938 70%)",
-      borderColor: "#4b382b",
-    },
   },
   "needs-a-map": {
-    badge: "needs a map",
     title: "Needs a map.",
-    style: {
-      background: "radial-gradient(circle at 35% 30%, #8b7bd4, #5947a3 70%)",
-      borderColor: "#463783",
-    },
   },
 };
 

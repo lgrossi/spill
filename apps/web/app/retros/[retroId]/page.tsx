@@ -72,7 +72,7 @@ export default async function RetroBoardPage({
     >
       <BoardSync retroId={board.retro.id} />
       {board.retro.phase === "completed" ? (
-        <WrappedSummary board={board} />
+        <WrappedSummary board={board} isHost={isHost} />
       ) : board.retro.phase === "scheduled" ? (
         <ScheduledBoard board={board} isHost={isHost} query={query} />
       ) : (

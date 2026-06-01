@@ -481,6 +481,8 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 creator_email: "host@example.com".to_owned(),
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
@@ -644,6 +646,8 @@ mod tests {
             vote_limit: 3,
             action_discussion_limit: 3,
             creator_email: "host@example.com".to_owned(),
+            cover_gif_url: None,
+            cover_gif_alt_text: None,
             planned_for: "2026-05-15".to_owned(),
             happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
         }

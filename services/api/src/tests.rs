@@ -1902,6 +1902,9 @@ async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
         retro_id: Uuid::parse_str(next_id).unwrap(),
         title: Some("Manual title".to_owned()),
         group_name: None,
+        cover_gif_url: None,
+        cover_gif_alt_text: None,
+        remove_cover_gif: false,
     })
     .await
     .unwrap();
@@ -1954,6 +1957,83 @@ async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(updated["retro"]["title"], "New retro");
     assert_eq!(updated["series"]["name"], "New group");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_can_create_update_and_list_retro_cover_gif(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Covered retro","template":"standard","cover_gif_url":"https://media.example/coffee.gif","cover_gif_alt_text":"coffee spill"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    assert_eq!(
+        created["retro"]["cover_gif_url"],
+        "https://media.example/coffee.gif"
+    );
+    assert_eq!(created["retro"]["cover_gif_alt_text"], "coffee spill");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"cover_gif_url":"https://media.example/rocket.gif","cover_gif_alt_text":"tiny rocket"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        updated["retro"]["cover_gif_url"],
+        "https://media.example/rocket.gif"
+    );
+    assert_eq!(updated["retro"]["cover_gif_alt_text"], "tiny rocket");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, "host")
+                .header(HEADER_USER_EMAIL, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let overview: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        overview["active"][0]["cover_gif_url"],
+        "https://media.example/rocket.gif"
+    );
+    assert_eq!(overview["active"][0]["cover_gif_alt_text"], "tiny rocket");
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
+import { Btn, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
 import { createRetroAction } from "@/lib/actions";
 import { InvitePanel } from "@/components/invite-panel";
 import { localDateString } from "@/lib/retro-dates";
+import { RetroCoverPicker } from "@/components/retro-cover-picker";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -65,6 +66,20 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
         <div>
           <div className="mb-2 flex items-center gap-2">
             <StepNum n="2" />
+            <p className="text-[13px] font-bold text-spill-fg">Cover GIF</p>
+            <span className="text-[11px] text-spill-muted">optional visual memory for cards and wrap-up</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <RetroCoverPicker mode="create" size="large" />
+            <div className="max-w-sm text-[12.5px] leading-5 text-spill-muted">
+              Click the square to search for a cover. It will show on board cards, history, and the wrap-up.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <StepNum n="3" />
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="group_name">Group</label>
             <span className="text-[11px] text-spill-muted">squad, team, or stream</span>
           </div>
@@ -73,7 +88,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="3" />
+            <StepNum n="4" />
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="planned_for">Retro date</label>
             <span className="text-[11px] text-spill-muted">future dates wait on the wall</span>
           </div>
@@ -82,7 +97,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="4" />
+            <StepNum n="5" />
             <p className="text-[13px] font-bold text-spill-fg">Pick a shape</p>
           </div>
           <TemplatePicker template={template} setTemplate={setTemplate} />
@@ -93,7 +108,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="5" />
+            <StepNum n="6" />
             <p className="text-[13px] font-bold text-spill-fg">House rules</p>
           </div>
           <div className="grid gap-2.5 md:grid-cols-2">
@@ -179,7 +194,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="5" />
+            <StepNum n="7" />
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
           <InvitePanel mode="create" onInviteesChange={setInvitees} />

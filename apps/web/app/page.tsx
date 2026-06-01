@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { BoardHistory } from "@/components/board-history";
+import { CoverSquare } from "@/components/retro-cover-picker";
 import { IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Avatar, Btn, PhaseBadge, Pill, SectionTitle, Tile, avatarColorForSeed, avatarInitials, phaseColor, phaseLabel, spillColors } from "@/components/spill-ui";
 import { DeleteBoardButton } from "@/components/delete-board-button";
@@ -181,21 +182,26 @@ function BoardCard({ board }: { board: RetroOverview["active"][number] }) {
   return (
     <div className="group relative">
       <Link
-        className="sp-panel-grain relative flex h-[156px] flex-col rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
+        className="sp-panel-grain relative grid h-[156px] grid-cols-[92px_minmax(0,1fr)] gap-3 rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)] transition hover:-translate-y-0.5 hover:border-[color:var(--board-phase-color)] hover:shadow-[var(--shadow-2)]"
         href={`/retros/${board.id}`}
         style={{ "--board-phase-color": color } as CSSProperties}
       >
         <span className="absolute -top-2.5 left-3.5">
           <PhaseBadge phase={boardStatusLabel(board)} color={color} />
         </span>
-        <h2 className="mt-4 truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{boardDisplayTitle(board)}</h2>
-        <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
-        <div className="mt-auto flex items-end justify-between">
-          <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
-            {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
-            {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
-          </span>
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+        <div className="mt-4">
+          <CoverSquare cover={{ url: board.cover_gif_url, altText: board.cover_gif_alt_text }} size="large" />
+        </div>
+        <div className="mt-4 flex min-w-0 flex-col">
+          <h2 className="truncate text-[15px] font-extrabold leading-tight tracking-[-0.01em] text-spill-fg">{boardDisplayTitle(board)}</h2>
+          <p className="mt-2 text-[12.5px] text-spill-muted">{displayRetroDate(board)}</p>
+          <div className="mt-auto flex items-end justify-between">
+            <span className="rounded-full bg-[var(--panel-hi)] px-2.5 py-1 text-[10.5px] font-extrabold text-spill-muted">
+              {board.participant_count} {board.participant_count === 1 ? "person" : "people"}
+              {board.phase === "writing" && board.participant_count > 0 && ` · ${board.ready_count} ready`}
+            </span>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+          </div>
         </div>
       </Link>
       {board.current_user_role === "host" ? (

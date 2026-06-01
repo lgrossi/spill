@@ -42,7 +42,7 @@ pub(super) async fn create_retro(
         "WITH requested AS (
             SELECT COALESCE(NULLIF($6, '')::date, CURRENT_DATE) AS planned_for
          )
-         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email, group_id)
+         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email, group_id, cover_gif_url, cover_gif_alt_text)
          SELECT
             $1,
             CASE WHEN requested.planned_for > CURRENT_DATE THEN 'scheduled' ELSE 'writing' END,
@@ -51,9 +51,11 @@ pub(super) async fn create_retro(
             $3,
             'disabled',
             $4,
-            $5
+            $5,
+            NULLIF($7, ''),
+            NULLIF($8, '')
          FROM requested
-         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+         RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
             to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
             to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
     )
@@ -63,6 +65,8 @@ pub(super) async fn create_retro(
     .bind(&creator_email)
     .bind(group_id)
     .bind(input.planned_for.as_deref().map(str::trim).unwrap_or(""))
+    .bind(input.cover_gif_url.as_deref().map(str::trim).unwrap_or(""))
+    .bind(input.cover_gif_alt_text.as_deref().map(str::trim).unwrap_or(""))
     .fetch_one(&mut *tx)
     .await?;
 
