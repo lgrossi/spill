@@ -21,7 +21,7 @@ export function RetroCoverPicker({
   mode: "create" | "update";
   retroId?: string;
   returnTo?: string;
-  size?: "small" | "large" | "hero";
+  size?: "small" | "large" | "profile" | "hero";
 }) {
   const [open, setOpen] = useState(false);
   const [cover, setCover] = useState<CoverValue>({
@@ -67,11 +67,13 @@ export function CoverSquare({
 }: {
   cover?: CoverValue;
   interactive?: boolean;
-  size?: "small" | "large" | "hero";
+  size?: "small" | "large" | "profile" | "hero";
 }) {
   const className =
     size === "hero"
       ? "h-[118px] w-[118px] rounded-[14px]"
+      : size === "profile"
+        ? "h-[132px] w-[132px] rounded-[16px]"
       : size === "large"
         ? "h-[92px] w-[92px] rounded-[12px]"
         : "h-12 w-12 rounded-[9px]";

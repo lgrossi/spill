@@ -60,26 +60,18 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="title">Name it</label>
             <span className="text-[11px] text-spill-muted">what should people recognize?</span>
           </div>
-          <input id="title" name="title" required placeholder="e.g. Team retro - May 25" className={`${fieldControlClass} min-h-[56px] border-2 border-spill-wrong px-4 text-2xl font-bold tracking-[-0.02em] shadow-[var(--focus)]`} aria-label="Retro title" />
-        </div>
-
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <StepNum n="2" />
-            <p className="text-[13px] font-bold text-spill-fg">Cover GIF</p>
-            <span className="text-[11px] text-spill-muted">optional visual memory for cards and wrap-up</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <RetroCoverPicker mode="create" size="large" />
-            <div className="max-w-sm text-[12.5px] leading-5 text-spill-muted">
-              Click the square to search for a cover. It will show on board cards, history, and the wrap-up.
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <RetroCoverPicker mode="create" size="profile" />
+            <div className="min-w-0 flex-1">
+              <input id="title" name="title" required placeholder="e.g. Team retro - May 25" className={`${fieldControlClass} min-h-[56px] border-2 border-spill-wrong px-4 text-2xl font-bold tracking-[-0.02em] shadow-[var(--focus)]`} aria-label="Retro title" />
+              <p className="mt-2 text-[11px] font-semibold text-spill-muted">Click the square to add a cover GIF.</p>
             </div>
           </div>
         </div>
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="3" />
+            <StepNum n="2" />
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="group_name">Group</label>
             <span className="text-[11px] text-spill-muted">squad, team, or stream</span>
           </div>
@@ -88,7 +80,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="4" />
+            <StepNum n="3" />
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="planned_for">Retro date</label>
             <span className="text-[11px] text-spill-muted">future dates wait on the wall</span>
           </div>
@@ -97,7 +89,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <StepNum n="5" />
+            <StepNum n="4" />
             <p className="text-[13px] font-bold text-spill-fg">Pick a shape</p>
           </div>
           <TemplatePicker template={template} setTemplate={setTemplate} />
@@ -108,7 +100,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="6" />
+            <StepNum n="5" />
             <p className="text-[13px] font-bold text-spill-fg">House rules</p>
           </div>
           <div className="grid gap-2.5 md:grid-cols-2">
@@ -194,7 +186,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="7" />
+            <StepNum n="6" />
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
           <InvitePanel mode="create" onInviteesChange={setInvitees} />
