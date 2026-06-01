@@ -86,7 +86,7 @@ function BoardInvitePanel({
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [staged, setStaged] = useState<Array<Picked & { role: "host" | "member" }>>([]);
+  const [adding, setAdding] = useState(false);
 
   async function reload() {
     try {
@@ -106,33 +106,22 @@ function BoardInvitePanel({
   }, [retroId]);
 
   async function handlePick(users: Picked[]) {
-    const next = [...staged];
-    for (const u of users) {
-      if (
-        !next.some((p) => p.email === u.email) &&
-        !grants.some((g) => g.principal_email === u.email)
-      ) {
-        next.push({ ...u, role: "member" });
-      }
+    const emails = users
+      .map((user) => user.email.trim().toLowerCase())
+      .filter((email) => email.length > 0)
+      .filter((email, index, all) => all.indexOf(email) === index)
+      .filter((email) => !grants.some((grant) => grant.principal_email === email));
+    if (emails.length === 0) {
+      return;
     }
-    setStaged(next);
-  }
-
-  function handleStagedRoleChange(email: string, role: "host" | "member") {
-    setStaged(staged.map((p) => (p.email === email ? { ...p, role } : p)));
-  }
-
-  function handleStagedRemove(email: string) {
-    setStaged(staged.filter((p) => p.email !== email));
-  }
-
-  async function handleConfirmInvites() {
+    setAdding(true);
     try {
-      await Promise.all(staged.map((u) => addGrantAction(retroId, u.email, u.role)));
-      setStaged([]);
+      await Promise.all(emails.map((email) => addGrantAction(retroId, email, "member")));
       await reload();
     } catch {
       setError("Could not add member.");
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -157,29 +146,7 @@ function BoardInvitePanel({
   return (
     <div className="space-y-3">
       {isHost && <UserAutocomplete onPick={handlePick} />}
-      {staged.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            {staged.map((u) => (
-              <MemberBadge
-                key={u.email}
-                email={u.email}
-                label={u.name || u.email.split("@")[0]}
-                role={u.role}
-                onRemove={handleStagedRemove}
-                onRoleChange={handleStagedRoleChange}
-              />
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={handleConfirmInvites}
-            className="rounded-[8px] border border-spill-well bg-spill-well/10 px-3 py-1.5 text-[11px] font-bold text-spill-well transition hover:bg-spill-well/20"
-          >
-            Invite {staged.length === 1 ? "1 person" : `${staged.length} people`}
-          </button>
-        </div>
-      )}
+      {adding ? <p className="text-[11px] text-spill-muted">Inviting...</p> : null}
       {error && <p className="text-[11px] text-spill-wrong">{error}</p>}
       {loading ? (
         <p className="text-[11px] text-spill-muted">Loading members...</p>
