@@ -27,9 +27,11 @@ import { AiWrapTilePoller } from "./ai-wrap-tile-poller";
 export function AiWrapTile({
   retroId,
   artifacts,
+  categories = [],
 }: {
   retroId: string;
   artifacts: AiArtifact[];
+  categories?: string[];
 }) {
   const summary = artifacts.find((artifact) => artifact.kind === "summary");
   if (!summary) {
@@ -40,8 +42,17 @@ export function AiWrapTile({
   return (
     <Tile className="border-spill-action/50 bg-spill-action/10">
       <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-action">
-        AI wrap-up
+        AI Summary
       </p>
+      {categories.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {categories.slice(0, 2).map((category) => (
+            <span className="rounded-full border border-spill-action/30 bg-white/40 px-2.5 py-1 text-[10.5px] font-extrabold text-spill-action" key={category}>
+              #{category}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {isPending ? (
         <p className="mt-2 text-[11.5px] leading-5 text-spill-muted">
           Generating summary…

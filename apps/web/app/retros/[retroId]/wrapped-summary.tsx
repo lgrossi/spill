@@ -14,6 +14,7 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const mood = generatedTeamMood(board.ai_artifacts);
+  const boardCategories = generatedBoardCategories(board.ai_artifacts);
   const actionColumnCards = board.columns
     .filter(isActionsColumn)
     .flatMap((column) => column.cards.filter((card) => !card.hidden && card.parent_card_id === null));
@@ -71,7 +72,7 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
       <aside className="space-y-5 border-t border-spill-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
         <ParticipantsSummary board={board} />
         <NextRetroTile board={board} />
-        <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} />
+        <AiWrapTile retroId={board.retro.id} artifacts={board.ai_artifacts} categories={boardCategories} />
       </aside>
     </section>
   );
@@ -232,6 +233,17 @@ function generatedTeamMood(artifacts: RetroBoard["ai_artifacts"]) {
   return moodPresentations[value] ?? null;
 }
 
+function generatedBoardCategories(artifacts: RetroBoard["ai_artifacts"]) {
+  const summary = artifacts.find((artifact) => artifact.kind === "summary");
+  if (summary?.status !== "succeeded" || !summary.output || typeof summary.output !== "object") {
+    return [];
+  }
+  const value = (summary.output as Record<string, unknown>).board_categories;
+  return Array.isArray(value)
+    ? value.filter((category): category is string => typeof category === "string" && category.trim().length > 0).slice(0, 4)
+    : [];
+}
+
 function FinalBoard({
   board,
   boardColumns,
@@ -334,6 +346,10 @@ function WrappedBoardCard({
   semantic: string;
 }) {
   const author = participantById(board, card.author_participant_id);
+  const cluster = card.cluster_id ? board.clusters.find((item) => item.id === card.cluster_id) : null;
+  const clusterChips = [cluster?.category, ...(cluster?.tags ?? [])]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .slice(0, 4);
   return (
     <SpillCard accent={color}>
       {card.gif_url ? <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
@@ -348,6 +364,15 @@ function WrappedBoardCard({
               {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
               <p className="mt-1 first:mt-0">{member.body_text || member.gif_alt_text || "media card"}</p>
             </div>
+          ))}
+        </div>
+      ) : null}
+      {clusterChips.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {clusterChips.map((tag) => (
+            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold text-white/85" key={tag}>
+              #{tag}
+            </span>
           ))}
         </div>
       ) : null}
