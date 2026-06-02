@@ -92,6 +92,7 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
                     .uri("/api/retros")
                     .header(HEADER_USER_SUBJECT, "user-123")
                     .header(HEADER_USER_NAME, "Ava")
+                    .header("x-spillio-user-email", "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"Sprint 43","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -137,6 +138,7 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
             Request::builder()
                 .uri("/api/retros")
                 .header(HEADER_USER_SUBJECT, "user-123")
+                .header("x-spillio-user-email", "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
