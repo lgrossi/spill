@@ -144,18 +144,108 @@ impl RetroRepository {
 
             for card_id in group.card_ids {
                 sqlx::query(
-                    "UPDATE cards
+                    "UPDATE votes
+                     SET target_card_id = $1
+                     WHERE retro_id = $2
+                       AND (
+                         target_card_id = $3
+                         OR target_card_id IN (
+                           WITH RECURSIVE descendants AS (
+                             SELECT id
+                             FROM cards
+                             WHERE retro_id = $2 AND parent_card_id = $3
+                             UNION ALL
+                             SELECT child.id
+                             FROM cards child
+                             JOIN descendants parent ON child.parent_card_id = parent.id
+                             WHERE child.retro_id = $2
+                           )
+                           SELECT id FROM descendants
+                         )
+                       )",
+                )
+                .bind(parent_card_id)
+                .bind(retro_id)
+                .bind(card_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query(
+                    "WITH RECURSIVE descendants AS (
+                       SELECT id
+                       FROM cards
+                       WHERE retro_id = $4 AND parent_card_id = $5
+                       UNION ALL
+                       SELECT child.id
+                       FROM cards child
+                       JOIN descendants parent ON child.parent_card_id = parent.id
+                       WHERE child.retro_id = $4
+                     ),
+                     group_cards AS (
+                       SELECT DISTINCT parent.id
+                       FROM descendants parent
+                       JOIN cards child ON child.parent_card_id = parent.id
+                     ),
+                     leaf_cards AS (
+                       SELECT descendants.id
+                       FROM descendants
+                       LEFT JOIN group_cards ON group_cards.id = descendants.id
+                       WHERE group_cards.id IS NULL
+                     )
+                     UPDATE cards
                      SET cluster_id = $1,
                          parent_card_id = $2,
                          column_id = $3,
                          updated_at = NOW()
-                     WHERE retro_id = $4 AND id = $5",
+                     WHERE retro_id = $4
+                       AND (
+                         (
+                           id = $5
+                           AND NOT EXISTS (
+                             SELECT 1 FROM cards child WHERE child.retro_id = $4 AND child.parent_card_id = $5
+                           )
+                         )
+                         OR id IN (SELECT id FROM leaf_cards)
+                       )",
                 )
                 .bind(row.id)
                 .bind(parent_card_id)
                 .bind(first_card.column_id)
                 .bind(retro_id)
                 .bind(card_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query(
+                    "WITH RECURSIVE descendants AS (
+                       SELECT id
+                       FROM cards
+                       WHERE retro_id = $2 AND parent_card_id = $1
+                       UNION ALL
+                       SELECT child.id
+                       FROM cards child
+                       JOIN descendants parent ON child.parent_card_id = parent.id
+                       WHERE child.retro_id = $2
+                     ),
+                     group_cards AS (
+                       SELECT DISTINCT parent.id
+                       FROM descendants parent
+                       JOIN cards child ON child.parent_card_id = parent.id
+                     )
+                     DELETE FROM cards
+                     WHERE retro_id = $2
+                       AND (
+                         (
+                           id = $1
+                           AND EXISTS (
+                             SELECT 1 FROM cards child WHERE child.retro_id = $2 AND child.parent_card_id = $1
+                           )
+                         )
+                         OR id IN (SELECT id FROM group_cards)
+                       )",
+                )
+                .bind(card_id)
+                .bind(retro_id)
                 .execute(&mut *tx)
                 .await?;
             }

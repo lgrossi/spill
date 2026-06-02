@@ -16,7 +16,7 @@ export async function createRetroCommand(formData: FormData) {
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
   const actionDiscussionEnabled = formData.getAll("action_discussion_enabled").at(-1) === "1";
   const actionDiscussionLimit = actionDiscussionEnabled ? Number(formData.get("action_discussion_limit") ?? 3) : 0;
-  const clusteringMode = String(formData.get("clustering_mode") ?? "disabled");
+  const clusteringMode = String(formData.getAll("clustering_mode").at(-1) ?? "disabled");
   const customColumns = formData
     .getAll("custom_column")
     .map((column) => String(column).trim())
