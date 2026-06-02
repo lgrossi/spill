@@ -646,11 +646,13 @@ async fn remove_participant_from_session(
 async fn start_voting(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     let user = CurrentUser::from_headers(&headers)?;
     retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .start_voting(user, retro_id)
         .await
         .map(Json)

@@ -31,6 +31,7 @@ pub struct CreateRetroRequest {
     pub vote_limit: i32,
     #[serde(default = "default_action_discussion_limit")]
     pub action_discussion_limit: i32,
+    pub clustering_mode: Option<String>,
     #[serde(default)]
     pub invitees: Vec<InviteeRequest>,
 }

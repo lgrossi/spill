@@ -30,6 +30,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [customColors, setCustomColors] = useState(defaultCustomColors);
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
+  const [autoOrganize, setAutoOrganize] = useState(false);
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
   const today = localDateString(new Date());
 
@@ -163,14 +164,19 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             </Tile>
             <Tile className="flex items-center gap-3">
               <RuleMark>◆</RuleMark>
-              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
                 <input name="clustering_mode" type="hidden" value="disabled" />
-                <div className="min-w-0">
-                  <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">auto clustering</p>
-                  <p className="mt-1 text-[11px] font-semibold text-spill-muted">coming soon</p>
-                </div>
-                <span className="rounded-full border border-spill-line bg-[var(--paper)] px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.1em] text-spill-muted">disabled</span>
-              </div>
+                <input className="sr-only" name="clustering_mode" type="checkbox" value="auto_on_vote_start" checked={autoOrganize} onChange={(event) => setAutoOrganize(event.currentTarget.checked)} />
+                <span className="min-w-0">
+                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">organize before voting</span>
+                  <span className={`mt-1 block text-[11px] font-semibold transition ${autoOrganize ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+                    {autoOrganize ? "AI groups and tags cards first" : "manual grouping"}
+                  </span>
+                </span>
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
+                  ✓
+                </span>
+              </label>
             </Tile>
             <Tile className="flex items-center gap-3">
               <RuleMark>☉</RuleMark>

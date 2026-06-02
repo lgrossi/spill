@@ -107,6 +107,8 @@ export type RetroBoard = {
     action_discussion_limit: number;
     cover_gif_url: string | null;
     cover_gif_alt_text: string | null;
+    clustering_mode: "disabled" | "manual" | "auto_on_vote_start";
+    clustering_status: "not_run" | "running" | "completed" | "failed";
     planned_for: string;
     happened_at: string | null;
   };
@@ -213,6 +215,7 @@ export type CreateRetroPayload =
       template: "standard";
       vote_limit: number;
       action_discussion_limit: number;
+      clustering_mode?: "disabled" | "auto_on_vote_start";
       invitees?: InviteeRequest[];
     }
   | {
@@ -226,6 +229,7 @@ export type CreateRetroPayload =
       column_colors?: string[];
       vote_limit: number;
       action_discussion_limit: number;
+      clustering_mode?: "disabled" | "auto_on_vote_start";
       invitees?: InviteeRequest[];
     };
 
