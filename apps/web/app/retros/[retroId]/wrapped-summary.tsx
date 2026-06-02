@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { Avatar, CardFooter, Pill, SpillCard, Tile, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
 import { CoverSquare, RetroCoverPicker } from "@/components/retro-cover-picker";
 import type { RetroBoard, RetroCard } from "@/lib/api";
@@ -25,6 +26,8 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
       .filter((id): id is string => Boolean(id)),
   );
   const adhocActionCards = actionColumnCards.filter((card) => !linkedCardIds.has(card.id));
+  const cover = { url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text };
+  const hasCover = Boolean(cover.url);
 
   return (
     <section className="grid flex-1 grid-cols-1 gap-8 overflow-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -41,14 +44,16 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
         <div className="mt-5 flex items-center gap-5">
           {isHost ? (
             <RetroCoverPicker
-              initialCover={{ url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text }}
+              initialCover={cover}
               mode="update"
               retroId={board.retro.id}
               returnTo={`/retros/${board.retro.id}`}
               size="hero"
             />
+          ) : hasCover ? (
+            <CoverSquare cover={cover} size="hero" />
           ) : (
-            <CoverSquare cover={{ url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text }} size="hero" />
+            <MoodVisual mood={mood} />
           )}
           <div>
             <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "reading the room"}</p>
@@ -124,35 +129,93 @@ function countLabel(count: number, noun: string) {
 }
 
 type MoodPresentation = {
+  badge: string;
   title: string;
+  style: CSSProperties;
+};
+
+const fallbackMoodStyle: CSSProperties = {
+  background: "radial-gradient(circle at 35% 30%, #8a8177, #62564d 70%)",
+  borderColor: "#62564d",
 };
 
 const moodPresentations: Record<string, MoodPresentation> = {
   "quietly-proud": {
+    badge: "quietly proud",
     title: "Quietly proud.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #79c38c, #3b8f58 70%)",
+      borderColor: "#2d7646",
+    },
   },
   "smooth-sailing": {
+    badge: "smooth sailing",
     title: "Smooth sailing.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #6fb6d6, #347fa2 70%)",
+      borderColor: "#246983",
+    },
   },
   "good-sparks": {
+    badge: "good sparks",
     title: "Good sparks.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #f3b64f, #c9792d 70%)",
+      borderColor: "#a35f24",
+    },
   },
   "productive-chaos": {
+    badge: "productive chaos",
     title: "Productive chaos.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #cf8a3f, #9f5f30 70%)",
+      borderColor: "#804923",
+    },
   },
   foggy: {
+    badge: "foggy",
     title: "Foggy.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #9ca3af, #64748b 70%)",
+      borderColor: "#475569",
+    },
   },
   spicy: {
+    badge: "spicy",
     title: "Spicy.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #ef6f5e, #b64232 70%)",
+      borderColor: "#8f3328",
+    },
   },
   "stuck-in-mud": {
+    badge: "stuck in mud",
     title: "Stuck in mud.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #8f7660, #5f4938 70%)",
+      borderColor: "#4b382b",
+    },
   },
   "needs-a-map": {
+    badge: "needs a map",
     title: "Needs a map.",
+    style: {
+      background: "radial-gradient(circle at 35% 30%, #8b7bd4, #5947a3 70%)",
+      borderColor: "#463783",
+    },
   },
 };
+
+function MoodVisual({ mood }: { mood: MoodPresentation | null }) {
+  return (
+    <div
+      className="grid h-[118px] w-[118px] shrink-0 place-items-center rounded-[14px] border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]"
+      style={mood?.style ?? fallbackMoodStyle}
+    >
+      {mood?.badge ?? "mood"}
+    </div>
+  );
+}
 
 function generatedTeamMood(artifacts: RetroBoard["ai_artifacts"]) {
   const summary = artifacts.find((artifact) => artifact.kind === "summary");
