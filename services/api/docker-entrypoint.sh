@@ -5,8 +5,11 @@ set -e
 # is reachable. Falls back to 8080 for local runs without PORT set.
 export SPILLIO_API_ADDR="0.0.0.0:${PORT:-8080}"
 
-# Run migrations before serving. sqlx migrations are idempotent — safe on every start.
-# PG* env vars (PGHOST, PGUSER, PGPASSWORD, PGDATABASE) are read directly by sqlx.
-/usr/local/bin/spillio-api migrate
+# Run migrations before serving. Skipped when SPILLIO_RUN_MIGRATIONS=false —
+# set by CI on branch deploys so feature branches don't advance the shared
+# dev schema ahead of main. Always runs on main (default: true).
+if [ "${SPILLIO_RUN_MIGRATIONS:-true}" != "false" ]; then
+  /usr/local/bin/spillio-api migrate
+fi
 
 exec "$@"
