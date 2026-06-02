@@ -94,10 +94,7 @@ pub(super) async fn list_retros(
              LEFT JOIN retro_accesses scoped_access ON scoped_access.participant_id = scoped_participant.id
              WHERE scoped_participant.retro_id = r.id
                AND scoped_participant.external_subject = $1
-              AND (
-                  (scoped_participant.role = 'host' AND $2 = '')
-                  OR scoped_access.retro_id = r.id
-              )
+               AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
          ) OR EXISTS (
              SELECT 1
              FROM board_grants scoped_grant
