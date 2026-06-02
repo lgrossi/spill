@@ -17,6 +17,44 @@ struct NextSource {
 }
 
 impl RetroRepository {
+    pub async fn fetch_recent_series_titles(
+        &self,
+        source_retro_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let titles = sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT id, group_id, planned_for
+                FROM retros
+                WHERE id = $1
+             ),
+             recent AS (
+                SELECT r.title, r.planned_for, r.created_at
+                FROM retros r
+                JOIN source s ON s.group_id IS NOT NULL AND r.group_id = s.group_id
+                WHERE r.previous_retro_id IS DISTINCT FROM $1
+                  AND r.planned_for <= s.planned_for
+                ORDER BY r.planned_for DESC, r.created_at DESC
+                LIMIT GREATEST($2, 1)
+             )
+             SELECT title
+             FROM recent
+             ORDER BY planned_for ASC, created_at ASC",
+        )
+        .bind(source_retro_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        if titles.is_empty() {
+            return Ok(self
+                .fetch_retro(source_retro_id)
+                .await?
+                .map(|retro| vec![retro.title])
+                .unwrap_or_default());
+        }
+        Ok(titles)
+    }
+
     pub async fn ensure_next_retro(
         &self,
         source_retro_id: Uuid,
