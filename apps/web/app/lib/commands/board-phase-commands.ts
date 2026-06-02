@@ -123,7 +123,10 @@ export async function autoAdvanceCommand(formData: FormData) {
     if (allReady) {
       if (board.retro.phase === "writing") {
         await revealRetro(retroId);
-      } else if (board.retro.phase === "voting") {
+      } else if (
+        board.retro.phase === "voting" &&
+        !(board.retro.clustering_mode === "auto_on_vote_start" && board.retro.clustering_status === "running")
+      ) {
         await startActionDiscussion(retroId);
       }
       revalidatePath(`/retros/${retroId}`);

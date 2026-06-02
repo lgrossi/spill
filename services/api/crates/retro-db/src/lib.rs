@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use hex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -41,6 +39,7 @@ impl RetroRepository {
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                clustering_mode, clustering_status,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
              FROM retros
@@ -387,6 +386,77 @@ impl RetroRepository {
              FROM board_grants
              WHERE retro_id = $1
              ORDER BY created_at ASC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn set_clustering_mode(&self, retro_id: Uuid, mode: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE retros
+             SET clustering_mode = CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
+                 clustering_status = 'not_run'
+             WHERE id = $1",
+        )
+        .bind(retro_id)
+        .bind(mode.trim())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn existing_cluster_tag_context(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT group_id FROM retros WHERE id = $1
+             ),
+             tags AS (
+                SELECT jsonb_array_elements_text(cc.tags) AS tag
+                FROM card_clusters cc
+                JOIN retros r ON r.id = cc.retro_id
+                JOIN source s ON s.group_id IS NOT NULL AND s.group_id = r.group_id
+                WHERE cc.retro_id <> $1
+             )
+             SELECT tag
+             FROM tags
+             WHERE btrim(tag) <> ''
+             GROUP BY tag
+             ORDER BY COUNT(*) DESC, tag ASC
+             LIMIT 50",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn existing_board_category_context(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT group_id FROM retros WHERE id = $1
+             ),
+             categories AS (
+                SELECT jsonb_array_elements_text(a.output->'board_categories') AS category
+                FROM ai_artifacts a
+                JOIN retros r ON r.id = a.retro_id
+                JOIN source s ON s.group_id IS NOT NULL AND s.group_id = r.group_id
+                WHERE a.retro_id <> $1
+                  AND a.kind = 'summary'
+                  AND a.status = 'succeeded'
+                  AND jsonb_typeof(a.output->'board_categories') = 'array'
+             )
+             SELECT category
+             FROM categories
+             WHERE btrim(category) <> ''
+             GROUP BY category
+             ORDER BY COUNT(*) DESC, category ASC
+             LIMIT 50",
         )
         .bind(retro_id)
         .fetch_all(&self.pool)
@@ -746,6 +816,10 @@ pub struct RetroRecord {
     pub creator_email: String,
     pub cover_gif_url: Option<String>,
     pub cover_gif_alt_text: Option<String>,
+    #[sqlx(default)]
+    pub clustering_mode: String,
+    #[sqlx(default)]
+    pub clustering_status: String,
     pub planned_for: String,
     pub happened_at: Option<String>,
 }
@@ -1287,6 +1361,15 @@ pub struct ClusterCardsInput {
     pub target_card_id: Uuid,
     pub subject: String,
     pub display_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoClusterGroupInput {
+    pub title: String,
+    pub details: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub card_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone)]
