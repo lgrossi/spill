@@ -61,7 +61,11 @@ pub async fn run(
         }
     };
 
-    let prompt = build_prompt(&board);
+    let existing_board_categories = repository
+        .existing_board_category_context(retro_id)
+        .await
+        .unwrap_or_default();
+    let prompt = build_prompt(&board, &existing_board_categories);
     match provider.complete(&prompt).await {
         Ok(response) => match output_from_provider_response(&response) {
             Ok(output) => {
@@ -99,7 +103,7 @@ fn publish_change(event_hub: &BoardEventHub, retro_id: Uuid) {
 /// Builds the prompt sent to the AI provider. Lives next to the runner
 /// (not in the provider) because the prompt is a Spill domain concern,
 /// not a provider concern.
-pub fn build_prompt(board: &RetroBoard) -> String {
+pub fn build_prompt(board: &RetroBoard, existing_board_categories: &[String]) -> String {
     let mut prompt = String::new();
     let _ = writeln!(
         prompt,
@@ -107,7 +111,8 @@ pub fn build_prompt(board: &RetroBoard) -> String {
          Required schema:\n\
          {{\n\
            \"team_mood\": \"quietly-proud\" | \"smooth-sailing\" | \"good-sparks\" | \"productive-chaos\" | \"foggy\" | \"spicy\" | \"stuck-in-mud\" | \"needs-a-map\",\n\
-           \"summary\": \"string\"\n\
+           \"summary\": \"string\",\n\
+           \"board_categories\": [\"string\"]\n\
          }}\n\
          Rules:\n\
          - Use double quotes.\n\
@@ -115,6 +120,8 @@ pub fn build_prompt(board: &RetroBoard) -> String {
          - Do not include extra keys.\n\
          - team_mood must be exactly one allowed value.\n\
          - summary must be 2 short sentences, 35 to 55 words total.\n\
+         - board_categories must contain 0 to 4 broad categories for the whole retro.\n\
+         - Prefer existing board categories when they fit; do not create near-duplicates.\n\
          Write summary in simple, human language. Give it a small proverb-like turn: calm, \
          memorable, and a little playful, but never grand, mystical, or fake-wise. Use at most \
          one light image. Do not mention the mood label directly or reuse its exact words.\n\
@@ -129,6 +136,13 @@ pub fn build_prompt(board: &RetroBoard) -> String {
     );
     let _ = writeln!(prompt, "\nRetro title: {}", board.retro.title);
     let _ = writeln!(prompt, "Phase: {}", board.retro.phase);
+    if !existing_board_categories.is_empty() {
+        let _ = writeln!(
+            prompt,
+            "Existing board categories to prefer: {}",
+            existing_board_categories.join(", ")
+        );
+    }
 
     for column in &board.columns {
         let visible: Vec<&CardRecord> = column
@@ -261,6 +275,16 @@ fn output_from_provider_response(response: &str) -> Result<serde_json::Value, &'
     if let Some(team_mood) = team_mood {
         output["team_mood"] = serde_json::json!(team_mood);
     }
+    if let Some(categories) = parsed
+        .as_ref()
+        .and_then(|value| value.get("board_categories"))
+        .and_then(serde_json::Value::as_array)
+    {
+        let categories = normalize_categories(categories);
+        if !categories.is_empty() {
+            output["board_categories"] = serde_json::json!(categories);
+        }
+    }
     Ok(output)
 }
 
@@ -321,6 +345,19 @@ fn is_allowed_team_mood(value: &str) -> bool {
     )
 }
 
+fn normalize_categories(categories: &[serde_json::Value]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    categories
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase())
+        .filter(|value| seen.insert(value.clone()))
+        .take(4)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use retro_db::{
@@ -332,25 +369,28 @@ mod tests {
 
     #[test]
     fn build_prompt_requests_structured_mood_and_picturesque_summary() {
-        let prompt = build_prompt(&RetroBoard {
-            retro: retro(uuid(1)),
-            series: None,
-            next_retro: None,
-            participants: Vec::new(),
-            columns: Vec::new(),
-            ready: Default::default(),
-            voting: VotingInfo {
-                vote_limit: 3,
-                votes_used: 0,
-                votes_remaining: 3,
+        let prompt = build_prompt(
+            &RetroBoard {
+                retro: retro(uuid(1)),
+                series: None,
+                next_retro: None,
+                participants: Vec::new(),
+                columns: Vec::new(),
+                ready: Default::default(),
+                voting: VotingInfo {
+                    vote_limit: 3,
+                    votes_used: 0,
+                    votes_remaining: 3,
+                },
+                clusters: Vec::new(),
+                actions: Vec::new(),
+                deck: Vec::new(),
+                ai_artifacts: Vec::new(),
+                meeting_notes: Vec::new(),
+                deliveries: Vec::new(),
             },
-            clusters: Vec::new(),
-            actions: Vec::new(),
-            deck: Vec::new(),
-            ai_artifacts: Vec::new(),
-            meeting_notes: Vec::new(),
-            deliveries: Vec::new(),
-        });
+            &[],
+        );
 
         assert!(prompt.contains("Return exactly one valid JSON object and nothing else"));
         assert!(prompt.contains("\"team_mood\""));
@@ -367,7 +407,7 @@ mod tests {
     #[test]
     fn output_from_provider_response_extracts_json_summary_and_mood() {
         let output = output_from_provider_response(
-            r#"{"team_mood":"needs-a-map","summary":"The team found the path, but the signposts need work."}"#,
+            r#"{"team_mood":"needs-a-map","summary":"The team found the path, but the signposts need work.","board_categories":["Delivery","delivery"," process "]}"#,
         )
         .unwrap();
 
@@ -376,6 +416,10 @@ mod tests {
         assert_eq!(
             output["summary"],
             "The team found the path, but the signposts need work."
+        );
+        assert_eq!(
+            output["board_categories"],
+            serde_json::json!(["delivery", "process"])
         );
     }
 
@@ -483,6 +527,8 @@ mod tests {
                 creator_email: "host@example.com".to_owned(),
                 cover_gif_url: None,
                 cover_gif_alt_text: None,
+                clustering_mode: "disabled".to_owned(),
+                clustering_status: "not_run".to_owned(),
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
@@ -513,7 +559,7 @@ mod tests {
             deliveries: Vec::new(),
         };
 
-        let prompt = build_prompt(&board);
+        let prompt = build_prompt(&board, &[]);
 
         assert!(prompt.contains("## Pain (2 cards)"), "{prompt}");
         assert!(
@@ -573,7 +619,7 @@ mod tests {
             deliveries: Vec::new(),
         };
 
-        let prompt = build_prompt(&board);
+        let prompt = build_prompt(&board, &[]);
 
         assert!(prompt.contains("## Committed actions (1)"), "{prompt}");
         assert!(
@@ -626,7 +672,7 @@ mod tests {
             deliveries: Vec::new(),
         };
 
-        let prompt = build_prompt(&board);
+        let prompt = build_prompt(&board, &[]);
 
         assert!(
             prompt.contains("- (3 votes) [media: confused Travolta looking around]"),
@@ -648,6 +694,8 @@ mod tests {
             creator_email: "host@example.com".to_owned(),
             cover_gif_url: None,
             cover_gif_alt_text: None,
+            clustering_mode: "disabled".to_owned(),
+            clustering_status: "not_run".to_owned(),
             planned_for: "2026-05-15".to_owned(),
             happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
         }

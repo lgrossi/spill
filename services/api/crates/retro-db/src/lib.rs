@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use hex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -41,6 +39,7 @@ impl RetroRepository {
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                clustering_mode, clustering_status,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
              FROM retros
@@ -387,6 +386,77 @@ impl RetroRepository {
              FROM board_grants
              WHERE retro_id = $1
              ORDER BY created_at ASC",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn set_clustering_mode(&self, retro_id: Uuid, mode: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE retros
+             SET clustering_mode = CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
+                 clustering_status = 'not_run'
+             WHERE id = $1",
+        )
+        .bind(retro_id)
+        .bind(mode.trim())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn existing_cluster_tag_context(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT group_id FROM retros WHERE id = $1
+             ),
+             tags AS (
+                SELECT jsonb_array_elements_text(cc.tags) AS tag
+                FROM card_clusters cc
+                JOIN retros r ON r.id = cc.retro_id
+                JOIN source s ON s.group_id IS NOT NULL AND s.group_id = r.group_id
+                WHERE cc.retro_id <> $1
+             )
+             SELECT tag
+             FROM tags
+             WHERE btrim(tag) <> ''
+             GROUP BY tag
+             ORDER BY COUNT(*) DESC, tag ASC
+             LIMIT 50",
+        )
+        .bind(retro_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn existing_board_category_context(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "WITH source AS (
+                SELECT group_id FROM retros WHERE id = $1
+             ),
+             categories AS (
+                SELECT jsonb_array_elements_text(a.output->'board_categories') AS category
+                FROM ai_artifacts a
+                JOIN retros r ON r.id = a.retro_id
+                JOIN source s ON s.group_id IS NOT NULL AND s.group_id = r.group_id
+                WHERE a.retro_id <> $1
+                  AND a.kind = 'summary'
+                  AND a.status = 'succeeded'
+                  AND jsonb_typeof(a.output->'board_categories') = 'array'
+             )
+             SELECT category
+             FROM categories
+             WHERE btrim(category) <> ''
+             GROUP BY category
+             ORDER BY COUNT(*) DESC, category ASC
+             LIMIT 50",
         )
         .bind(retro_id)
         .fetch_all(&self.pool)
@@ -746,6 +816,10 @@ pub struct RetroRecord {
     pub creator_email: String,
     pub cover_gif_url: Option<String>,
     pub cover_gif_alt_text: Option<String>,
+    #[sqlx(default)]
+    pub clustering_mode: String,
+    #[sqlx(default)]
+    pub clustering_status: String,
     pub planned_for: String,
     pub happened_at: Option<String>,
 }
@@ -1287,6 +1361,15 @@ pub struct ClusterCardsInput {
     pub target_card_id: Uuid,
     pub subject: String,
     pub display_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoClusterGroupInput {
+    pub title: String,
+    pub details: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub card_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -2098,6 +2181,132 @@ mod tests {
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
             vec![first.id, second.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn auto_clustering_reparents_existing_group_members(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Auto over manual retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Manual cluster one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Manual cluster two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let third = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "mia".to_owned(),
+                author_display_name: "Mia".to_owned(),
+                body_text: Some("AI cluster three".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: first.id,
+            target_card_id: second.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let existing_group = board.columns[0].cards[0].id;
+        repo.cast_vote(CastVoteInput {
+            retro_id: created.retro.id,
+            card_id: existing_group,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+            count: 1,
+        })
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE retros
+             SET clustering_mode = 'auto_on_vote_start',
+                 clustering_status = 'running'
+             WHERE id = $1",
+        )
+        .bind(created.retro.id)
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+
+        repo.apply_auto_cluster_groups(
+            created.retro.id,
+            vec![AutoClusterGroupInput {
+                title: "Combined theme".to_owned(),
+                details: None,
+                category: Some("delivery".to_owned()),
+                tags: vec!["delivery".to_owned()],
+                card_ids: vec![existing_group, third.id],
+            }],
+        )
+        .await
+        .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.columns[0].cards.len(), 1);
+        let group_card = &board.columns[0].cards[0];
+        assert_eq!(group_card.vote_count, 1);
+        assert_eq!(
+            group_card
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![first.id, second.id, third.id]
         );
     }
 

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use retro_core::{CardBody, DomainError, IngestedItemPlacement, IngestionSource};
 use retro_db::{
-    AcceptDeckItemInput, CastVoteInput, ClusterCardsInput, ClusterError, CreateRetroInput,
-    DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate, UpdateActionInput,
-    UpdateRetroDetailsInput, VotingError,
+    AcceptDeckItemInput, AutoClusterGroupInput, CastVoteInput, ClusterCardsInput, ClusterError,
+    CreateRetroInput, DraftCardInput, IngestItemInput, RetroRepository, RetroTemplate,
+    UpdateActionInput, UpdateRetroDetailsInput, VotingError,
 };
 use uuid::Uuid;
 
@@ -87,6 +87,15 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
 
         let retro_id = board.retro.id;
+        let requested_clustering_mode = clustering_mode(request.clustering_mode);
+        if requested_clustering_mode == "auto_on_vote_start" {
+            self.repository
+                .set_clustering_mode(retro_id, &requested_clustering_mode)
+                .await
+                .map_err(|error| {
+                    ApiError::internal(format!("failed to set clustering mode: {error}"))
+                })?;
+        }
         for invitee in invitees {
             let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {
@@ -452,10 +461,21 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase == "voting" {
+            self.trigger_auto_clustering(retro_id).await?;
+            return self.fetch_board_for_user(retro_id, &user).await;
+        }
         self.repository
             .start_voting(retro_id)
             .await
             .map_err(voting_error)?;
+        self.trigger_auto_clustering(retro_id).await?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
         self.fetch_board_for_user(retro_id, &user).await
@@ -699,6 +719,29 @@ impl RetroWorkflow {
         });
     }
 
+    async fn trigger_auto_clustering(&self, retro_id: Uuid) -> Result<(), ApiError> {
+        let Some(provider) = self.ai_provider.clone() else {
+            return Ok(());
+        };
+        let started = self
+            .repository
+            .mark_clustering_running(retro_id)
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to start organization: {error}"))
+            })?;
+        if !started {
+            return Ok(());
+        }
+        let repository = self.repository.clone();
+        let event_hub = self.event_hub.clone();
+        tokio::spawn(async move {
+            run_auto_clustering(repository, event_hub, provider, retro_id).await;
+        });
+        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
+        Ok(())
+    }
+
     async fn fetch_board_for_user(
         &self,
         retro_id: Uuid,
@@ -715,6 +758,51 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to open retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))
     }
+}
+
+async fn run_auto_clustering(
+    repository: RetroRepository,
+    event_hub: BoardEventHub,
+    provider: Arc<AiProvider>,
+    retro_id: Uuid,
+) {
+    if let Err(error) = run_auto_clustering_inner(&repository, provider, retro_id).await {
+        tracing::warn!(%retro_id, ?error, "auto organization failed");
+        if let Err(mark_error) = repository.mark_clustering_failed(retro_id).await {
+            tracing::warn!(%retro_id, %mark_error, "failed to mark organization failed");
+        }
+    }
+    event_hub.publish(BoardEvent::CardChanged { retro_id });
+}
+
+async fn run_auto_clustering_inner(
+    repository: &RetroRepository,
+    provider: Arc<AiProvider>,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    let board = repository
+        .fetch_board_readonly(retro_id)
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!("failed to load board for organization: {error}"))
+        })?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    let existing_tags = repository
+        .existing_cluster_tag_context(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to load tag context: {error}")))?;
+    let prompt = build_auto_cluster_prompt(&board, &existing_tags);
+    let response = provider
+        .complete(&prompt)
+        .await
+        .map_err(|error| ApiError::internal(format!("organization AI failed: {error}")))?;
+    let groups = auto_cluster_groups_from_response(&response)
+        .map_err(|error| ApiError::internal(error.to_owned()))?;
+    repository
+        .apply_auto_cluster_groups(retro_id, groups)
+        .await
+        .map_err(cluster_error)?;
+    Ok(())
 }
 
 pub(crate) async fn authorize_retro_participant(
@@ -868,6 +956,120 @@ fn optional_non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn clustering_mode(value: Option<String>) -> String {
+    match value.as_deref().map(str::trim) {
+        Some("auto_on_vote_start") => "auto_on_vote_start".to_owned(),
+        _ => "disabled".to_owned(),
+    }
+}
+
+fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[String]) -> String {
+    let mut prompt = String::from(
+        "Return exactly one valid JSON object and nothing else.\n\
+         Required schema: {\"groups\":[{\"title\":\"string\",\"summary\":\"string\",\"card_ids\":[\"uuid\"],\"category\":\"string|null\",\"tags\":[\"string\"]}]}\n\
+         Organize every visible card into a group. Single-card groups are valid. Prefer existing tags when they fit; do not invent near-duplicates. Use lowercase short tags.\n",
+    );
+    if !existing_tags.is_empty() {
+        prompt.push_str("Existing cluster tags to prefer: ");
+        prompt.push_str(&existing_tags.join(", "));
+        prompt.push('\n');
+    }
+    prompt.push_str("\nCards:\n");
+    for column in &board.columns {
+        for card in &column.cards {
+            if card.hidden || card.parent_card_id.is_some() {
+                continue;
+            }
+            let text = [card.body_text.as_deref(), card.gif_alt_text.as_deref()]
+                .into_iter()
+                .flatten()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" [media] ");
+            prompt.push_str(&format!(
+                "- id={} column=\"{}\" text=\"{}\"\n",
+                card.id,
+                column.title,
+                text.replace('"', "'")
+            ));
+        }
+    }
+    prompt
+}
+
+fn auto_cluster_groups_from_response(
+    response: &str,
+) -> Result<Vec<AutoClusterGroupInput>, &'static str> {
+    let value = serde_json::from_str::<serde_json::Value>(response)
+        .or_else(|_| serde_json::from_str::<serde_json::Value>(json_object_body(response)))
+        .map_err(|_| "AI provider returned invalid organization JSON")?;
+    let groups = value
+        .get("groups")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("AI provider returned organization JSON without groups")?;
+    let groups = groups
+        .iter()
+        .filter_map(|group| {
+            let title = group.get("title")?.as_str()?.trim().to_owned();
+            let card_ids = group
+                .get("card_ids")?
+                .as_array()?
+                .iter()
+                .filter_map(|id| id.as_str()?.parse().ok())
+                .collect::<Vec<_>>();
+            if title.is_empty() || card_ids.is_empty() {
+                return None;
+            }
+            let details = group
+                .get("summary")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            let category = group
+                .get("category")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_lowercase());
+            let tags = group
+                .get("tags")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect();
+            Some(AutoClusterGroupInput {
+                title,
+                details,
+                category,
+                tags,
+                card_ids,
+            })
+        })
+        .collect::<Vec<_>>();
+    if groups.is_empty() {
+        return Err("AI provider returned no usable organization groups");
+    }
+    Ok(groups)
+}
+
+fn json_object_body(response: &str) -> &str {
+    let Some(start) = response.find('{') else {
+        return response;
+    };
+    let Some(end) = response.rfind('}') else {
+        return response;
+    };
+    if start <= end {
+        &response[start..=end]
+    } else {
+        response
+    }
+}
+
 pub fn require_non_empty(field: &'static str, value: String) -> Result<String, ApiError> {
     let value = value.trim().to_owned();
     if value.is_empty() {
@@ -984,5 +1186,25 @@ fn domain_error(error: DomainError) -> ApiError {
             ApiError::bad_request(format!("invalid {domain}: {value}"))
         }
         other => ApiError::bad_request(format!("domain validation failed: {other:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_cluster_parser_extracts_groups() {
+        let output = auto_cluster_groups_from_response(
+            r#"{"groups":[{"title":"Deploy pain","summary":"Release friction","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"Delivery","tags":["Release","release"," deploy "]}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].title, "Deploy pain");
+        assert_eq!(output[0].details.as_deref(), Some("Release friction"));
+        assert_eq!(output[0].category.as_deref(), Some("delivery"));
+        assert_eq!(output[0].tags, vec!["Release", "release", " deploy "]);
+        assert_eq!(output[0].card_ids.len(), 1);
     }
 }

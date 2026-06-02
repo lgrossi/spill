@@ -16,6 +16,7 @@ export async function createRetroCommand(formData: FormData) {
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
   const actionDiscussionEnabled = formData.getAll("action_discussion_enabled").at(-1) === "1";
   const actionDiscussionLimit = actionDiscussionEnabled ? Number(formData.get("action_discussion_limit") ?? 3) : 0;
+  const clusteringMode = String(formData.getAll("clustering_mode").at(-1) ?? "disabled");
   const customColumns = formData
     .getAll("custom_column")
     .map((column) => String(column).trim())
@@ -45,6 +46,7 @@ export async function createRetroCommand(formData: FormData) {
     plannedFor,
     voteLimit,
     invitees,
+    clusteringMode,
   });
 
   const board = await createRetro(payload);
@@ -90,6 +92,7 @@ function retroPayload({
   plannedFor,
   voteLimit,
   invitees,
+  clusteringMode,
 }: {
   actionDiscussionEnabled: boolean;
   actionDiscussionLimit: number;
@@ -103,6 +106,7 @@ function retroPayload({
   plannedFor: string;
   voteLimit: number;
   invitees: InviteeRequest[];
+  clusteringMode: string;
 }): CreateRetroPayload {
   const standard = withActionColumn({
     actionDiscussionEnabled,
@@ -121,21 +125,21 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode);
   }
   if (template === "ssc") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode);
   }
   if (template === "msg") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees, clusteringMode);
   }
   if (template === "4ls") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode);
   }
   if (template === "custom") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode);
   }
-  return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
+  return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode);
 }
 
 function customPayload(
@@ -149,6 +153,7 @@ function customPayload(
   voteLimit: number,
   actionDiscussionLimit: number,
   invitees: InviteeRequest[],
+  clusteringMode: string,
 ): CreateRetroPayload {
   return {
     title,
@@ -161,6 +166,7 @@ function customPayload(
     column_colors: columnColors,
     vote_limit: voteLimit,
     action_discussion_limit: actionDiscussionLimit,
+    clustering_mode: clusteringMode === "auto_on_vote_start" ? "auto_on_vote_start" : "disabled",
     invitees,
   };
 }
