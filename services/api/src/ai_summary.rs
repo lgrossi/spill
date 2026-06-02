@@ -70,7 +70,7 @@ pub async fn run(
                 }
             }
             Err(message) => {
-                tracing::warn!(%artifact_id, "ai provider returned invalid summary JSON");
+                tracing::warn!(%artifact_id, raw_response = %response, "ai provider returned invalid summary JSON");
                 mark_failed(&repository, artifact_id, message).await;
             }
         },
