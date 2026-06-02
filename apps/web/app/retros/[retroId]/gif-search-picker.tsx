@@ -55,7 +55,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
           selected={(gif) => selectedGif?.id === gif.id}
           title="Pick a GIF"
           renderResult={(gif, selected, className, image) => (
-            <label className={`${className} grid cursor-pointer ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`} key={`${gif.id}-${gif.url}`}>
+            <label aria-label={`Choose card GIF: ${gif.alt_text || "GIF"}`} className={`${className} grid cursor-pointer ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`} key={`${gif.id}-${gif.url}`}>
               <input
                 checked={selected}
                 className="sr-only"

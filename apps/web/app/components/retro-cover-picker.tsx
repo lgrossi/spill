@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { GifResult } from "@/lib/contracts";
 import { updateRetroDetailsAction } from "@/lib/actions";
 import { GifPickerOverlay } from "./gif-picker-overlay";
@@ -28,6 +28,13 @@ export function RetroCoverPicker({
     url: initialCover?.url ?? null,
     altText: initialCover?.altText ?? null,
   });
+
+  useEffect(() => {
+    if (mode !== "update") {
+      return;
+    }
+    setCover({ url: initialCover?.url ?? null, altText: initialCover?.altText ?? null });
+  }, [initialCover?.altText, initialCover?.url, mode]);
 
   function choose(gif: GifResult) {
     setCover({ url: gif.url, altText: gif.alt_text });
@@ -169,6 +176,7 @@ function CoverPickerPopover({
             <input name="cover_gif_url" type="hidden" value={gif.url} />
             <input name="cover_gif_alt_text" type="hidden" value={gif.alt_text} />
             <button
+              aria-label={`Choose cover GIF: ${gif.alt_text || "GIF"}`}
               className={`${className} ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
               disabled={!retroId}
               type="submit"
@@ -179,6 +187,7 @@ function CoverPickerPopover({
           </form>
         ) : (
           <button
+            aria-label={`Choose cover GIF: ${gif.alt_text || "GIF"}`}
             className={`${className} ${selected ? "border-spill-wrong ring-2 ring-spill-wrong/45" : "border-spill-line"}`}
             key={`${gif.id}-${gif.url}`}
             onClick={() => onChoose(gif)}
