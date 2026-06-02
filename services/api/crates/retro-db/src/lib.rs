@@ -1505,7 +1505,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Sprint 43".to_owned(),
                 creator_subject: "user-123".to_owned(),
-                creator_email: "".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 group_name: None,
                 cover_gif_url: None,
@@ -1531,7 +1531,7 @@ mod tests {
             ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
-        let overview = repo.list_retros("user-123").await.unwrap();
+        let overview = repo.list_retros_for_user("user-123", "ava@example.com").await.unwrap();
         assert_eq!(overview.active.len(), 1);
         assert_eq!(overview.completed.len(), 0);
         assert_eq!(overview.active[0].participant_count, 1);
@@ -2395,7 +2395,7 @@ mod tests {
             .create_retro(CreateRetroInput {
                 title: "Actions retro".to_owned(),
                 creator_subject: "ava".to_owned(),
-                creator_email: "".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
                 creator_display_name: "Ava".to_owned(),
                 group_name: None,
                 cover_gif_url: None,
@@ -2518,7 +2518,7 @@ mod tests {
             .unwrap();
         assert_eq!(completed.phase, "completed");
 
-        let overview = repo.list_retros("ava").await.unwrap();
+        let overview = repo.list_retros_for_user("ava", "ava@example.com").await.unwrap();
         assert_eq!(overview.active.len(), 0);
         assert_eq!(overview.completed.len(), 1);
         assert_eq!(overview.completed[0].unresolved_action_count, 1);

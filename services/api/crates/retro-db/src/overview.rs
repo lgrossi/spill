@@ -92,13 +92,6 @@ pub(super) async fn list_retros(
          LEFT JOIN LATERAL jsonb_array_elements_text(a.tags) AS tag(value) ON true
          WHERE EXISTS (
              SELECT 1
-             FROM participants scoped_participant
-             LEFT JOIN retro_accesses scoped_access ON scoped_access.participant_id = scoped_participant.id
-             WHERE scoped_participant.retro_id = r.id
-               AND scoped_participant.external_subject = $1
-               AND (scoped_participant.role = 'host' OR scoped_access.retro_id = r.id)
-         ) OR EXISTS (
-             SELECT 1
              FROM board_grants scoped_grant
              WHERE scoped_grant.retro_id = r.id
                AND scoped_grant.principal_email = lower($2)
