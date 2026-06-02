@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
 import type { GifResult } from "@/lib/contracts";
 import { useGifSearch } from "@/retros/[retroId]/gif-search-data";
@@ -53,7 +54,8 @@ export function GifPickerOverlay({
 
   return (
     <div
-      className="sp-panel-grain absolute left-0 top-full z-[200] mt-3 w-[min(470px,calc(100vw-2rem))] rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 text-spill-fg shadow-[var(--shadow-3)]"
+      className="sp-panel-grain absolute left-0 top-full z-[200] mt-3 rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 text-spill-fg shadow-[var(--shadow-3)]"
+      style={{ width: "min(470px, calc(100vw - 2rem))" } as CSSProperties}
       role="region"
       aria-label={ariaLabel}
     >
