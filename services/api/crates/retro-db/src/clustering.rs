@@ -38,9 +38,20 @@ impl RetroRepository {
         }
 
         let cards = sqlx::query_as::<_, AutoClusterCard>(
-            "SELECT id, column_id, author_participant_id, COALESCE(body_text, gif_alt_text, '') AS text
-             FROM cards
-             WHERE retro_id = $1 AND state = 'revealed' AND parent_card_id IS NULL
+            "SELECT c.id, c.column_id, c.author_participant_id, COALESCE(c.body_text, c.gif_alt_text, '') AS text
+             FROM cards c
+             JOIN retro_columns rc ON rc.id = c.column_id
+             WHERE c.retro_id = $1
+               AND c.state = 'revealed'
+               AND c.parent_card_id IS NULL
+               AND NOT (
+                 lower(rc.column_key) LIKE '%feeling%'
+                 OR lower(rc.column_key) LIKE '%mood%'
+                 OR lower(rc.title) LIKE '%how are you feeling%'
+                 OR lower(rc.title) LIKE '%how do you feel%'
+                 OR lower(rc.title) LIKE '%feeling%'
+                 OR lower(rc.title) LIKE '%mood%'
+               )
              ORDER BY position, created_at",
         )
         .bind(retro_id)

@@ -675,7 +675,11 @@ impl RetroWorkflow {
                 .flatten()
                 .map(|retro| next_title(&retro.title))
                 .unwrap_or_else(|| "Next retro".to_owned());
-            let title = suggest_next_title(provider, &fallback)
+            let recent_titles = repository
+                .fetch_recent_series_titles(retro_id, 6)
+                .await
+                .unwrap_or_default();
+            let title = suggest_next_title(provider, &fallback, &recent_titles)
                 .await
                 .unwrap_or_else(|| fallback.clone());
             let updated = repository
@@ -872,10 +876,12 @@ async fn require_completion_host(
     }
 }
 
-async fn suggest_next_title(provider: Arc<AiProvider>, fallback: &str) -> Option<String> {
-    let prompt = format!(
-        "Suggest one concise title for the next recurring retrospective. Return only the title. Fallback title: {fallback}"
-    );
+async fn suggest_next_title(
+    provider: Arc<AiProvider>,
+    fallback: &str,
+    recent_titles: &[String],
+) -> Option<String> {
+    let prompt = build_next_title_prompt(fallback, recent_titles);
     let suggested = provider.complete(&prompt).await.ok()?;
     let title = suggested
         .lines()
@@ -891,6 +897,37 @@ async fn suggest_next_title(provider: Arc<AiProvider>, fallback: &str) -> Option
     } else {
         Some(title)
     }
+}
+
+fn build_next_title_prompt(fallback: &str, recent_titles: &[String]) -> String {
+    let mut prompt = format!(
+        "You are naming the next session in a recurring retrospective series.\n\
+         Return only one plain title and nothing else.\n\
+\n\
+         Use the previous sequence titles to infer the naming pattern, tone, and stable team/project wording.\n\
+         If the sequence has no clear pattern, minimally improve the fallback instead of being creative.\n\
+\n\
+         Rules:\n\
+         - 2 to 5 words.\n\
+         - Must be recognizable as the next retro in the same series.\n\
+         - Keep stable team/project wording from the fallback when present.\n\
+         - Do not add dates, numbering, emojis, quotes, markdown, or punctuation-heavy copy.\n\
+         - Do not invent facts, team names, incidents, or themes that are not in the fallback.\n\
+         - Avoid generic hype words like awesome, amazing, legendary, or epic.\n\
+         - If unsure, minimally improve the fallback instead of being creative.\n\
+\n\
+         Fallback title: {}\n",
+        fallback.trim().replace('\"', "'")
+    );
+    if !recent_titles.is_empty() {
+        prompt.push_str("\nPrevious sequence titles, oldest to newest:\n");
+        for title in recent_titles {
+            prompt.push_str("- ");
+            prompt.push_str(&title.trim().replace('\"', "'"));
+            prompt.push('\n');
+        }
+    }
+    prompt
 }
 
 fn next_title(source_title: &str) -> String {
@@ -965,17 +1002,46 @@ fn clustering_mode(value: Option<String>) -> String {
 
 fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[String]) -> String {
     let mut prompt = String::from(
-        "Return exactly one valid JSON object and nothing else.\n\
+        "You are organizing retrospective cards after voting has started.\n\
+         Your job is to group cards by the concrete topic, problem, idea, or action described in their text.\n\
+\n\
+         Return exactly one valid JSON object and nothing else.\n\
          Required schema: {\"groups\":[{\"title\":\"string\",\"summary\":\"string\",\"card_ids\":[\"uuid\"],\"category\":\"string|null\",\"tags\":[\"string\"]}]}\n\
-         Organize every visible card into a group. Single-card groups are valid. Prefer existing tags when they fit; do not invent near-duplicates. Use lowercase short tags.\n",
+\n\
+         Eligible input:\n\
+         - Only use the cards listed under Eligible cards.\n\
+         - Mood/check-in columns such as \"How are you feeling?\" are excluded and must not be inferred.\n\
+         - Treat body text and GIF/media alt descriptions as text that describes participant intent.\n\
+         - Ignore media type itself; a GIF card is not related to another GIF card unless the text says the same thing.\n\
+\n\
+         Grouping rules:\n\
+         - Group cards only when their text describes the same specific theme, issue, win, risk, or next step.\n\
+         - Do not group by column name, broad sentiment, card format, author, vote count, or the presence of media.\n\
+         - Column is context only; it is never a grouping reason and must not become the group title.\n\
+         - If there is no real shared textual theme, keep the card as a single-card group.\n\
+         - Include every eligible card id exactly once across groups.\n\
+         - A card id can belong to only one group; never reuse the same card id in multiple groups.\n\
+\n\
+         Title and metadata rules:\n\
+         - title: concise human-readable theme from the grouped card content, 2 to 5 words.\n\
+         - title must not be copied from a column name and must not be just a category/tag.\n\
+         - summary: one short sentence explaining why the cards belong together.\n\
+         - category: broad area or null.\n\
+         - tags: lowercase, short, deduped; prefer existing tags when they fit and do not invent near-duplicates.\n",
     );
+    prompt.push_str("\nRetro title: ");
+    prompt.push_str(&board.retro.title.replace('"', "'"));
+    prompt.push('\n');
     if !existing_tags.is_empty() {
         prompt.push_str("Existing cluster tags to prefer: ");
         prompt.push_str(&existing_tags.join(", "));
         prompt.push('\n');
     }
-    prompt.push_str("\nCards:\n");
+    prompt.push_str("\nEligible cards:\n");
     for column in &board.columns {
+        if is_mood_column(&column.title, &column.column_key) {
+            continue;
+        }
         for card in &column.cards {
             if card.hidden || card.parent_card_id.is_some() {
                 continue;
@@ -988,7 +1054,7 @@ fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[Stri
                 .collect::<Vec<_>>()
                 .join(" [media] ");
             prompt.push_str(&format!(
-                "- id={} column=\"{}\" text=\"{}\"\n",
+                "- id={} column_context=\"{}\" text=\"{}\"\n",
                 card.id,
                 column.title,
                 text.replace('"', "'")
@@ -996,6 +1062,17 @@ fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[Stri
         }
     }
     prompt
+}
+
+fn is_mood_column(title: &str, column_key: &str) -> bool {
+    let title = title.trim().to_lowercase();
+    let key = column_key.trim().to_lowercase();
+    key.contains("feeling")
+        || key.contains("mood")
+        || title.contains("how are you feeling")
+        || title.contains("how do you feel")
+        || title.contains("feeling")
+        || title.contains("mood")
 }
 
 fn auto_cluster_groups_from_response(
@@ -1194,6 +1271,66 @@ mod tests {
     use super::*;
 
     #[test]
+    fn auto_cluster_prompt_excludes_mood_columns_and_guides_titles() {
+        let mood_card_id = uuid::Uuid::from_u128(1);
+        let work_card_id = uuid::Uuid::from_u128(2);
+        let board = retro_db::RetroBoard {
+            retro: retro_db::RetroRecord {
+                id: uuid::Uuid::from_u128(10),
+                title: "Sprint 42".to_owned(),
+                phase: "voting".to_owned(),
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                creator_email: "host@example.com".to_owned(),
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: "2026-06-02".to_owned(),
+                happened_at: None,
+                clustering_mode: "auto_on_vote_start".to_owned(),
+                clustering_status: "running".to_owned(),
+            },
+            series: None,
+            next_retro: None,
+            participants: Vec::new(),
+            columns: vec![
+                retro_column(
+                    uuid::Uuid::from_u128(11),
+                    "0_how_are_you_feeling",
+                    "How are you feeling?",
+                    mood_card_id,
+                    "Tired but okay",
+                ),
+                retro_column(
+                    uuid::Uuid::from_u128(12),
+                    "1_went_well",
+                    "Went well",
+                    work_card_id,
+                    "Deploys got faster",
+                ),
+            ],
+            ready: Default::default(),
+            voting: Default::default(),
+            clusters: Vec::new(),
+            actions: Vec::new(),
+            deck: Vec::new(),
+            ai_artifacts: Vec::new(),
+            meeting_notes: Vec::new(),
+            deliveries: Vec::new(),
+        };
+
+        let prompt = build_auto_cluster_prompt(&board, &[]);
+
+        assert!(!prompt.contains(&mood_card_id.to_string()));
+        assert!(prompt.contains(&work_card_id.to_string()));
+        assert!(prompt.contains("group cards by the concrete topic, problem, idea, or action"));
+        assert!(prompt.contains("Treat body text and GIF/media alt descriptions as text"));
+        assert!(prompt.contains("Include every eligible card id exactly once"));
+        assert!(prompt.contains("never reuse the same card id in multiple groups"));
+        assert!(prompt.contains("Column is context only"));
+        assert!(prompt.contains("must not be copied from a column name"));
+    }
+
+    #[test]
     fn auto_cluster_parser_extracts_groups() {
         let output = auto_cluster_groups_from_response(
             r#"{"groups":[{"title":"Deploy pain","summary":"Release friction","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"Delivery","tags":["Release","release"," deploy "]}]}"#,
@@ -1206,5 +1343,63 @@ mod tests {
         assert_eq!(output[0].category.as_deref(), Some("delivery"));
         assert_eq!(output[0].tags, vec!["Release", "release", " deploy "]);
         assert_eq!(output[0].card_ids.len(), 1);
+    }
+
+    #[test]
+    fn next_title_prompt_sets_clear_title_rules() {
+        let prompt = build_next_title_prompt(
+            "Next: Platform Retro",
+            &[
+                "Platform Retro".to_owned(),
+                "Platform Retro: May".to_owned(),
+            ],
+        );
+
+        assert!(prompt.contains("Return only one plain title and nothing else"));
+        assert!(prompt.contains("Use the previous sequence titles to infer the naming pattern"));
+        assert!(prompt.contains("2 to 5 words"));
+        assert!(prompt.contains("Do not add dates, numbering, emojis"));
+        assert!(prompt.contains("Do not invent facts"));
+        assert!(prompt.contains("Fallback title: Next: Platform Retro"));
+        assert!(prompt.contains("Previous sequence titles, oldest to newest"));
+        assert!(prompt.contains("Platform Retro: May"));
+    }
+
+    fn retro_column(
+        id: uuid::Uuid,
+        column_key: &str,
+        title: &str,
+        card_id: uuid::Uuid,
+        body_text: &str,
+    ) -> retro_db::RetroColumnRecord {
+        retro_db::RetroColumnRecord {
+            id,
+            retro_id: uuid::Uuid::from_u128(10),
+            column_key: column_key.to_owned(),
+            title: title.to_owned(),
+            position: 0,
+            order_direction: "chronological".to_owned(),
+            accent_color: None,
+            cards: vec![retro_db::CardRecord {
+                id: card_id,
+                retro_id: uuid::Uuid::from_u128(10),
+                column_id: id,
+                author_participant_id: uuid::Uuid::from_u128(20),
+                body_text: Some(body_text.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+                state: "revealed".to_owned(),
+                position: 0,
+                cluster_id: None,
+                parent_card_id: None,
+                cluster_details: None,
+                cluster_title: None,
+                cluster_category: None,
+                vote_count: 0,
+                current_user_vote_count: 0,
+                hidden: false,
+                cluster_members: Vec::new(),
+            }],
+        }
     }
 }

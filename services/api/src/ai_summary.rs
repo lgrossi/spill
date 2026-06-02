@@ -108,6 +108,7 @@ pub fn build_prompt(board: &RetroBoard, existing_board_categories: &[String]) ->
     let _ = writeln!(
         prompt,
         "Return exactly one valid JSON object and nothing else.\n\
+         You are writing the final AI wrap-up for a retrospective using only the structured evidence below.\n\
          Required schema:\n\
          {{\n\
            \"team_mood\": \"quietly-proud\" | \"smooth-sailing\" | \"good-sparks\" | \"productive-chaos\" | \"foggy\" | \"spicy\" | \"stuck-in-mud\" | \"needs-a-map\",\n\
@@ -119,17 +120,21 @@ pub fn build_prompt(board: &RetroBoard, existing_board_categories: &[String]) ->
          - Do not wrap the JSON in markdown or a code fence.\n\
          - Do not include extra keys.\n\
          - team_mood must be exactly one allowed value.\n\
+         - Choose team_mood from the overall evidence, not from one loud card unless votes/repetition support it.\n\
          - summary must be 2 short sentences, 35 to 55 words total.\n\
+         - Use repeated themes, vote counts, and committed actions as private signal, but do not restate the board, list cards, list actions, or quote counts the wrap-up already shows.\n\
+         - Write the takeaway: what the board seems to mean and what the team should carry forward.\n\
          - board_categories must contain 0 to 4 broad categories for the whole retro.\n\
+         - board_categories must be short business/product/engineering areas, not moods, not column names, and not one-off card titles.\n\
          - Prefer existing board categories when they fit; do not create near-duplicates.\n\
+         - Weigh grouped cards by their visible member cards plus group votes.\n\
+         - Treat rejected actions as non-committed and do not present them as next steps.\n\
          Write summary in simple, human language. Give it a small proverb-like turn: calm, \
          memorable, and a little playful, but never grand, mystical, or fake-wise. Use at most \
          one light image. Do not mention the mood label directly or reuse its exact words.\n\
-         Use only the structured evidence below; do not invent facts, owners, or actions. Start with the \
-         overall pattern, include the strongest concern using vote counts and repeated themes as signal, \
-         and end with the most concrete next step from committed actions. If multiple committed actions \
-         clearly reinforce the same next step, combine them. If there is no committed action, infer one \
-         cautiously from the evidence.\n\
+         Use only the structured evidence below; do not invent facts, owners, or actions. If actions clearly \
+         point in the same direction, fold that direction into the takeaway. If there is no committed action, \
+         infer cautiously from the highest-signal evidence.\n\
          Treat media/GIF descriptions as participant intent, not literal events. Do not use bullets, \
          headings, labels, markdown, colon-heavy analysis, generic platitudes, ornate metaphors, \
          or empty poetic fluff."
@@ -396,6 +401,13 @@ mod tests {
         assert!(prompt.contains("\"team_mood\""));
         assert!(prompt.contains("\"quietly-proud\" | \"smooth-sailing\" | \"good-sparks\""));
         assert!(prompt.contains("summary must be 2 short sentences, 35 to 55 words total"));
+        assert!(prompt.contains("Choose team_mood from the overall evidence"));
+        assert!(prompt.contains("do not restate the board"));
+        assert!(prompt.contains("what the board seems to mean"));
+        assert!(
+            prompt.contains("board_categories must be short business/product/engineering areas")
+        );
+        assert!(prompt.contains("Treat rejected actions as non-committed"));
         assert!(prompt.contains("small proverb-like turn"));
         assert!(prompt.contains("Use at most one light image"));
         assert!(prompt.contains("Do not mention the mood label directly or reuse its exact words"));
