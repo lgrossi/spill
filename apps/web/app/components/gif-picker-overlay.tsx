@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { GifResult } from "@/lib/contracts";
 import { useGifSearch } from "@/retros/[retroId]/gif-search-data";
@@ -26,8 +27,29 @@ export function GifPickerOverlay({
   title: string;
 }) {
   const { degraded, hasMore, loadMore, loading, query, results, setQuery } = useGifSearch(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const gridColumns = columns === "cover" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3";
   const maxHeight = columns === "cover" ? "max-h-[330px]" : "max-h-[280px]";
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || !hasMore || loading || degraded || results.length === 0) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          loadMore();
+        }
+      },
+      { root, rootMargin: "96px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [degraded, hasMore, loadMore, loading, results.length]);
 
   return (
     <div
@@ -61,8 +83,7 @@ export function GifPickerOverlay({
       />
 
       {results.length > 0 ? (
-        <>
-          <div className={`sp-scroll mt-3 grid ${maxHeight} ${gridColumns} gap-2 overflow-y-auto pr-1`}>
+          <div className={`sp-scroll mt-3 grid ${maxHeight} ${gridColumns} gap-2 overflow-y-auto pr-1`} ref={scrollRef}>
             {results.map((gif) =>
               renderResult(
                 gif,
@@ -71,13 +92,12 @@ export function GifPickerOverlay({
                 <img alt="" className="h-full w-full rounded-[7px] object-cover" loading="lazy" src={gif.preview_url || gif.url} />,
               )
             )}
+            {hasMore ? (
+              <div className="col-span-full py-1 text-center text-[11px] font-semibold text-spill-muted" ref={sentinelRef}>
+                {loading ? "Loading..." : "Scroll for more"}
+              </div>
+            ) : null}
           </div>
-          {hasMore ? (
-            <button className="mx-auto mt-3 block text-[11.5px] font-extrabold text-spill-muted underline decoration-spill-line underline-offset-4 transition hover:text-spill-wrong" disabled={loading || degraded} onClick={loadMore} type="button">
-              more
-            </button>
-          ) : null}
-        </>
       ) : (
         <div className="mt-3 rounded-[10px] border border-dashed border-spill-line bg-[var(--panel-hi)] p-4 text-center text-[12px] font-semibold text-spill-muted">
           {query.trim().length < 2 ? emptyText : loading ? "Searching..." : "No GIFs found."}
