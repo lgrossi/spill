@@ -8,6 +8,7 @@ import { SYSTEM_RECURRING_TAGS } from "@/lib/contracts";
 import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { fieldControlClass, phaseColor, phaseLabel } from "./spill-ui";
 import { DeleteBoardButton } from "./delete-board-button";
+import { CoverSquare, RetroCoverPicker } from "./retro-cover-picker";
 
 const pageSize = 5;
 const phaseOptions = [
@@ -145,26 +146,33 @@ export function BoardHistory({
         </form>
       </div>
 
-      <div className="sp-panel-grain mt-3 overflow-hidden rounded-[12px] border border-spill-line bg-spill-panel shadow-[var(--shadow-1)]" data-board-table>
+      <div className="sp-panel-grain mt-3 overflow-visible rounded-[12px] border border-spill-line bg-spill-panel shadow-[var(--shadow-1)]" data-board-table>
         {rows.length === 0 ? (
           <div className="px-3.5 py-4 text-[12px] font-semibold text-spill-muted">No boards match that search.</div>
         ) : (
           rows.map((board) => (
             <div
-              className="group relative border-b border-spill-line last:border-b-0 hover:bg-[var(--panel-hi)]"
+              className="group relative grid grid-cols-[48px_minmax(0,1fr)_auto] items-start gap-3 border-b border-spill-line px-3.5 py-2.5 pr-11 text-[12px] last:border-b-0 hover:z-10 hover:bg-[var(--panel-hi)] focus-within:z-[120]"
               key={`${board.id}-${board.title}`}
             >
+              {board.current_user_role === "host" && !board.cover_gif_url ? (
+                <RetroCoverPicker mode="update" retroId={board.id} returnTo="/" size="small" />
+              ) : (
+                <Link aria-label={`Open ${boardDisplayTitle(board)}`} href={`/retros/${board.id}`}>
+                  <CoverSquare cover={{ url: board.cover_gif_url, altText: board.cover_gif_alt_text }} size="small" />
+                </Link>
+              )}
               <Link
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-3.5 py-2.5 pr-11 text-[12px] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_rgba(207,79,79,0.20)]"
+                className="min-w-0 focus-visible:outline-none focus-visible:shadow-[var(--focus)]"
                 data-board-row
                 href={`/retros/${board.id}`}
               >
-                <span className="min-w-0">
                   <span className="block truncate font-extrabold text-spill-fg">{boardDisplayTitle(board)}</span>
                   <span className="text-[11px] text-spill-muted">
                     {displayRetroDate(board)} . {lastSeenText(board.last_opened_at ?? board.last_activity_at)} . {board.participant_count} people . {board.column_count} cols . {board.unresolved_action_count} actions
                   </span>
-                </span>
+              </Link>
+              <Link href={`/retros/${board.id}`}>
                 <span
                   className="mt-0.5 rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.08em]"
                   style={{

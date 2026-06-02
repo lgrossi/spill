@@ -85,7 +85,7 @@ impl RetroRepository {
                 clustering_mode, creator_email, group_id, previous_retro_id
              )
              VALUES ($1, 'scheduled', $2::date, $3, $4, 'disabled', $5, $6, $7)
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -195,7 +195,7 @@ impl RetroRepository {
              SET title = $2
              WHERE previous_retro_id = $1
                AND ($3::text IS NULL OR title = $3)
-             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email,
+             RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -302,6 +302,38 @@ impl RetroRepository {
                 .bind(group_id)
                 .execute(&mut *tx)
                 .await?;
+        }
+
+        if input.remove_cover_gif {
+            sqlx::query(
+                "UPDATE retros SET cover_gif_url = NULL, cover_gif_alt_text = NULL WHERE id = $1",
+            )
+            .bind(input.retro_id)
+            .execute(&mut *tx)
+            .await?;
+        } else if let Some(cover_gif_url) = input
+            .cover_gif_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            sqlx::query(
+                "UPDATE retros
+                 SET cover_gif_url = $2,
+                     cover_gif_alt_text = NULLIF($3, '')
+                 WHERE id = $1",
+            )
+            .bind(input.retro_id)
+            .bind(cover_gif_url)
+            .bind(
+                input
+                    .cover_gif_alt_text
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or(""),
+            )
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;

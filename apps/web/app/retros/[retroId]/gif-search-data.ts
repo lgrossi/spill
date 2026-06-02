@@ -9,6 +9,7 @@ export function useGifSearch(open: boolean) {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [degraded, setDegraded] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
 
   async function searchPage(trimmed: string, nextPage: number, signal?: AbortSignal) {
     setLoading(true);
@@ -24,12 +25,14 @@ export function useGifSearch(open: boolean) {
       setResults((current) => nextPage === 0 ? incoming : [...current, ...incoming]);
       setPage(nextPage);
       setDegraded(payload.degraded);
+      setHasMore(!payload.degraded && incoming.length === 8);
     } catch {
       if (!signal?.aborted) {
         if (nextPage === 0) {
           setResults([]);
         }
         setDegraded(true);
+        setHasMore(false);
       }
     } finally {
       if (!signal?.aborted) {
@@ -46,6 +49,7 @@ export function useGifSearch(open: boolean) {
       setResults([]);
       setLoading(false);
       setDegraded(false);
+      setHasMore(false);
       return;
     }
 
@@ -63,6 +67,7 @@ export function useGifSearch(open: boolean) {
   return {
     degraded,
     loading,
+    hasMore,
     query,
     results,
     setQuery,

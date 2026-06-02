@@ -10,6 +10,8 @@ export type RetroSummary = {
   planned_for: string;
   happened_at: string | null;
   group_name: string | null;
+  cover_gif_url: string | null;
+  cover_gif_alt_text: string | null;
   current_user_role: "host" | "member";
   last_activity_at: string;
   last_opened_at: string | null;
@@ -103,6 +105,8 @@ export type RetroBoard = {
     phase: RetroPhase;
     vote_limit: number;
     action_discussion_limit: number;
+    cover_gif_url: string | null;
+    cover_gif_alt_text: string | null;
     planned_for: string;
     happened_at: string | null;
   };
@@ -203,6 +207,8 @@ export type CreateRetroPayload =
   | {
       title: string;
       group_name?: string | null;
+      cover_gif_url?: string | null;
+      cover_gif_alt_text?: string | null;
       planned_for?: string | null;
       template: "standard";
       vote_limit: number;
@@ -212,6 +218,8 @@ export type CreateRetroPayload =
   | {
       title: string;
       group_name?: string | null;
+      cover_gif_url?: string | null;
+      cover_gif_alt_text?: string | null;
       planned_for?: string | null;
       template: "custom";
       columns: string[];
@@ -228,6 +236,9 @@ export type RescheduleRetroPayload = {
 export type UpdateRetroDetailsPayload = {
   title?: string | null;
   group_name?: string | null;
+  cover_gif_url?: string | null;
+  cover_gif_alt_text?: string | null;
+  remove_cover_gif?: boolean;
 };
 
 export type Grant = {

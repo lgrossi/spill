@@ -9,6 +9,8 @@ export async function createRetroCommand(formData: FormData) {
   const template = String(formData.get("template") ?? "standard");
   const title = String(formData.get("title") ?? "").trim();
   const groupName = String(formData.get("group_name") ?? "").trim();
+  const coverGifUrl = String(formData.get("cover_gif_url") ?? "").trim();
+  const coverGifAltText = String(formData.get("cover_gif_alt_text") ?? "").trim();
   const plannedFor = String(formData.get("planned_for") ?? "").trim();
   const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
   const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
@@ -38,6 +40,8 @@ export async function createRetroCommand(formData: FormData) {
     template,
     title,
     groupName,
+    coverGifUrl,
+    coverGifAltText,
     plannedFor,
     voteLimit,
     invitees,
@@ -59,11 +63,16 @@ export async function updateRetroDetailsCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
   const title = String(formData.get("title") ?? "").trim();
   const groupName = String(formData.get("group_name") ?? "").trim();
+  const coverGifUrl = String(formData.get("cover_gif_url") ?? "").trim();
+  const coverGifAltText = String(formData.get("cover_gif_alt_text") ?? "").trim();
+  const removeCoverGif = String(formData.get("remove_cover_gif") ?? "") === "1";
   const returnTo = String(formData.get("return_to") ?? `/retros/${retroId}`);
 
   await updateRetroDetails(retroId, {
     ...(title ? { title } : {}),
     ...(groupName ? { group_name: groupName } : {}),
+    ...(coverGifUrl ? { cover_gif_url: coverGifUrl, cover_gif_alt_text: coverGifAltText || null } : {}),
+    ...(removeCoverGif ? { remove_cover_gif: true } : {}),
   });
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);
 }
@@ -76,6 +85,8 @@ function retroPayload({
   template,
   title,
   groupName,
+  coverGifUrl,
+  coverGifAltText,
   plannedFor,
   voteLimit,
   invitees,
@@ -87,6 +98,8 @@ function retroPayload({
   template: string;
   title: string;
   groupName: string;
+  coverGifUrl: string;
+  coverGifAltText: string;
   plannedFor: string;
   voteLimit: number;
   invitees: InviteeRequest[];
@@ -108,26 +121,28 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, groupName, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "ssc") {
-    return customPayload(title, groupName, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "msg") {
-    return customPayload(title, groupName, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "4ls") {
-    return customPayload(title, groupName, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees);
   }
   if (template === "custom") {
-    return customPayload(title, groupName, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees);
   }
-  return customPayload(title, groupName, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
+  return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees);
 }
 
 function customPayload(
   title: string,
   groupName: string,
+  coverGifUrl: string,
+  coverGifAltText: string,
   plannedFor: string,
   columns: string[],
   columnColors: string[] | undefined,
@@ -138,6 +153,8 @@ function customPayload(
   return {
     title,
     group_name: groupName || null,
+    cover_gif_url: coverGifUrl || null,
+    cover_gif_alt_text: coverGifAltText || null,
     planned_for: plannedFor || null,
     template: "custom",
     columns,

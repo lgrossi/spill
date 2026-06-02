@@ -18,6 +18,8 @@ pub(super) async fn list_retros(
             to_char(r.planned_for, 'YYYY-MM-DD') AS planned_for,
             to_char(r.happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at,
             g.name AS group_name,
+            r.cover_gif_url,
+            r.cover_gif_alt_text,
             CASE
                 WHEN r.creator_email <> '' AND r.creator_email = lower($2) THEN 'host'
                 WHEN EXISTS (

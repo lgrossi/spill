@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AppChrome, Btn, Field, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
+import { Btn, Tile, fieldControlClass, spillColors } from "@/components/spill-ui";
 import { createRetroAction } from "@/lib/actions";
 import { InvitePanel } from "@/components/invite-panel";
 import { localDateString } from "@/lib/retro-dates";
+import { RetroCoverPicker } from "@/components/retro-cover-picker";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -59,7 +60,13 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <label className="text-[13px] font-bold text-spill-fg" htmlFor="title">Name it</label>
             <span className="text-[11px] text-spill-muted">what should people recognize?</span>
           </div>
-          <input id="title" name="title" required placeholder="e.g. Team retro - May 25" className={`${fieldControlClass} min-h-[56px] border-2 border-spill-wrong px-4 text-2xl font-bold tracking-[-0.02em] shadow-[var(--focus)]`} aria-label="Retro title" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <RetroCoverPicker mode="create" size="profile" />
+            <div className="min-w-0 flex-1">
+              <input id="title" name="title" required placeholder="e.g. Team retro - May 25" className={`${fieldControlClass} min-h-[56px] border-2 border-spill-wrong px-4 text-2xl font-bold tracking-[-0.02em] shadow-[var(--focus)]`} aria-label="Retro title" />
+              <p className="mt-2 text-[11px] font-semibold text-spill-muted">Click the square to add a cover GIF.</p>
+            </div>
+          </div>
         </div>
 
         <div>
@@ -179,7 +186,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <StepNum n="5" />
+            <StepNum n="6" />
             <p className="text-[13px] font-bold text-spill-fg">Invite the crew</p>
           </div>
           <InvitePanel mode="create" onInviteesChange={setInvitees} />

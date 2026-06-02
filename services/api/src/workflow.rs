@@ -72,6 +72,8 @@ impl RetroWorkflow {
                 creator_email: user.email,
                 creator_display_name: user.display_name,
                 group_name: optional_non_empty(request.group_name),
+                cover_gif_url: optional_non_empty(request.cover_gif_url),
+                cover_gif_alt_text: optional_non_empty(request.cover_gif_alt_text),
                 planned_for,
                 template: retro_template(&request.template, request.columns)?,
                 vote_limit: require_non_negative("vote_limit", request.vote_limit)?,
@@ -191,8 +193,16 @@ impl RetroWorkflow {
             Some(value) => Some(require_non_empty("group_name", value)?),
             None => None,
         };
-        if title.is_none() && group_name.is_none() {
-            return Err(ApiError::bad_request("title or group_name is required"));
+        let cover_gif_url = optional_non_empty(request.cover_gif_url);
+        let cover_gif_alt_text = optional_non_empty(request.cover_gif_alt_text);
+        if title.is_none()
+            && group_name.is_none()
+            && cover_gif_url.is_none()
+            && !request.remove_cover_gif
+        {
+            return Err(ApiError::bad_request(
+                "title, group_name, or cover_gif_url is required",
+            ));
         }
 
         self.repository
@@ -200,6 +210,9 @@ impl RetroWorkflow {
                 retro_id,
                 title,
                 group_name,
+                cover_gif_url,
+                cover_gif_alt_text,
+                remove_cover_gif: request.remove_cover_gif,
             })
             .await
             .map_err(|error| {

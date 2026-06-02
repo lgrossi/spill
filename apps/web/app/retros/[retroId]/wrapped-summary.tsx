@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Avatar, CardFooter, Pill, SpillCard, Tile, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
+import { CoverSquare, RetroCoverPicker } from "@/components/retro-cover-picker";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { completeActionItemAction, confirmActionItemAction } from "@/lib/actions";
 import { displayRetroDate, formatDateOnly } from "@/lib/retro-dates";
@@ -8,7 +9,7 @@ import { BoardMedia } from "./media-card";
 import { actionVoteCount, cardLabel, columnSemantic, isActionsColumn, voteLabel } from "./board-presentation";
 import { AiWrapTile } from "./ai-wrap-tile";
 
-export function WrappedSummary({ board }: { board: RetroBoard }) {
+export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; isHost?: boolean }) {
   const boardColumns = board.columns.filter((column) => !isActionsColumn(column));
   const allCards = board.columns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
@@ -25,6 +26,8 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
       .filter((id): id is string => Boolean(id)),
   );
   const adhocActionCards = actionColumnCards.filter((card) => !linkedCardIds.has(card.id));
+  const cover = { url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text };
+  const hasCover = Boolean(cover.url);
 
   return (
     <section className="grid flex-1 grid-cols-1 gap-8 overflow-auto p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -39,9 +42,19 @@ export function WrappedSummary({ board }: { board: RetroBoard }) {
         ) : null}
 
         <div className="mt-5 flex items-center gap-5">
-          <div className="grid h-[100px] w-[100px] shrink-0 place-items-center rounded-full border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]" style={mood?.style ?? fallbackMoodStyle}>
-            {mood?.badge ?? "mood"}
-          </div>
+          {isHost ? (
+            <RetroCoverPicker
+              initialCover={cover}
+              mode="update"
+              retroId={board.retro.id}
+              returnTo={`/retros/${board.retro.id}`}
+              size="hero"
+            />
+          ) : hasCover ? (
+            <CoverSquare cover={cover} size="hero" />
+          ) : (
+            <MoodVisual mood={mood} />
+          )}
           <div>
             <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">team mood . {mood ? "ai generated" : "reading the room"}</p>
             <h2 className="mt-0.5 text-2xl font-extrabold tracking-[-0.02em] text-spill-fg">{mood?.title ?? "AI is still reading the room."}</h2>
@@ -192,6 +205,17 @@ const moodPresentations: Record<string, MoodPresentation> = {
     },
   },
 };
+
+function MoodVisual({ mood }: { mood: MoodPresentation | null }) {
+  return (
+    <div
+      className="grid h-[118px] w-[118px] shrink-0 place-items-center rounded-[14px] border-2 text-center text-[16px] font-extrabold leading-[1.05] tracking-[-0.02em] text-white shadow-[var(--shadow-3),inset_0_2px_0_rgba(255,255,255,0.25)]"
+      style={mood?.style ?? fallbackMoodStyle}
+    >
+      {mood?.badge ?? "mood"}
+    </div>
+  );
+}
 
 function generatedTeamMood(artifacts: RetroBoard["ai_artifacts"]) {
   const summary = artifacts.find((artifact) => artifact.kind === "summary");
