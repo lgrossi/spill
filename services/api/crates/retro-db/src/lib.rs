@@ -2185,6 +2185,132 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn auto_clustering_reparents_existing_group_members(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Auto over manual retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Manual cluster one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Manual cluster two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let third = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[0].id,
+                author_subject: "mia".to_owned(),
+                author_display_name: "Mia".to_owned(),
+                body_text: Some("AI cluster three".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: first.id,
+            target_card_id: second.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let existing_group = board.columns[0].cards[0].id;
+        repo.cast_vote(CastVoteInput {
+            retro_id: created.retro.id,
+            card_id: existing_group,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+            count: 1,
+        })
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE retros
+             SET clustering_mode = 'auto_on_vote_start',
+                 clustering_status = 'running'
+             WHERE id = $1",
+        )
+        .bind(created.retro.id)
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+
+        repo.apply_auto_cluster_groups(
+            created.retro.id,
+            vec![AutoClusterGroupInput {
+                title: "Combined theme".to_owned(),
+                details: None,
+                category: Some("delivery".to_owned()),
+                tags: vec!["delivery".to_owned()],
+                card_ids: vec![existing_group, third.id],
+            }],
+        )
+        .await
+        .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.columns[0].cards.len(), 1);
+        let group_card = &board.columns[0].cards[0];
+        assert_eq!(group_card.vote_count, 1);
+        assert_eq!(
+            group_card
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![first.id, second.id, third.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn manual_clustering_across_columns_moves_source_to_target_column(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
