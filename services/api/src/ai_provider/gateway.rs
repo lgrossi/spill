@@ -26,9 +26,11 @@ use super::AiError;
 const METADATA_IDENTITY_URL: &str =
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity";
 
-/// Default budget. Use-case calls beyond a handful of seconds belong
-/// in a background job, not the request path.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+/// Budget for a gateway call. Every caller runs in a background job
+/// (summary, auto-clustering, next-title), and the upstream model
+/// (gaas / Gemini) routinely takes well over a handful of seconds, so
+/// this is generous rather than request-path tight.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct GatewayProvider {
