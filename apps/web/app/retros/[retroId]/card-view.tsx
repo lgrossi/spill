@@ -37,11 +37,15 @@ export function CardView({
     return <DraftCardEditor board={board} card={card} color={color} semantic={semantic} />;
   }
 
+  const hasMedia = !card.cluster_id && Boolean(card.gif_url);
+  const hasActions = board.retro.phase !== "completed" && card.parent_card_id === null && !isEditingGroup;
+
   return (
     <DraggableCard accent={color} cardId={card.id} columnId={card.column_id} enabled={draggable} clusteringEnabled={clustering} movingEnabled={moving} retroId={board.retro.id}>
       <SpillCard accent={color}>
-        {!card.cluster_id && card.gif_url ? card.gif_url === "demo-gif" ? <GifTile className="mb-2" /> : <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url} /> : null}
-        {isEditingGroup ? <GroupTitleEditor board={board} card={card} /> : card.body_text ? <p className="whitespace-pre-wrap first:mt-0">{card.body_text}</p> : null}
+        {hasActions ? <CardActions board={board} card={card} /> : null}
+        {hasMedia ? card.gif_url === "demo-gif" ? <GifTile className="mb-2" /> : <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url!} /> : null}
+        {isEditingGroup ? <GroupTitleEditor board={board} card={card} /> : card.body_text ? <p className="whitespace-pre-wrap break-words">{card.body_text}</p> : null}
         {!card.cluster_id && card.cluster_details ? <p className="mt-2 text-[12px] italic text-white/80">{card.cluster_details}</p> : null}
         <ClusterMembers board={board} card={card} />
         <CardFooter
@@ -52,7 +56,6 @@ export function CardView({
           trailing={board.retro.phase === "voting" ? <VoteControls board={board} card={card} color={color} /> : undefined}
           votes={board.retro.phase === "action_discussion" ? card.vote_count : undefined}
         />
-        {board.retro.phase !== "completed" && card.parent_card_id === null && !isEditingGroup ? <CardActions board={board} card={card} /> : null}
       </SpillCard>
     </DraggableCard>
   );
@@ -117,7 +120,7 @@ function CardActions({ board, card }: { board: RetroBoard; card: RetroCard }) {
   const editHref = card.cluster_id ? `/retros/${board.retro.id}?editCard=${card.id}` : `/retros/${board.retro.id}?addColumn=${card.column_id}&editCard=${card.id}`;
 
   return (
-    <div className="absolute right-2 top-2 flex gap-1" data-spill-no-drag>
+    <div className="mb-1.5 flex justify-end gap-1" data-spill-no-drag>
       <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" href={editHref}>✎</Link>
       <form action={deleteDraftCardAction}>
         <input name="retro_id" type="hidden" value={board.retro.id} />
