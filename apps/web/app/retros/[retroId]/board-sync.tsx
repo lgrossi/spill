@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { shouldRefreshBoard } from "./board-sync-policy";
 
 const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_SPILLIO_API_URL;
-const POLL_INTERVAL_MS = 5000;
+// Fast poll only while the socket is down.
+const FAST_POLL_INTERVAL_MS = 5000;
+// Always-on safety net: a websocket can stay "open" through a proxy/load
+// balancer that silently stops delivering frames (seen in deployed dev), so
+// `card_changed` never arrives and the board would otherwise need a manual
+// reload. A slow background refresh bounds staleness without hammering.
+const SAFETY_POLL_INTERVAL_MS = 15000;
 const RECONNECT_DELAY_MS = 1500;
 
 export function BoardSync({ retroId }: { retroId: string }) {
@@ -17,19 +23,20 @@ export function BoardSync({ retroId }: { retroId: string }) {
   useEffect(() => {
     let closed = false;
     let socket: WebSocket | null = null;
-    let pollTimer: number | null = null;
+    let fastPollTimer: number | null = null;
+    let safetyPollTimer: number | null = null;
     let reconnectTimer: number | null = null;
 
-    function stopPolling() {
-      if (pollTimer) {
-        window.clearInterval(pollTimer);
-        pollTimer = null;
+    function stopFastPolling() {
+      if (fastPollTimer) {
+        window.clearInterval(fastPollTimer);
+        fastPollTimer = null;
       }
     }
 
-    function startPolling() {
-      if (!pollTimer) {
-        pollTimer = window.setInterval(() => routerRef.current.refresh(), POLL_INTERVAL_MS);
+    function startFastPolling() {
+      if (!fastPollTimer) {
+        fastPollTimer = window.setInterval(() => routerRef.current.refresh(), FAST_POLL_INTERVAL_MS);
       }
     }
 
@@ -37,7 +44,7 @@ export function BoardSync({ retroId }: { retroId: string }) {
       if (closed) return;
 
       socket = new WebSocket(`${toWebSocketUrl(browserApiBaseUrl())}/api/retros/${retroId}/events`);
-      socket.addEventListener("open", stopPolling);
+      socket.addEventListener("open", stopFastPolling);
       socket.addEventListener("message", (event) => {
         if (shouldRefreshBoard(parseBoardEvent(event.data))) {
           routerRef.current.refresh();
@@ -51,7 +58,7 @@ export function BoardSync({ retroId }: { retroId: string }) {
 
     function scheduleReconnect() {
       if (closed) return;
-      startPolling();
+      startFastPolling();
       if (!reconnectTimer) {
         reconnectTimer = window.setTimeout(() => {
           reconnectTimer = null;
@@ -60,12 +67,16 @@ export function BoardSync({ retroId }: { retroId: string }) {
       }
     }
 
+    safetyPollTimer = window.setInterval(() => routerRef.current.refresh(), SAFETY_POLL_INTERVAL_MS);
     connect();
 
     return () => {
       closed = true;
       socket?.close();
-      stopPolling();
+      stopFastPolling();
+      if (safetyPollTimer) {
+        window.clearInterval(safetyPollTimer);
+      }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
