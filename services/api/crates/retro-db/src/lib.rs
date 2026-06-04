@@ -2208,7 +2208,7 @@ mod tests {
         let first = repo
             .create_draft_card(DraftCardInput {
                 retro_id: created.retro.id,
-                column_id: created.columns[0].id,
+                column_id: created.columns[1].id,
                 author_subject: "ava".to_owned(),
                 author_display_name: "Ava".to_owned(),
                 body_text: Some("Manual cluster one".to_owned()),
@@ -2220,7 +2220,7 @@ mod tests {
         let second = repo
             .create_draft_card(DraftCardInput {
                 retro_id: created.retro.id,
-                column_id: created.columns[0].id,
+                column_id: created.columns[1].id,
                 author_subject: "lee".to_owned(),
                 author_display_name: "Lee".to_owned(),
                 body_text: Some("Manual cluster two".to_owned()),
@@ -2232,7 +2232,7 @@ mod tests {
         let third = repo
             .create_draft_card(DraftCardInput {
                 retro_id: created.retro.id,
-                column_id: created.columns[0].id,
+                column_id: created.columns[1].id,
                 author_subject: "mia".to_owned(),
                 author_display_name: "Mia".to_owned(),
                 body_text: Some("AI cluster three".to_owned()),
@@ -2258,7 +2258,14 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let existing_group = board.columns[0].cards[0].id;
+        // The manual cluster parent is identified by having members; its column
+        // position is not guaranteed to be first, so never select it positionally.
+        let existing_group = board.columns[1]
+            .cards
+            .iter()
+            .find(|card| !card.cluster_members.is_empty())
+            .expect("manual cluster parent present")
+            .id;
         repo.cast_vote(CastVoteInput {
             retro_id: created.retro.id,
             card_id: existing_group,
@@ -2297,8 +2304,8 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(board.columns[0].cards.len(), 1);
-        let group_card = &board.columns[0].cards[0];
+        assert_eq!(board.columns[1].cards.len(), 1);
+        let group_card = &board.columns[1].cards[0];
         assert_eq!(group_card.vote_count, 1);
         assert_eq!(
             group_card
@@ -2307,6 +2314,220 @@ mod tests {
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
             vec![first.id, second.id, third.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn auto_clustering_never_merges_cards_across_columns(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Same column only retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        // Two cards in "Went well", one in "To improve". Both are work columns.
+        let well_one = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Deploys got faster".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let well_two = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Releases were smoother".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let improve_one = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[2].id,
+                author_subject: "mia".to_owned(),
+                author_display_name: "Mia".to_owned(),
+                body_text: Some("Flaky tests slowed us".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        sqlx::query(
+            "UPDATE retros
+             SET clustering_mode = 'auto_on_vote_start',
+                 clustering_status = 'running'
+             WHERE id = $1",
+        )
+        .bind(created.retro.id)
+        .execute(&repo.pool)
+        .await
+        .unwrap();
+
+        // One AI group that mixes columns; it must be split per column.
+        repo.apply_auto_cluster_groups(
+            created.retro.id,
+            vec![AutoClusterGroupInput {
+                title: "Combined cross-column theme".to_owned(),
+                details: None,
+                category: None,
+                tags: Vec::new(),
+                card_ids: vec![well_one.id, well_two.id, improve_one.id],
+            }],
+        )
+        .await
+        .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+
+        // "Went well": one cluster holding exactly the two went-well cards.
+        assert_eq!(board.columns[1].cards.len(), 1);
+        let well_group = &board.columns[1].cards[0];
+        assert_eq!(
+            well_group
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![well_one.id, well_two.id]
+        );
+        // "To improve": its own single-card cluster, never merged with the above.
+        assert_eq!(board.columns[2].cards.len(), 1);
+        let improve_group = &board.columns[2].cards[0];
+        assert_eq!(
+            improve_group
+                .cluster_members
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![improve_one.id]
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn update_draft_card_persists_cluster_notes_on_group(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Cluster notes retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Faster deploys".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Smoother releases".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: first.id,
+            target_card_id: second.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let group = board.columns[1]
+            .cards
+            .iter()
+            .find(|card| !card.cluster_members.is_empty())
+            .expect("cluster present");
+
+        repo.update_draft_card(
+            group.id,
+            "ava",
+            Some("Delivery wins"),
+            None,
+            None,
+            Some("Action: keep the release checklist updated"),
+        )
+        .await
+        .unwrap()
+        .expect("cluster card updated");
+
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let group = board.columns[1]
+            .cards
+            .iter()
+            .find(|card| !card.cluster_members.is_empty())
+            .expect("cluster present");
+        assert_eq!(group.body_text.as_deref(), Some("Delivery wins"));
+        assert_eq!(
+            group.cluster_details.as_deref(),
+            Some("Action: keep the release checklist updated")
         );
     }
 

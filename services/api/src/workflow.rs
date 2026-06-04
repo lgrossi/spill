@@ -1018,6 +1018,7 @@ fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[Stri
          - Group cards only when their text describes the same specific theme, issue, win, risk, or next step.\n\
          - Do not group by column name, broad sentiment, card format, author, vote count, or the presence of media.\n\
          - Column is context only; it is never a grouping reason and must not become the group title.\n\
+         - Never put cards from different columns in the same group; every card in a group must come from the same column.\n\
          - If there is no real shared textual theme, keep the card as a single-card group.\n\
          - Include every eligible card id exactly once across groups.\n\
          - A card id can belong to only one group; never reuse the same card id in multiple groups.\n\
@@ -1327,6 +1328,7 @@ mod tests {
         assert!(prompt.contains("Include every eligible card id exactly once"));
         assert!(prompt.contains("never reuse the same card id in multiple groups"));
         assert!(prompt.contains("Column is context only"));
+        assert!(prompt.contains("every card in a group must come from the same column"));
         assert!(prompt.contains("must not be copied from a column name"));
     }
 

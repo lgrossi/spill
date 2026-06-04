@@ -57,7 +57,7 @@ impl RetroRepository {
                  END,
                  gif_url = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $4 END,
                  gif_alt_text = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $5 END,
-                 cluster_details = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN NULL ELSE $6 END,
+                 cluster_details = CASE WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN $6 ELSE c.cluster_details END,
                  updated_at = NOW()
              FROM participants p, retros r
              WHERE c.id = $1
