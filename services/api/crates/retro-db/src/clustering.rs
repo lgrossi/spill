@@ -52,7 +52,7 @@ impl RetroRepository {
                  OR lower(rc.title) LIKE '%feeling%'
                  OR lower(rc.title) LIKE '%mood%'
                )
-             ORDER BY position, created_at",
+             ORDER BY c.position, c.created_at",
         )
         .bind(retro_id)
         .fetch_all(&mut *tx)
