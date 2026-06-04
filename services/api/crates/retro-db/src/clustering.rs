@@ -70,8 +70,26 @@ impl RetroRepository {
                 .filter(|id| available.contains_key(id))
                 .filter(|id| seen.insert(*id, ()).is_none())
                 .collect::<Vec<_>>();
-            if !card_ids.is_empty() {
-                normalized_groups.push(AutoClusterGroupInput { card_ids, ..group });
+            if card_ids.is_empty() {
+                continue;
+            }
+            // Clusters never span columns: split each AI-proposed group into one
+            // sub-group per column so cards from different columns are never merged,
+            // regardless of what the model returns.
+            let mut by_column = BTreeMap::<Uuid, Vec<Uuid>>::new();
+            for id in card_ids {
+                if let Some(card) = available.get(&id) {
+                    by_column.entry(card.column_id).or_default().push(id);
+                }
+            }
+            for ids in by_column.into_values() {
+                normalized_groups.push(AutoClusterGroupInput {
+                    title: group.title.clone(),
+                    details: group.details.clone(),
+                    category: group.category.clone(),
+                    tags: group.tags.clone(),
+                    card_ids: ids,
+                });
             }
         }
         for card in &cards {
@@ -228,35 +246,20 @@ impl RetroRepository {
                 .await?;
 
                 sqlx::query(
-                    "WITH RECURSIVE descendants AS (
-                       SELECT id
-                       FROM cards
-                       WHERE retro_id = $2 AND parent_card_id = $1
-                       UNION ALL
-                       SELECT child.id
-                       FROM cards child
-                       JOIN descendants parent ON child.parent_card_id = parent.id
-                       WHERE child.retro_id = $2
-                     ),
-                     group_cards AS (
-                       SELECT DISTINCT parent.id
-                       FROM descendants parent
-                       JOIN cards child ON child.parent_card_id = parent.id
-                     )
-                     DELETE FROM cards
+                    // The previous statement reparented this card's leaf members
+                    // under the new cluster parent. If the card was itself a
+                    // cluster parent it was not reparented (its parent_card_id is
+                    // still NULL), so it is now an empty shell and must be deleted.
+                    // A plain member card now points at the new parent and is kept.
+                    "DELETE FROM cards
                      WHERE retro_id = $2
-                       AND (
-                         (
-                           id = $1
-                           AND EXISTS (
-                             SELECT 1 FROM cards child WHERE child.retro_id = $2 AND child.parent_card_id = $1
-                           )
-                         )
-                         OR id IN (SELECT id FROM group_cards)
-                       )",
+                       AND id = $1
+                       AND id <> $3
+                       AND parent_card_id IS NULL",
                 )
                 .bind(card_id)
                 .bind(retro_id)
+                .bind(parent_card_id)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -274,6 +277,19 @@ impl RetroRepository {
             .await?;
             clusters.push(row.into());
         }
+
+        // Drop cluster rows whose parent card was absorbed into another cluster
+        // above, so no empty cluster lingers in the retro.
+        sqlx::query(
+            "DELETE FROM card_clusters
+             WHERE retro_id = $1
+               AND NOT EXISTS (
+                 SELECT 1 FROM cards WHERE cards.cluster_id = card_clusters.id
+               )",
+        )
+        .bind(retro_id)
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query("UPDATE retros SET clustering_status = 'completed' WHERE id = $1")
             .bind(retro_id)
