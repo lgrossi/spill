@@ -65,8 +65,8 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
           </div>
         </div>
 
-        <FinalBoard board={board} boardColumns={boardColumns} cards={cards} />
         <CommittedActions allCards={allCards} board={board} adhocActionCards={adhocActionCards} />
+        <FinalBoard board={board} boardColumns={boardColumns} cards={cards} />
       </main>
 
       <aside className="space-y-5 border-t border-spill-line pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
