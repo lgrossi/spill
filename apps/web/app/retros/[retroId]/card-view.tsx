@@ -46,7 +46,7 @@ export function CardView({
         {hasActions ? <CardActions board={board} card={card} /> : null}
         {hasMedia ? card.gif_url === "demo-gif" ? <GifTile className="mb-2" /> : <BoardMedia alt={card.gif_alt_text ?? "Attached media"} src={card.gif_url!} /> : null}
         {isEditingGroup ? <GroupTitleEditor board={board} card={card} /> : card.body_text ? <p className="whitespace-pre-wrap break-words">{card.body_text}</p> : null}
-        {!card.cluster_id && card.cluster_details ? <p className="mt-2 text-[12px] italic text-white/80">{card.cluster_details}</p> : null}
+        {!isEditingGroup && card.cluster_id && card.cluster_details ? <p className="mt-2 whitespace-pre-wrap break-words text-[12px] italic text-white/80">{card.cluster_details}</p> : null}
         <ClusterMembers board={board} card={card} />
         <CardFooter
           author={avatarInitials(author?.display_name)}
@@ -63,21 +63,30 @@ export function CardView({
 
 function GroupTitleEditor({ board, card }: { board: RetroBoard; card: RetroCard }) {
   return (
-    <form action={updateDraftCardAction} className="mb-2 flex items-center gap-1.5 pr-16" data-spill-no-drag>
+    <form action={updateDraftCardAction} className="mb-2 pr-16" data-spill-no-drag>
       <input name="retro_id" type="hidden" value={board.retro.id} />
       <input name="column_id" type="hidden" value={card.column_id} />
       <input name="card_id" type="hidden" value={card.id} />
       <input name="editing_group_title" type="hidden" value="1" />
-      <input
-        autoFocus
-        className="min-w-0 flex-1 rounded-[6px] border border-white/25 bg-white/15 px-2 py-1.5 text-[13px] font-extrabold leading-5 text-white outline-none placeholder:text-white/60"
-        defaultValue={card.body_text ?? ""}
-        name="body_text"
-        placeholder="group title"
-        required
+      <div className="flex items-center gap-1.5">
+        <input
+          autoFocus
+          className="min-w-0 flex-1 rounded-[6px] border border-white/25 bg-white/15 px-2 py-1.5 text-[13px] font-extrabold leading-5 text-white outline-none placeholder:text-white/60"
+          defaultValue={card.body_text ?? ""}
+          name="body_text"
+          placeholder="group title"
+          required
+        />
+        <button aria-label="Save group" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" type="submit">✓</button>
+        <Link aria-label="Cancel edit" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" href={`/retros/${board.retro.id}`}>×</Link>
+      </div>
+      <textarea
+        className="mt-1.5 w-full resize-none rounded-[6px] border border-white/25 bg-white/15 px-2 py-1.5 text-[12px] leading-4 text-white outline-none placeholder:text-white/60"
+        defaultValue={card.cluster_details ?? ""}
+        name="cluster_details"
+        placeholder="add a note or the action for this group (optional)"
+        rows={2}
       />
-      <button aria-label="Save group title" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" type="submit">✓</button>
-      <Link aria-label="Cancel edit" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 transition hover:bg-black/30" href={`/retros/${board.retro.id}`}>×</Link>
     </form>
   );
 }
