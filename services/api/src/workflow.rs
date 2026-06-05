@@ -1576,7 +1576,6 @@ mod tests {
             column_key: column_key.to_owned(),
             title: title.to_owned(),
             position: 0,
-            order_direction: "chronological".to_owned(),
             accent_color: None,
             cards: vec![retro_db::CardRecord {
                 id: card_id,

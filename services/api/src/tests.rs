@@ -337,10 +337,15 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let revealed: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(revealed["retro"]["phase"], "discussion");
-    assert_eq!(
-        revealed["columns"][0]["cards"][1]["body_text"],
-        "Lee private draft"
-    );
+    // After reveal both drafts are visible; author-grouping decides their order,
+    // so assert presence rather than a fixed index.
+    let revealed_bodies: Vec<&str> = revealed["columns"][0]["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|card| card["body_text"].as_str())
+        .collect();
+    assert!(revealed_bodies.contains(&"Lee private draft"));
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]

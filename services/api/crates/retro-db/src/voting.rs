@@ -66,6 +66,8 @@ impl RetroRepository {
             .execute(&mut *tx)
             .await?;
 
+        order_cards_by_author(&mut tx, retro_id).await?;
+
         tx.commit().await?;
         Ok(retro)
     }
@@ -199,4 +201,78 @@ impl RetroRepository {
             .await
             .map_err(Into::into)
     }
+}
+
+/// Rewrite `cards.position` per column so revealed cards form contiguous author
+/// blocks. The block order is a per-retro pseudo-random shuffle (stable across
+/// columns within a retro) and is reversed on odd-indexed columns, so the same
+/// author is not always read first. Cards within an author block keep their
+/// chronological order. Runs once, on reveal; later drag-drop/clustering own
+/// `position` afterwards.
+async fn order_cards_by_author(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    retro_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let column_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM retro_columns WHERE retro_id = $1 ORDER BY position ASC",
+    )
+    .bind(retro_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // (card_id, column_id, author_id) in chronological order within each column.
+    let cards = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT id, column_id, author_participant_id
+         FROM cards
+         WHERE retro_id = $1 AND state = 'revealed'
+         ORDER BY column_id, position, created_at, id",
+    )
+    .bind(retro_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for (index, column_id) in column_ids.iter().enumerate() {
+        // author -> card ids, insertion order = chronological.
+        let mut blocks: Vec<(Uuid, Vec<Uuid>)> = Vec::new();
+        for (card_id, card_column, author_id) in &cards {
+            if card_column != column_id {
+                continue;
+            }
+            match blocks.iter_mut().find(|(author, _)| author == author_id) {
+                Some((_, ids)) => ids.push(*card_id),
+                None => blocks.push((*author_id, vec![*card_id])),
+            }
+        }
+        if blocks.is_empty() {
+            continue;
+        }
+        blocks.sort_by_key(|(author_id, _)| (author_rank(retro_id, *author_id), *author_id));
+        if index % 2 == 1 {
+            blocks.reverse();
+        }
+        let mut position: i32 = 0;
+        for (_, ids) in &blocks {
+            for card_id in ids {
+                sqlx::query("UPDATE cards SET position = $1, updated_at = NOW() WHERE id = $2")
+                    .bind(position)
+                    .bind(card_id)
+                    .execute(&mut **tx)
+                    .await?;
+                position += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// FNV-1a over the retro and participant UUIDs: a deterministic,
+/// version-independent pseudo-random key. Same retro yields a stable author
+/// order; different retros differ.
+fn author_rank(retro_id: Uuid, participant_id: Uuid) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in retro_id.as_bytes().iter().chain(participant_id.as_bytes()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
