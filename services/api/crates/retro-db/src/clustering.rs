@@ -24,7 +24,7 @@ impl RetroRepository {
         }
         if !matches!(
             retro.clustering_status.as_str(),
-            "not_run" | "failed" | "running"
+            "not_run" | "failed" | "running" | "computing" | "ready"
         ) {
             return Ok(Vec::new());
         }
@@ -44,6 +44,7 @@ impl RetroRepository {
              WHERE c.retro_id = $1
                AND c.state = 'revealed'
                AND c.parent_card_id IS NULL
+               AND c.cluster_id IS NULL
                AND NOT (
                  lower(rc.column_key) LIKE '%feeling%'
                  OR lower(rc.column_key) LIKE '%mood%'
@@ -291,7 +292,7 @@ impl RetroRepository {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("UPDATE retros SET clustering_status = 'completed' WHERE id = $1")
+        sqlx::query("UPDATE retros SET clustering_status = 'applied' WHERE id = $1")
             .bind(retro_id)
             .execute(&mut *tx)
             .await?;
@@ -299,14 +300,18 @@ impl RetroRepository {
         Ok(clusters)
     }
 
-    pub async fn mark_clustering_running(&self, retro_id: Uuid) -> Result<bool, sqlx::Error> {
+    /// Claim a compute slot for the auto-clustering proposal. Allowed from any
+    /// non-`computing` state (so reveal starts it and retry/recompute can replace
+    /// a ready/failed/applied proposal), once cards are revealed. Returns true if
+    /// this caller won the claim.
+    pub async fn claim_clustering_compute(&self, retro_id: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE retros
-             SET clustering_status = 'running'
+             SET clustering_status = 'computing'
              WHERE id = $1
-               AND phase = 'voting'
                AND clustering_mode = 'auto_on_vote_start'
-               AND clustering_status IN ('not_run', 'failed')",
+               AND phase IN ('discussion', 'voting', 'action_discussion')
+               AND clustering_status <> 'computing'",
         )
         .bind(retro_id)
         .execute(&self.pool)
@@ -314,14 +319,62 @@ impl RetroRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Persist the computed proposal as the single live clustering artifact and
+    /// move the board to `ready`. A new run replaces any prior proposal.
+    pub async fn store_clustering_proposal(
+        &self,
+        retro_id: Uuid,
+        groups: &[AutoClusterGroupInput],
+    ) -> Result<(), sqlx::Error> {
+        let output = serde_json::to_value(groups).unwrap_or_else(|_| serde_json::json!([]));
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM ai_artifacts WHERE retro_id = $1 AND kind = 'clustering'")
+            .bind(retro_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO ai_artifacts (retro_id, kind, status, input, output)
+             VALUES ($1, 'clustering', 'succeeded', '{}'::jsonb, $2)",
+        )
+        .bind(retro_id)
+        .bind(Json(output))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE retros SET clustering_status = 'ready'
+             WHERE id = $1 AND clustering_status = 'computing'",
+        )
+        .bind(retro_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Read the stored proposal groups, if any.
+    pub async fn fetch_clustering_proposal(
+        &self,
+        retro_id: Uuid,
+    ) -> Result<Option<Vec<AutoClusterGroupInput>>, sqlx::Error> {
+        let output = sqlx::query_scalar::<_, Option<Json<Vec<AutoClusterGroupInput>>>>(
+            "SELECT output FROM ai_artifacts
+             WHERE retro_id = $1 AND kind = 'clustering'
+             ORDER BY updated_at DESC
+             LIMIT 1",
+        )
+        .bind(retro_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(output.flatten().map(|json| json.0))
+    }
+
     pub async fn mark_clustering_failed(&self, retro_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE retros
              SET clustering_status = 'failed'
              WHERE id = $1
-               AND phase IN ('voting', 'action_discussion')
                AND clustering_mode = 'auto_on_vote_start'
-               AND clustering_status = 'running'",
+               AND clustering_status = 'computing'",
         )
         .bind(retro_id)
         .execute(&self.pool)

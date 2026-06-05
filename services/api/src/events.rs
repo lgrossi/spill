@@ -47,6 +47,7 @@ pub enum BoardEvent {
     CardChanged { retro_id: Uuid },
     ReadyChanged { retro_id: Uuid },
     PhaseChanged { retro_id: Uuid },
+    ClusteringChanged { retro_id: Uuid },
 }
 
 impl BoardEvent {
@@ -55,7 +56,8 @@ impl BoardEvent {
             Self::BoardSnapshot { retro_id }
             | Self::CardChanged { retro_id }
             | Self::ReadyChanged { retro_id }
-            | Self::PhaseChanged { retro_id } => *retro_id,
+            | Self::PhaseChanged { retro_id }
+            | Self::ClusteringChanged { retro_id } => *retro_id,
         }
     }
 }

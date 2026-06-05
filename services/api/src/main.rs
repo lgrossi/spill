@@ -175,6 +175,8 @@ fn api_router() -> Router<AppState> {
         .route("/retros/{retro_id}/votes", post(cast_vote))
         .route("/retros/{retro_id}/votes/{card_id}", delete(remove_vote))
         .route("/retros/{retro_id}/cluster", post(cluster_board))
+        .route("/retros/{retro_id}/cluster/apply", post(apply_clustering))
+        .route("/retros/{retro_id}/cluster/retry", post(retry_clustering))
         .route(
             "/retros/{retro_id}/actions/start",
             post(start_action_discussion),
@@ -557,6 +559,7 @@ async fn unmark_ready(
 async fn reveal_board(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     headers: HeaderMap,
     Path(retro_id): Path<Uuid>,
     body: Option<Json<RevealBoardRequest>>,
@@ -568,6 +571,7 @@ async fn reveal_board(
         require_host(&repo, retro_id, &user.email).await?;
     }
     retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .reveal_board(user, retro_id, force)
         .await
         .map(Json)
@@ -654,6 +658,34 @@ async fn start_voting(
     retro_workflow(repository, event_hub)?
         .with_ai_provider(ai_provider)
         .start_voting(user, retro_id)
+        .await
+        .map(Json)
+}
+
+async fn apply_clustering(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .apply_clustering(user, retro_id)
+        .await
+        .map(Json)
+}
+
+async fn retry_clustering(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
+    headers: HeaderMap,
+    Path(retro_id): Path<Uuid>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let user = CurrentUser::from_headers(&headers)?;
+    retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
+        .retry_clustering(user, retro_id)
         .await
         .map(Json)
 }

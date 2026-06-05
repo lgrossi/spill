@@ -1363,7 +1363,7 @@ pub struct ClusterCardsInput {
     pub display_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AutoClusterGroupInput {
     pub title: String,
     pub details: Option<String>,
@@ -2185,7 +2185,7 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
-    async fn auto_clustering_reparents_existing_group_members(pool: PgPool) {
+    async fn auto_clustering_leaves_existing_clusters_untouched(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
             .create_retro(CreateRetroInput {
@@ -2304,17 +2304,264 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(board.columns[1].cards.len(), 1);
-        let group_card = &board.columns[1].cards[0];
-        assert_eq!(group_card.vote_count, 1);
+        // Option A: an existing (manual) cluster is never clobbered by an auto
+        // run, even when the AI proposes a group that references the cluster
+        // parent. The manual cluster stays intact (members + vote preserved) and
+        // the genuinely loose card is organized into its own separate cluster.
+        assert_eq!(board.columns[1].cards.len(), 2);
+        let manual = board.columns[1]
+            .cards
+            .iter()
+            .find(|card| card.cluster_members.iter().any(|member| member.id == first.id))
+            .expect("manual cluster preserved");
+        assert_eq!(manual.vote_count, 1);
         assert_eq!(
-            group_card
+            manual
                 .cluster_members
                 .iter()
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
-            vec![first.id, second.id, third.id]
+            vec![first.id, second.id]
         );
+        let third_group = board.columns[1]
+            .cards
+            .iter()
+            .find(|card| card.cluster_members.iter().any(|member| member.id == third.id))
+            .expect("loose card organized separately");
+        assert_ne!(manual.id, third_group.id);
+        assert!(!third_group
+            .cluster_members
+            .iter()
+            .any(|member| member.id == first.id || member.id == second.id));
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn clustering_compute_claim_is_exclusive_and_proposal_replaces(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Proposal lifecycle retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE retros SET clustering_mode = 'auto_on_vote_start' WHERE id = $1")
+            .bind(created.retro.id)
+            .execute(&repo.pool)
+            .await
+            .unwrap();
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Deploy alerts are noisy".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Deploy alerts need ownership".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        assert_eq!(
+            repo.fetch_retro(created.retro.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .clustering_status,
+            "computing"
+        );
+        // A second claim while computing loses: one live compute at a time.
+        assert!(!repo.claim_clustering_compute(created.retro.id).await.unwrap());
+
+        repo.store_clustering_proposal(
+            created.retro.id,
+            &[AutoClusterGroupInput {
+                title: "First proposal".to_owned(),
+                details: None,
+                category: None,
+                tags: Vec::new(),
+                card_ids: vec![first.id, second.id],
+            }],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            repo.fetch_retro(created.retro.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .clustering_status,
+            "ready"
+        );
+        let stored = repo
+            .fetch_clustering_proposal(created.retro.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].title, "First proposal");
+
+        // A fresh compute replaces the prior proposal; never two live proposals.
+        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        repo.store_clustering_proposal(
+            created.retro.id,
+            &[AutoClusterGroupInput {
+                title: "Second proposal".to_owned(),
+                details: None,
+                category: None,
+                tags: Vec::new(),
+                card_ids: vec![first.id],
+            }],
+        )
+        .await
+        .unwrap();
+        let stored = repo
+            .fetch_clustering_proposal(created.retro.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored[0].title, "Second proposal");
+        let artifact_count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM ai_artifacts WHERE retro_id = $1 AND kind = 'clustering'",
+        )
+        .bind(created.retro.id)
+        .fetch_one(&repo.pool)
+        .await
+        .unwrap();
+        assert_eq!(artifact_count, 1);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn clustering_proposal_applies_idempotently(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Proposal apply retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE retros SET clustering_mode = 'auto_on_vote_start' WHERE id = $1")
+            .bind(created.retro.id)
+            .execute(&repo.pool)
+            .await
+            .unwrap();
+        let first = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Deploy alerts are noisy".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: created.columns[1].id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Deploy alerts need ownership".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.reveal_board(created.retro.id).await.unwrap();
+        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        repo.store_clustering_proposal(
+            created.retro.id,
+            &[AutoClusterGroupInput {
+                title: "Deploy alerts".to_owned(),
+                details: None,
+                category: Some("delivery".to_owned()),
+                tags: vec!["delivery".to_owned()],
+                card_ids: vec![first.id, second.id],
+            }],
+        )
+        .await
+        .unwrap();
+
+        let groups = repo
+            .fetch_clustering_proposal(created.retro.id)
+            .await
+            .unwrap()
+            .unwrap();
+        repo.apply_auto_cluster_groups(created.retro.id, groups)
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.fetch_retro(created.retro.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .clustering_status,
+            "applied"
+        );
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.columns[1].cards.len(), 1);
+        assert_eq!(board.columns[1].cards[0].cluster_members.len(), 2);
+
+        // Applying again is a no-op: the board does not gain duplicate clusters.
+        let groups = repo
+            .fetch_clustering_proposal(created.retro.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let reapplied = repo
+            .apply_auto_cluster_groups(created.retro.id, groups)
+            .await
+            .unwrap();
+        assert!(reapplied.is_empty());
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(board.columns[1].cards.len(), 1);
+        assert_eq!(board.columns[1].cards[0].cluster_members.len(), 2);
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
