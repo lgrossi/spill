@@ -2181,3 +2181,298 @@ async fn failing_provider_records_failed_artifact_then_retry_recovers(pool: sqlx
         "retry_count should advance on retry",
     );
 }
+
+/// Poll the board until `clustering_status` reaches the expected value. Bounded
+/// at ~3s — generous for `FakeProvider` (no IO) but small enough to surface
+/// regressions.
+async fn wait_for_clustering_status(app: &axum::Router, retro_id: &str, expected: &str) -> Value {
+    for _ in 0..300 {
+        let board = fetch_board(app, retro_id).await;
+        if board["retro"]["clustering_status"] == expected {
+            return board;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for clustering_status to reach {expected}");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        r#"{"groups":[{"title":"Deploy noise","summary":"deploy alerts","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"delivery","tags":["delivery"]}]}"#,
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Cluster wiring","template":"standard","clustering_mode":"auto_on_vote_start"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap().to_owned();
+    let column_id = created["columns"][1]["id"].as_str().unwrap().to_owned();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"deploy alerts are noisy"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for path in ["ready", "reveal"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    // Compute runs on reveal and produces a proposal without mutating the board.
+    let board = wait_for_clustering_status(&app, &retro_id, "ready").await;
+    assert_eq!(board["retro"]["phase"], "discussion");
+    assert_eq!(board["clusters"].as_array().unwrap().len(), 0);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Moving to voting auto-applies the ready proposal.
+    let board = wait_for_clustering_status(&app, &retro_id, "applied").await;
+    assert_eq!(board["retro"]["phase"], "voting");
+}
+
+const HOST_EMAIL: &str = "ava@spill.test";
+
+/// Create an auto-clustering retro hosted by `AUTHOR`, add a card, march it to a
+/// `ready` clustering proposal. Returns retro_id.
+async fn seed_ready_clustering_retro(app: &axum::Router) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_USER_EMAIL, HOST_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Cluster endpoints","template":"standard","clustering_mode":"auto_on_vote_start"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap().to_owned();
+    let column_id = created["columns"][1]["id"].as_str().unwrap().to_owned();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"deploy alerts are noisy"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for path in ["ready", "reveal"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+    wait_for_clustering_status(app, &retro_id, "ready").await;
+    retro_id
+}
+
+fn cluster_provider() -> Arc<AiProvider> {
+    Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        r#"{"groups":[{"title":"Deploy noise","summary":"deploy alerts","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"delivery","tags":["delivery"]}]}"#,
+    )))
+}
+
+async fn post_cluster_action(
+    app: &axum::Router,
+    retro_id: &str,
+    action: &str,
+    subject: &str,
+    email: &str,
+) -> axum::http::Response<Body> {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cluster/{action}"))
+                .header(HEADER_USER_SUBJECT, subject)
+                .header(HEADER_USER_EMAIL, email)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn apply_clustering_requires_host_and_is_idempotent(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(cluster_provider()));
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Non-host cannot apply.
+    let denied = post_cluster_action(&app, &retro_id, "apply", BOB_SUBJECT, BOB_EMAIL).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+    // Host applies the ready proposal.
+    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let first: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(first["retro"]["clustering_status"], "applied");
+    let clusters_after_first = first["clusters"].as_array().unwrap().len();
+    assert!(clusters_after_first >= 1);
+
+    // Re-applying is a no-op: no duplicate clusters, still applied.
+    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let second: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(second["retro"]["clustering_status"], "applied");
+    assert_eq!(second["clusters"].as_array().unwrap().len(), clusters_after_first);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn apply_clustering_rejected_after_action_discussion(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool.clone()),
+        Some(cluster_provider()),
+    );
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Wrap-up has generated actions from the current cards; a stale apply now
+    // must be rejected rather than reorganizing them.
+    sqlx::query("UPDATE retros SET phase = 'action_discussion' WHERE id = $1")
+        .bind(Uuid::parse_str(&retro_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retry_clustering_requires_host_and_recomputes(pool: sqlx::PgPool) {
+    let app =
+        app_with_repository_and_ai(retro_db::RetroRepository::new(pool.clone()), Some(cluster_provider()));
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Simulate a prior compute failure.
+    sqlx::query("UPDATE retros SET clustering_status = 'failed' WHERE id = $1")
+        .bind(Uuid::parse_str(&retro_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Non-host cannot retry.
+    let denied = post_cluster_action(&app, &retro_id, "retry", BOB_SUBJECT, BOB_EMAIL).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+    // Host retry recomputes a fresh proposal.
+    let response = post_cluster_action(&app, &retro_id, "retry", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "ready").await;
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retry_clustering_during_voting_auto_applies(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool.clone()),
+        Some(cluster_provider()),
+    );
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Move to voting (auto-applies the ready proposal).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+
+    // Simulate a clustering failure during voting.
+    sqlx::query("UPDATE retros SET clustering_status = 'failed' WHERE id = $1")
+        .bind(Uuid::parse_str(&retro_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A voting-phase retry must recompute AND apply (not leave a ready proposal
+    // unapplied), since apply is automatic from voting onward.
+    let response = post_cluster_action(&app, &retro_id, "retry", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+}

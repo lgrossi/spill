@@ -153,6 +153,20 @@ export async function startVoting(retroId: string): Promise<RetroBoard> {
   });
 }
 
+export async function applyClustering(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/cluster/apply`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
+export async function retryClustering(retroId: string): Promise<RetroBoard> {
+  return apiFetch(`/api/retros/${retroId}/cluster/retry`, {
+    method: "POST",
+    cache: "no-store",
+  });
+}
+
 export async function castVote(retroId: string, cardId: string, count = 1): Promise<RetroBoard["voting"]> {
   return apiFetch(`/api/retros/${retroId}/votes`, {
     method: "POST",

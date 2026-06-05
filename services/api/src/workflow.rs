@@ -452,6 +452,7 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to reveal board: {error}")))?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
+        self.trigger_auto_clustering_compute(retro_id).await;
         self.fetch_board_for_user(retro_id, &user).await
     }
 
@@ -468,16 +469,75 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
         if retro.phase == "voting" {
-            self.trigger_auto_clustering(retro_id).await?;
+            self.trigger_auto_clustering_apply(retro_id).await;
             return self.fetch_board_for_user(retro_id, &user).await;
         }
         self.repository
             .start_voting(retro_id)
             .await
             .map_err(voting_error)?;
-        self.trigger_auto_clustering(retro_id).await?;
+        self.trigger_auto_clustering_apply(retro_id).await;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
+        self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    /// Host applies a ready clustering proposal to the board. Idempotent: a second
+    /// apply (or an already-applied board) is a no-op.
+    pub async fn apply_clustering(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        match retro.clustering_status.as_str() {
+            "applied" => {}
+            "ready" => {
+                // A stale apply (e.g. an old discussion-era button) must not
+                // reorganize cards after wrap-up generated actions from them.
+                if !matches!(retro.phase.as_str(), "discussion" | "voting") {
+                    return Err(ApiError::bad_request(
+                        "clustering can no longer be applied after action discussion has started",
+                    ));
+                }
+                if let Some(groups) = self
+                    .repository
+                    .fetch_clustering_proposal(retro_id)
+                    .await
+                    .map_err(|error| {
+                        ApiError::internal(format!("failed to load clustering proposal: {error}"))
+                    })?
+                {
+                    self.repository
+                        .apply_auto_cluster_groups(retro_id, groups)
+                        .await
+                        .map_err(cluster_error)?;
+                }
+                self.event_hub
+                    .publish(BoardEvent::ClusteringChanged { retro_id });
+            }
+            _ => {
+                return Err(ApiError::bad_request("no clustering proposal is ready to apply"));
+            }
+        }
+        self.fetch_board_for_user(retro_id, &user).await
+    }
+
+    /// Host retries clustering after a failure (or recomputes): claims a fresh
+    /// compute slot and runs it in the background.
+    pub async fn retry_clustering(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        self.trigger_auto_clustering_compute(retro_id).await;
         self.fetch_board_for_user(retro_id, &user).await
     }
 
@@ -723,27 +783,41 @@ impl RetroWorkflow {
         });
     }
 
-    async fn trigger_auto_clustering(&self, retro_id: Uuid) -> Result<(), ApiError> {
+    /// Discussion-phase: compute a clustering proposal in the background without
+    /// mutating the board. Claims a single compute slot; a new run replaces a
+    /// prior proposal.
+    async fn trigger_auto_clustering_compute(&self, retro_id: Uuid) {
         let Some(provider) = self.ai_provider.clone() else {
-            return Ok(());
+            return;
         };
-        let started = self
-            .repository
-            .mark_clustering_running(retro_id)
-            .await
-            .map_err(|error| {
-                ApiError::internal(format!("failed to start organization: {error}"))
-            })?;
-        if !started {
-            return Ok(());
+        match self.repository.claim_clustering_compute(retro_id).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                tracing::warn!(%retro_id, %error, "failed to claim clustering compute");
+                return;
+            }
         }
         let repository = self.repository.clone();
         let event_hub = self.event_hub.clone();
         tokio::spawn(async move {
-            run_auto_clustering(repository, event_hub, provider, retro_id).await;
+            run_clustering_compute(repository, event_hub, provider, retro_id).await;
         });
-        self.event_hub.publish(BoardEvent::CardChanged { retro_id });
-        Ok(())
+        self.event_hub
+            .publish(BoardEvent::ClusteringChanged { retro_id });
+    }
+
+    /// Voting transition: apply the ready proposal in the background, or compute
+    /// and apply as a fallback when none is ready. Non-auto retros are a no-op.
+    async fn trigger_auto_clustering_apply(&self, retro_id: Uuid) {
+        let provider = self.ai_provider.clone();
+        let repository = self.repository.clone();
+        let event_hub = self.event_hub.clone();
+        tokio::spawn(async move {
+            run_auto_clustering_apply(repository, event_hub, provider, retro_id).await;
+        });
+        self.event_hub
+            .publish(BoardEvent::ClusteringChanged { retro_id });
     }
 
     async fn fetch_board_for_user(
@@ -764,26 +838,75 @@ impl RetroWorkflow {
     }
 }
 
-async fn run_auto_clustering(
+async fn run_clustering_compute(
     repository: RetroRepository,
     event_hub: BoardEventHub,
     provider: Arc<AiProvider>,
     retro_id: Uuid,
 ) {
-    if let Err(error) = run_auto_clustering_inner(&repository, provider, retro_id).await {
-        tracing::warn!(%retro_id, ?error, "auto organization failed");
-        if let Err(mark_error) = repository.mark_clustering_failed(retro_id).await {
-            tracing::warn!(%retro_id, %mark_error, "failed to mark organization failed");
+    match compute_clustering_proposal(&repository, provider, retro_id).await {
+        Ok(groups) => {
+            if let Err(error) = repository.store_clustering_proposal(retro_id, &groups).await {
+                tracing::warn!(%retro_id, %error, "failed to store clustering proposal");
+                let _ = repository.mark_clustering_failed(retro_id).await;
+            } else if let Err(error) = apply_ready_during_voting(&repository, retro_id).await {
+                // Voting may already have started (or a voting-phase retry ran):
+                // the start-voting auto-apply could have stopped waiting, so the
+                // compute that just finished must apply itself.
+                tracing::warn!(%retro_id, ?error, "failed to auto-apply clustering after compute");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%retro_id, ?error, "clustering compute failed");
+            if let Err(mark_error) = repository.mark_clustering_failed(retro_id).await {
+                tracing::warn!(%retro_id, %mark_error, "failed to mark clustering failed");
+            }
         }
     }
-    event_hub.publish(BoardEvent::CardChanged { retro_id });
+    event_hub.publish(BoardEvent::ClusteringChanged { retro_id });
 }
 
-async fn run_auto_clustering_inner(
+/// Apply a freshly-stored proposal when the retro is in voting. In discussion the
+/// host applies explicitly; once voting starts apply is automatic, so a slow
+/// compute (or a voting-phase retry) still lands on the board. It deliberately
+/// does not apply from `action_discussion` onward: by then actions have been
+/// generated from the current cards, and a late reorganization would desync
+/// votes/actions. Idempotent: a no-op once already applied.
+async fn apply_ready_during_voting(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    if retro.clustering_mode != "auto_on_vote_start" {
+        return Ok(());
+    }
+    if retro.phase != "voting" {
+        return Ok(());
+    }
+    if let Some(groups) = repository
+        .fetch_clustering_proposal(retro_id)
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!("failed to load clustering proposal: {error}"))
+        })?
+    {
+        repository
+            .apply_auto_cluster_groups(retro_id, groups)
+            .await
+            .map_err(cluster_error)?;
+    }
+    Ok(())
+}
+
+async fn compute_clustering_proposal(
     repository: &RetroRepository,
     provider: Arc<AiProvider>,
     retro_id: Uuid,
-) -> Result<(), ApiError> {
+) -> Result<Vec<AutoClusterGroupInput>, ApiError> {
     let board = repository
         .fetch_board_readonly(retro_id)
         .await
@@ -800,12 +923,85 @@ async fn run_auto_clustering_inner(
         .complete(&prompt)
         .await
         .map_err(|error| ApiError::internal(format!("organization AI failed: {error}")))?;
-    let groups = auto_cluster_groups_from_response(&response)
-        .map_err(|error| ApiError::internal(error.to_owned()))?;
-    repository
-        .apply_auto_cluster_groups(retro_id, groups)
-        .await
-        .map_err(cluster_error)?;
+    auto_cluster_groups_from_response(&response).map_err(|error| ApiError::internal(error.to_owned()))
+}
+
+async fn run_auto_clustering_apply(
+    repository: RetroRepository,
+    event_hub: BoardEventHub,
+    provider: Option<Arc<AiProvider>>,
+    retro_id: Uuid,
+) {
+    if let Err(error) = ensure_clustering_applied(&repository, provider, retro_id).await {
+        tracing::warn!(%retro_id, ?error, "auto clustering apply failed");
+        if let Err(mark_error) = repository.mark_clustering_failed(retro_id).await {
+            tracing::warn!(%retro_id, %mark_error, "failed to mark clustering failed");
+        }
+    }
+    event_hub.publish(BoardEvent::ClusteringChanged { retro_id });
+}
+
+/// Drive the proposal to `applied`: apply a ready proposal, wait out an in-flight
+/// compute, or compute+store as a fallback (which the next iteration applies).
+async fn ensure_clustering_applied(
+    repository: &RetroRepository,
+    provider: Option<Arc<AiProvider>>,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    for _ in 0..140 {
+        let retro = repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.clustering_mode != "auto_on_vote_start" {
+            return Ok(());
+        }
+        // Stop if the host has already wrapped up: applying after actions are
+        // generated from the current cards would desync votes/actions.
+        if retro.phase != "voting" {
+            return Ok(());
+        }
+        match retro.clustering_status.as_str() {
+            "applied" => return Ok(()),
+            "ready" => {
+                if let Some(groups) = repository
+                    .fetch_clustering_proposal(retro_id)
+                    .await
+                    .map_err(|error| {
+                        ApiError::internal(format!("failed to load clustering proposal: {error}"))
+                    })?
+                {
+                    repository
+                        .apply_auto_cluster_groups(retro_id, groups)
+                        .await
+                        .map_err(cluster_error)?;
+                }
+                return Ok(());
+            }
+            "computing" => {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            _ => {
+                let Some(provider) = provider.clone() else {
+                    return Ok(());
+                };
+                if repository.claim_clustering_compute(retro_id).await.map_err(|error| {
+                    ApiError::internal(format!("failed to claim clustering compute: {error}"))
+                })? {
+                    let groups = compute_clustering_proposal(repository, provider, retro_id).await?;
+                    repository
+                        .store_clustering_proposal(retro_id, &groups)
+                        .await
+                        .map_err(|error| {
+                            ApiError::internal(format!("failed to store clustering proposal: {error}"))
+                        })?;
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1044,7 +1240,7 @@ fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[Stri
             continue;
         }
         for card in &column.cards {
-            if card.hidden || card.parent_card_id.is_some() {
+            if card.hidden || card.parent_card_id.is_some() || card.cluster_id.is_some() {
                 continue;
             }
             let text = [card.body_text.as_deref(), card.gif_alt_text.as_deref()]

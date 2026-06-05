@@ -108,7 +108,14 @@ export type RetroBoard = {
     cover_gif_url: string | null;
     cover_gif_alt_text: string | null;
     clustering_mode: "disabled" | "manual" | "auto_on_vote_start";
-    clustering_status: "not_run" | "running" | "completed" | "failed";
+    clustering_status:
+      | "not_run"
+      | "running"
+      | "completed"
+      | "failed"
+      | "computing"
+      | "ready"
+      | "applied";
     planned_for: string;
     happened_at: string | null;
   };

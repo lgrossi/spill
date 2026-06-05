@@ -8,6 +8,7 @@ import {
   startActionDiscussionAction,
   startVotingAction,
 } from "@/lib/actions";
+import { applyClusteringAction, retryClusteringAction } from "@/lib/actions";
 
 const GRACE_MS = 5000;
 
@@ -76,10 +77,28 @@ function PhaseHint({
   readyCount,
   allReady,
 }: Props & { gated: boolean }) {
+  const autoCluster = clusteringMode === "auto_on_vote_start";
+  // Discussion-phase organization: compute happens here and the host applies it
+  // explicitly (or starts voting, which auto-applies). Surface live status.
+  if (
+    autoCluster &&
+    phase === "discussion" &&
+    (clusteringStatus === "computing" ||
+      clusteringStatus === "ready" ||
+      clusteringStatus === "failed")
+  ) {
+    return (
+      <OrganizeHint
+        retroId={retroId}
+        isHost={isHost}
+        status={clusteringStatus as "computing" | "ready" | "failed"}
+      />
+    );
+  }
   if (gated) {
     if (participantCount === 0) return null;
-    if (phase === "voting" && clusteringMode === "auto_on_vote_start") {
-      if (clusteringStatus === "running") {
+    if (phase === "voting" && autoCluster) {
+      if (clusteringStatus === "computing") {
         return (
           <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
             <span>Organizing...</span>
@@ -99,7 +118,7 @@ function PhaseHint({
             {isHost ? (
               <>
                 <span aria-hidden="true">|</span>
-                <HostAdvanceLink retroId={retroId} action={startVotingAction} label="retry organizing" pendingLabel="organizing..." />
+                <HostAdvanceLink retroId={retroId} action={retryClusteringAction} label="retry organizing" pendingLabel="organizing..." />
                 <span aria-hidden="true">|</span>
                 <HostAdvanceLink retroId={retroId} action={startActionDiscussionAction} label="wrap up" />
               </>
@@ -136,6 +155,36 @@ function gatedHostAdvance(phase: string): { action: (formData: FormData) => void
   if (phase === "writing") return { action: forceRevealRetroAction, label: "start discussing" };
   if (phase === "voting") return { action: startActionDiscussionAction, label: "wrap up" };
   return null;
+}
+
+// Discussion-phase organization status. Hosts apply a ready proposal or retry a
+// failed one; either way they can still start voting (which auto-applies).
+function OrganizeHint({
+  retroId,
+  isHost,
+  status,
+}: {
+  retroId: string;
+  isHost: boolean;
+  status: "computing" | "ready" | "failed";
+}) {
+  const text = status === "failed" ? "organizing failed" : status === "ready" ? "organized" : "Organizing…";
+  if (!isHost) {
+    return <span className="text-[10px] text-spill-muted">{text}</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
+      {status === "computing" ? <span>{text}</span> : null}
+      {status === "ready" ? (
+        <HostAdvanceLink retroId={retroId} action={applyClusteringAction} label="apply organizing" pendingLabel="applying..." />
+      ) : null}
+      {status === "failed" ? (
+        <HostAdvanceLink retroId={retroId} action={retryClusteringAction} label="retry organizing" pendingLabel="organizing..." />
+      ) : null}
+      <span aria-hidden="true">|</span>
+      <HostAdvanceLink retroId={retroId} action={startVotingAction} label="start voting" />
+    </span>
+  );
 }
 
 function Countdown({ retroId }: { retroId: string }) {
