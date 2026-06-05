@@ -2397,6 +2397,26 @@ async fn apply_clustering_requires_host_and_is_idempotent(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn apply_clustering_rejected_after_action_discussion(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool.clone()),
+        Some(cluster_provider()),
+    );
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Wrap-up has generated actions from the current cards; a stale apply now
+    // must be rejected rather than reorganizing them.
+    sqlx::query("UPDATE retros SET phase = 'action_discussion' WHERE id = $1")
+        .bind(Uuid::parse_str(&retro_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn retry_clustering_requires_host_and_recomputes(pool: sqlx::PgPool) {
     let app =
         app_with_repository_and_ai(retro_db::RetroRepository::new(pool.clone()), Some(cluster_provider()));

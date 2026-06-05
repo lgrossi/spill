@@ -142,7 +142,9 @@ export async function autoAdvanceCommand(formData: FormData) {
         board.retro.phase === "voting" &&
         !(
           board.retro.clustering_mode === "auto_on_vote_start" &&
-          (board.retro.clustering_status === "computing" || board.retro.clustering_status === "running")
+          (board.retro.clustering_status === "computing" ||
+            board.retro.clustering_status === "running" ||
+            board.retro.clustering_status === "ready")
         )
       ) {
         await startActionDiscussion(retroId);

@@ -499,6 +499,13 @@ impl RetroWorkflow {
         match retro.clustering_status.as_str() {
             "applied" => {}
             "ready" => {
+                // A stale apply (e.g. an old discussion-era button) must not
+                // reorganize cards after wrap-up generated actions from them.
+                if !matches!(retro.phase.as_str(), "discussion" | "voting") {
+                    return Err(ApiError::bad_request(
+                        "clustering can no longer be applied after action discussion has started",
+                    ));
+                }
                 if let Some(groups) = self
                     .repository
                     .fetch_clustering_proposal(retro_id)
