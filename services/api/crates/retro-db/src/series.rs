@@ -181,12 +181,12 @@ impl RetroRepository {
         .await?;
 
         let columns = sqlx::query_as::<_, RetroColumnRow>(
-            "INSERT INTO retro_columns (retro_id, column_key, title, position, order_direction, accent_color)
-             SELECT $2, column_key, title, position, order_direction, accent_color
+            "INSERT INTO retro_columns (retro_id, column_key, title, position, accent_color)
+             SELECT $2, column_key, title, position, accent_color
              FROM retro_columns
              WHERE retro_id = $1
              ORDER BY position
-             RETURNING id, retro_id, column_key, title, position, order_direction, accent_color",
+             RETURNING id, retro_id, column_key, title, position, accent_color",
         )
         .bind(source_retro_id)
         .bind(retro.id)

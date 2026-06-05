@@ -239,7 +239,7 @@ impl RetroRepository {
         retro_id: Uuid,
     ) -> Result<Vec<RetroColumnRecord>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RetroColumnRow>(
-            "SELECT id, retro_id, column_key, title, position, order_direction, accent_color
+            "SELECT id, retro_id, column_key, title, position, accent_color
              FROM retro_columns
              WHERE retro_id = $1
              ORDER BY position ASC",
@@ -874,7 +874,6 @@ pub struct RetroColumnRecord {
     pub column_key: String,
     pub title: String,
     pub position: i32,
-    pub order_direction: String,
     pub accent_color: Option<String>,
     #[serde(default)]
     pub cards: Vec<CardRecord>,
@@ -887,7 +886,6 @@ struct RetroColumnRow {
     column_key: String,
     title: String,
     position: i32,
-    order_direction: String,
     accent_color: Option<String>,
 }
 
@@ -899,7 +897,6 @@ impl From<RetroColumnRow> for RetroColumnRecord {
             column_key: row.column_key,
             title: row.title,
             position: row.position,
-            order_direction: row.order_direction,
             accent_color: row.accent_color,
             cards: Vec::new(),
         }
@@ -1737,14 +1734,15 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(lee_board.retro.phase, "discussion");
-        assert_eq!(
-            lee_board.columns[0].cards[0].body_text.as_deref(),
-            Some("Ava can read this")
-        );
-        assert_eq!(
-            lee_board.columns[0].cards[1].body_text.as_deref(),
-            Some("Lee private draft")
-        );
+        // After reveal both drafts are visible; their relative order is decided
+        // by author-grouping, so assert presence rather than a fixed order.
+        let revealed_bodies: Vec<&str> = lee_board.columns[0]
+            .cards
+            .iter()
+            .filter_map(|card| card.body_text.as_deref())
+            .collect();
+        assert!(revealed_bodies.contains(&"Ava can read this"));
+        assert!(revealed_bodies.contains(&"Lee private draft"));
 
         let late_card = repo
             .create_draft_card(DraftCardInput {
@@ -2174,14 +2172,15 @@ mod tests {
         let group_card = &board.columns[0].cards[0];
         assert_eq!(group_card.cluster_id, Some(cluster.id));
         assert_eq!(group_card.cluster_title.as_deref(), Some("Grouped: manual"));
-        assert_eq!(
-            group_card
-                .cluster_members
-                .iter()
-                .map(|card| card.id)
-                .collect::<Vec<_>>(),
-            vec![first.id, second.id]
-        );
+        let mut group_members = group_card
+            .cluster_members
+            .iter()
+            .map(|card| card.id)
+            .collect::<Vec<_>>();
+        group_members.sort();
+        let mut expected_group = vec![first.id, second.id];
+        expected_group.sort();
+        assert_eq!(group_members, expected_group);
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
@@ -2315,14 +2314,17 @@ mod tests {
             .find(|card| card.cluster_members.iter().any(|member| member.id == first.id))
             .expect("manual cluster preserved");
         assert_eq!(manual.vote_count, 1);
-        assert_eq!(
-            manual
-                .cluster_members
-                .iter()
-                .map(|card| card.id)
-                .collect::<Vec<_>>(),
-            vec![first.id, second.id]
-        );
+        // Member order is incidental here (reveal author-grouping can reorder
+        // them); the invariant is that both manual members are preserved.
+        let mut member_ids = manual
+            .cluster_members
+            .iter()
+            .map(|card| card.id)
+            .collect::<Vec<_>>();
+        member_ids.sort();
+        let mut expected_members = vec![first.id, second.id];
+        expected_members.sort();
+        assert_eq!(member_ids, expected_members);
         let third_group = board.columns[1]
             .cards
             .iter()
@@ -2659,14 +2661,15 @@ mod tests {
         // "Went well": one cluster holding exactly the two went-well cards.
         assert_eq!(board.columns[1].cards.len(), 1);
         let well_group = &board.columns[1].cards[0];
-        assert_eq!(
-            well_group
-                .cluster_members
-                .iter()
-                .map(|card| card.id)
-                .collect::<Vec<_>>(),
-            vec![well_one.id, well_two.id]
-        );
+        let mut well_members = well_group
+            .cluster_members
+            .iter()
+            .map(|card| card.id)
+            .collect::<Vec<_>>();
+        well_members.sort();
+        let mut expected_well = vec![well_one.id, well_two.id];
+        expected_well.sort();
+        assert_eq!(well_members, expected_well);
         // "To improve": its own single-card cluster, never merged with the above.
         assert_eq!(board.columns[2].cards.len(), 1);
         let improve_group = &board.columns[2].cards[0];
@@ -3508,5 +3511,98 @@ mod tests {
             .unwrap();
         assert_eq!(board.retro.title, "New retro");
         assert_eq!(board.series.unwrap().name, "Payments");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn reveal_groups_cards_by_author_and_alternates_columns(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Ordering retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 1,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let col0 = created.columns[0].id;
+        let col1 = created.columns[1].id;
+
+        // Same three authors in both columns; col0 gets a second Ava card last.
+        let entries = [
+            (col0, "ava", "Ava", "ava first col0"),
+            (col0, "lee", "Lee", "lee col0"),
+            (col0, "sam", "Sam", "sam col0"),
+            (col0, "ava", "Ava", "ava second col0"),
+            (col1, "ava", "Ava", "ava col1"),
+            (col1, "lee", "Lee", "lee col1"),
+            (col1, "sam", "Sam", "sam col1"),
+        ];
+        for (column_id, subject, display, body) in entries {
+            repo.create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: subject.to_owned(),
+                author_display_name: display.to_owned(),
+                body_text: Some(body.to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+
+        let block_sequence = |cards: &[CardRecord]| -> Vec<Uuid> {
+            let mut seq: Vec<Uuid> = Vec::new();
+            for card in cards {
+                if seq.last() != Some(&card.author_participant_id) {
+                    seq.push(card.author_participant_id);
+                }
+            }
+            seq
+        };
+        let body_index = |cards: &[CardRecord], body: &str| -> usize {
+            cards
+                .iter()
+                .position(|card| card.body_text.as_deref() == Some(body))
+                .expect("card present")
+        };
+
+        let col0_cards = &board.columns[0].cards;
+        let col1_cards = &board.columns[1].cards;
+        let seq0 = block_sequence(col0_cards);
+        let seq1 = block_sequence(col1_cards);
+
+        // Contiguous author blocks: each author appears as exactly one run.
+        let mut distinct0 = seq0.clone();
+        distinct0.sort();
+        distinct0.dedup();
+        assert_eq!(distinct0.len(), seq0.len(), "col0 authors not contiguous");
+        assert_eq!(seq0.len(), 3);
+
+        // Odd column reverses the author sequence of the even column.
+        let reversed0: Vec<Uuid> = seq0.iter().rev().copied().collect();
+        assert_eq!(seq1, reversed0, "odd column should reverse author order");
+
+        // Within an author block, chronological order is preserved.
+        assert!(
+            body_index(col0_cards, "ava first col0") < body_index(col0_cards, "ava second col0"),
+            "author block must keep chronological order"
+        );
     }
 }
