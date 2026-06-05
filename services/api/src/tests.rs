@@ -2418,3 +2418,41 @@ async fn retry_clustering_requires_host_and_recomputes(pool: sqlx::PgPool) {
     assert_eq!(response.status(), StatusCode::OK);
     wait_for_clustering_status(&app, &retro_id, "ready").await;
 }
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retry_clustering_during_voting_auto_applies(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool.clone()),
+        Some(cluster_provider()),
+    );
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    // Move to voting (auto-applies the ready proposal).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+
+    // Simulate a clustering failure during voting.
+    sqlx::query("UPDATE retros SET clustering_status = 'failed' WHERE id = $1")
+        .bind(Uuid::parse_str(&retro_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A voting-phase retry must recompute AND apply (not leave a ready proposal
+    // unapplied), since apply is automatic from voting onward.
+    let response = post_cluster_action(&app, &retro_id, "retry", AUTHOR, HOST_EMAIL).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+}

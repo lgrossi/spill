@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { shouldRefreshBoard } from '../app/retros/[retroId]/board-sync-policy';
 
 describe('shouldRefreshBoard', () => {
-  it.each(['board_snapshot', 'card_changed', 'ready_changed', 'phase_changed'])(
+  it.each(['board_snapshot', 'card_changed', 'ready_changed', 'phase_changed', 'clustering_changed'])(
     'returns true for event type "%s"',
     (type) => {
       expect(shouldRefreshBoard({ type })).toBe(true);

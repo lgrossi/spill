@@ -842,6 +842,11 @@ async fn run_clustering_compute(
             if let Err(error) = repository.store_clustering_proposal(retro_id, &groups).await {
                 tracing::warn!(%retro_id, %error, "failed to store clustering proposal");
                 let _ = repository.mark_clustering_failed(retro_id).await;
+            } else if let Err(error) = apply_ready_if_past_discussion(&repository, retro_id).await {
+                // Voting may already have started (or a voting-phase retry ran):
+                // the start-voting auto-apply could have stopped waiting, so the
+                // compute that just finished must apply itself.
+                tracing::warn!(%retro_id, ?error, "failed to auto-apply clustering after compute");
             }
         }
         Err(error) => {
@@ -852,6 +857,40 @@ async fn run_clustering_compute(
         }
     }
     event_hub.publish(BoardEvent::ClusteringChanged { retro_id });
+}
+
+/// Apply a freshly-stored proposal when the retro has already left discussion.
+/// In discussion the host applies explicitly; from voting onward apply is
+/// automatic, so a slow compute (or a voting-phase retry) still lands on the
+/// board. Idempotent: a no-op once already applied.
+async fn apply_ready_if_past_discussion(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    if retro.clustering_mode != "auto_on_vote_start" {
+        return Ok(());
+    }
+    if !matches!(retro.phase.as_str(), "voting" | "action_discussion") {
+        return Ok(());
+    }
+    if let Some(groups) = repository
+        .fetch_clustering_proposal(retro_id)
+        .await
+        .map_err(|error| {
+            ApiError::internal(format!("failed to load clustering proposal: {error}"))
+        })?
+    {
+        repository
+            .apply_auto_cluster_groups(retro_id, groups)
+            .await
+            .map_err(cluster_error)?;
+    }
+    Ok(())
 }
 
 async fn compute_clustering_proposal(
