@@ -4,7 +4,7 @@ import type { RetroBoard } from "@/lib/api";
 import { DropColumn, DropEndMarker } from "./board-dnd";
 import { CardView } from "./card-view";
 import { InlineComposer } from "./card-composer";
-import { columnSemantic, sortedCards } from "./board-presentation";
+import { columnSemantic } from "./board-presentation";
 
 type BoardSearchParams = {
   addColumn?: string;
@@ -31,7 +31,10 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
           >
             {columns.map((column, index) => {
               const semantic = columnSemantic(column, index);
-              const visibleCards = sortedCards(column.cards, board.retro.phase);
+              // Render the server-persisted order for every phase. Notably,
+              // voting must NOT re-sort by votes: it would both disorient people
+              // and leak the otherwise-hidden relative vote tallies.
+              const visibleCards = column.cards;
               const isActiveColumn = activeColumnId === column.id;
               const canDrag = isInteractive;
 

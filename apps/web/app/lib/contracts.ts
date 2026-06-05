@@ -40,7 +40,6 @@ export type RetroColumn = {
   column_key: string;
   title: string;
   position: number;
-  order_direction: "chronological" | "reverse_chronological";
   accent_color?: string | null;
   cards: RetroCard[];
 };

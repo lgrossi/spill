@@ -1,14 +1,6 @@
 import { spillColors, type ColumnAccent } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/contracts";
 
-export function sortedCards(cards: RetroCard[], phase: string) {
-  const visible = [...cards];
-  if (phase === "voting") {
-    visible.sort((a, b) => b.vote_count - a.vote_count);
-  }
-  return visible;
-}
-
 export function columnSemantic(column: RetroBoard["columns"][number], index: number): { kind: ColumnAccent; label: string; color: string } {
   const title = column.title.toLowerCase();
   const savedColor = column.accent_color || undefined;
