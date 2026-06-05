@@ -13,7 +13,10 @@ impl RetroRepository {
     ) -> Result<Vec<ClusterRecord>, ClusterError> {
         let mut tx = self.pool.begin().await?;
         let retro = sqlx::query_as::<_, ClusteringRetro>(
-            "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1",
+            // Lock the retro row so concurrent applies (e.g. the voting auto-apply
+            // racing an explicit host apply) serialize: the loser observes the
+            // already-`applied` status below and becomes a no-op.
+            "SELECT id, phase, clustering_mode, clustering_status FROM retros WHERE id = $1 FOR UPDATE",
         )
         .bind(retro_id)
         .fetch_one(&mut *tx)

@@ -842,7 +842,7 @@ async fn run_clustering_compute(
             if let Err(error) = repository.store_clustering_proposal(retro_id, &groups).await {
                 tracing::warn!(%retro_id, %error, "failed to store clustering proposal");
                 let _ = repository.mark_clustering_failed(retro_id).await;
-            } else if let Err(error) = apply_ready_if_past_discussion(&repository, retro_id).await {
+            } else if let Err(error) = apply_ready_during_voting(&repository, retro_id).await {
                 // Voting may already have started (or a voting-phase retry ran):
                 // the start-voting auto-apply could have stopped waiting, so the
                 // compute that just finished must apply itself.
@@ -859,11 +859,13 @@ async fn run_clustering_compute(
     event_hub.publish(BoardEvent::ClusteringChanged { retro_id });
 }
 
-/// Apply a freshly-stored proposal when the retro has already left discussion.
-/// In discussion the host applies explicitly; from voting onward apply is
-/// automatic, so a slow compute (or a voting-phase retry) still lands on the
-/// board. Idempotent: a no-op once already applied.
-async fn apply_ready_if_past_discussion(
+/// Apply a freshly-stored proposal when the retro is in voting. In discussion the
+/// host applies explicitly; once voting starts apply is automatic, so a slow
+/// compute (or a voting-phase retry) still lands on the board. It deliberately
+/// does not apply from `action_discussion` onward: by then actions have been
+/// generated from the current cards, and a late reorganization would desync
+/// votes/actions. Idempotent: a no-op once already applied.
+async fn apply_ready_during_voting(
     repository: &RetroRepository,
     retro_id: Uuid,
 ) -> Result<(), ApiError> {
@@ -875,7 +877,7 @@ async fn apply_ready_if_past_discussion(
     if retro.clustering_mode != "auto_on_vote_start" {
         return Ok(());
     }
-    if !matches!(retro.phase.as_str(), "voting" | "action_discussion") {
+    if retro.phase != "voting" {
         return Ok(());
     }
     if let Some(groups) = repository
@@ -946,6 +948,11 @@ async fn ensure_clustering_applied(
             .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
         if retro.clustering_mode != "auto_on_vote_start" {
+            return Ok(());
+        }
+        // Stop if the host has already wrapped up: applying after actions are
+        // generated from the current cards would desync votes/actions.
+        if retro.phase != "voting" {
             return Ok(());
         }
         match retro.clustering_status.as_str() {

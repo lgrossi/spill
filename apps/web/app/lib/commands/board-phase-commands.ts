@@ -140,7 +140,10 @@ export async function autoAdvanceCommand(formData: FormData) {
         await revealRetro(retroId);
       } else if (
         board.retro.phase === "voting" &&
-        !(board.retro.clustering_mode === "auto_on_vote_start" && board.retro.clustering_status === "computing")
+        !(
+          board.retro.clustering_mode === "auto_on_vote_start" &&
+          (board.retro.clustering_status === "computing" || board.retro.clustering_status === "running")
+        )
       ) {
         await startActionDiscussion(retroId);
       }
