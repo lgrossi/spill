@@ -15,6 +15,7 @@ import {
   startVoting,
   unmarkReady,
 } from "@/lib/api";
+import { applyClustering, retryClustering } from "@/lib/api";
 import { field } from "./form-utils";
 
 export async function markReadyCommand(formData: FormData) {
@@ -56,6 +57,20 @@ export async function startVotingCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await startVoting(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function applyClusteringCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+
+  await applyClustering(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function retryClusteringCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+
+  await retryClustering(retroId);
   redirect(`/retros/${retroId}`);
 }
 
@@ -125,7 +140,7 @@ export async function autoAdvanceCommand(formData: FormData) {
         await revealRetro(retroId);
       } else if (
         board.retro.phase === "voting" &&
-        !(board.retro.clustering_mode === "auto_on_vote_start" && board.retro.clustering_status === "running")
+        !(board.retro.clustering_mode === "auto_on_vote_start" && board.retro.clustering_status === "computing")
       ) {
         await startActionDiscussion(retroId);
       }

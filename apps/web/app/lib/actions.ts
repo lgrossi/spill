@@ -28,6 +28,7 @@ import {
   unmarkReadyCommand,
 } from "./commands/board-phase-commands";
 import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
+import { applyClusteringCommand, retryClusteringCommand } from "./commands/board-phase-commands";
 import { createRetroCommand, rescheduleRetroCommand, updateRetroDetailsCommand } from "./commands/retro-commands";
 import {
   createDeliveryCommand,
@@ -97,6 +98,14 @@ export async function revealRetroAction(formData: FormData) {
 
 export async function startVotingAction(formData: FormData) {
   return startVotingCommand(formData);
+}
+
+export async function applyClusteringAction(formData: FormData) {
+  return applyClusteringCommand(formData);
+}
+
+export async function retryClusteringAction(formData: FormData) {
+  return retryClusteringCommand(formData);
 }
 
 export async function castVoteAction(formData: FormData) {
