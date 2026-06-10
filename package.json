@@ -14,5 +14,10 @@
     "test": "pnpm check",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "cargo run -p spillio-api -- migrate"
+  },
+  "pnpm": {
+    "overrides": {
+      "uuid": "^11.0.0"
+    }
   }
 }
