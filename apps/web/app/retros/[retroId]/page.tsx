@@ -70,7 +70,7 @@ export default async function RetroBoardPage({
       subtitle={<TitleSubtitle board={board} />}
       title={board.retro.title}
     >
-      <BoardSync retroId={board.retro.id} apiBaseUrl={process.env.NEXT_PUBLIC_SPILLIO_API_URL ?? ""} />
+      <BoardSync retroId={board.retro.id} apiBaseUrl={browserApiBaseUrl()} />
       {board.retro.phase === "completed" ? (
         <WrappedSummary board={board} isHost={isHost} />
       ) : board.retro.phase === "scheduled" ? (
@@ -80,6 +80,13 @@ export default async function RetroBoardPage({
       )}
     </AppChrome>
   );
+}
+
+function browserApiBaseUrl() {
+  return process.env.SPILLIO_BROWSER_API_URL
+    ?? process.env.NEXT_PUBLIC_SPILLIO_API_URL
+    ?? process.env.SPILLIO_API_URL
+    ?? "";
 }
 
 function ParticipantStack({ board }: { board: RetroBoard }) {

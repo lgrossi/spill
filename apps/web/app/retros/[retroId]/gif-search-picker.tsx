@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { GifPickerOverlay } from "@/components/gif-picker-overlay";
 import { useGifDraft } from "./gif-draft";
 
 export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   const { selectedGif, selectGif } = useGifDraft();
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  function submitCard() {
+    const form = rootRef.current?.closest("form");
+    if (!form) {
+      return;
+    }
+    const submitter = form.querySelector<HTMLButtonElement>("[data-intent-card-submit]");
+    window.setTimeout(() => form.requestSubmit(submitter ?? undefined), 0);
+  }
 
   function suppressCardAutosubmit(event: React.PointerEvent<HTMLElement>) {
     const form = event.currentTarget.closest("form");
@@ -35,7 +45,7 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   }
 
   return (
-    <div className="relative" onBlurCapture={submitCardIfLeavingForm} onPointerDown={suppressCardAutosubmit}>
+    <div className="relative" onBlurCapture={submitCardIfLeavingForm} onPointerDown={suppressCardAutosubmit} ref={rootRef}>
       <button
         className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-full border border-white/35 px-2.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
         onClick={() => setOpen((value) => !value)}
@@ -50,7 +60,12 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
           columns="card"
           emptyText="Search for a GIF to add to this card."
           kicker="opened from card"
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            if (selectedGif) {
+              submitCard();
+            }
+          }}
           placeholder={`search ${columnTitle}`}
           selected={(gif) => selectedGif?.id === gif.id}
           title="Pick a GIF"
@@ -59,7 +74,10 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
               <input
                 checked={selected}
                 className="sr-only"
-                onChange={() => selectGif(gif)}
+                onChange={() => {
+                  selectGif(gif);
+                  submitCard();
+                }}
                 type="radio"
               />
               {selected ? <span className="absolute right-2 top-2 z-10 grid h-5 w-5 place-items-center rounded-full bg-spill-wrong text-[12px] font-extrabold text-white">✓</span> : null}
