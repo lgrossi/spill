@@ -6,7 +6,7 @@ vi.mock('next/headers', () => ({
 }));
 
 import { headers, cookies } from 'next/headers';
-import { currentIdentity } from '../app/lib/identity';
+import { canMintTokenForIdentity, currentIdentity } from '../app/lib/identity';
 
 // Returns a Headers-like stub with a simple key→value map.
 function stubHeaders(entries: Record<string, string>) {
@@ -26,6 +26,8 @@ describe('currentIdentity (email normalization, subject, display name)', () => {
     vi.mocked(cookies).mockResolvedValue(stubCookies({}));
     // Ensure we are in local auth mode (non-production default)
     delete process.env.SPILLIO_AUTH_MODE;
+    delete process.env.SPILLIO_AUTH_EMAIL_HEADER;
+    delete process.env.SPILLIO_AUTH_NAME_HEADER;
   });
 
   it('lowercases the email from x-spillio-user-email header', async () => {
@@ -108,5 +110,61 @@ describe('currentIdentity (email normalization, subject, display name)', () => {
     );
     const identity = await currentIdentity();
     expect(identity).toBeNull();
+  });
+
+  it('falls back to default proxy email header when configured header is blank', async () => {
+    process.env.SPILLIO_AUTH_MODE = 'proxy';
+    process.env.SPILLIO_AUTH_EMAIL_HEADER = '   ';
+    vi.mocked(headers).mockResolvedValue(
+      stubHeaders({ 'x-goog-authenticated-user-email': 'accounts.google.com:proxy@example.com' }),
+    );
+
+    const identity = await currentIdentity();
+
+    expect(identity?.email).toBe('proxy@example.com');
+  });
+
+  it('ignores permissive local name headers in proxy mode', async () => {
+    process.env.SPILLIO_AUTH_MODE = 'proxy';
+    vi.mocked(headers).mockResolvedValue(
+      stubHeaders({
+        'x-goog-authenticated-user-email': 'accounts.google.com:proxy@example.com',
+        'x-forwarded-user': 'Spoofed Name',
+      }),
+    );
+
+    const identity = await currentIdentity();
+
+    expect(identity?.displayName).toBe('proxy');
+  });
+
+  it('allows token minting only for upstream identities in proxy mode', () => {
+    process.env.SPILLIO_AUTH_MODE = 'proxy';
+    expect(
+      canMintTokenForIdentity({
+        subject: 'email:abc',
+        displayName: 'Ava',
+        email: 'ava@example.com',
+        source: 'upstream',
+      }),
+    ).toBe(true);
+    expect(
+      canMintTokenForIdentity({
+        subject: 'email:abc',
+        displayName: 'Ava',
+        email: 'ava@example.com',
+        source: 'local',
+      }),
+    ).toBe(false);
+
+    process.env.SPILLIO_AUTH_MODE = 'local';
+    expect(
+      canMintTokenForIdentity({
+        subject: 'email:abc',
+        displayName: 'Ava',
+        email: 'ava@example.com',
+        source: 'upstream',
+      }),
+    ).toBe(false);
   });
 });

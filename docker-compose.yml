@@ -23,6 +23,7 @@ services:
     environment:
       DATABASE_URL: postgres://spillio:spillio@postgres:5432/spillio
       SPILLIO_API_ADDR: 0.0.0.0:4000
+      SPILLIO_AUTH_MODE: local
       SPILLIO_KLIPY_API_KEY: ${SPILLIO_KLIPY_API_KEY:-}
       RUST_LOG: info
     depends_on:

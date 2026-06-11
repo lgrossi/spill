@@ -12,6 +12,10 @@ export type SpillIdentity = {
   source: "upstream" | "local";
 };
 
+export function canMintTokenForIdentity(identity: SpillIdentity) {
+  return authMode() === "proxy" && identity.source === "upstream";
+}
+
 export async function currentIdentity(): Promise<SpillIdentity | null> {
   const headerIdentity = await identityFromHeaders();
   if (headerIdentity) {
@@ -37,18 +41,6 @@ export async function currentIdentity(): Promise<SpillIdentity | null> {
     displayName,
     email,
     source: "local",
-  };
-}
-
-export async function apiIdentityHeaders() {
-  const identity = await currentIdentity();
-  if (!identity) {
-    throw new Error("identity required");
-  }
-  return {
-    "x-spillio-user-subject": identity.subject,
-    "x-spillio-user-name": identity.displayName,
-    ...(identity.email ? { "x-spillio-user-email": identity.email } : {}),
   };
 }
 
@@ -87,22 +79,33 @@ export async function clearLocalIdentity() {
 
 async function identityFromHeaders(): Promise<SpillIdentity | null> {
   const headerStore = await headers();
-  const configuredEmailHeader = process.env.SPILLIO_AUTH_EMAIL_HEADER;
-  const configuredNameHeader = process.env.SPILLIO_AUTH_NAME_HEADER;
+  const configuredEmailHeader = envNonempty("SPILLIO_AUTH_EMAIL_HEADER");
+  const configuredNameHeader = envNonempty("SPILLIO_AUTH_NAME_HEADER");
 
-  const email = normalizeEmail(firstHeader(headerStore, [
-    configuredEmailHeader,
-    "x-spillio-user-email",
-    "x-goog-authenticated-user-email",
-    "x-forwarded-email",
-    "x-auth-request-email",
-  ]));
-  const rawName = firstHeader(headerStore, [
-    configuredNameHeader,
-    "x-spillio-user-name",
-    "x-forwarded-user",
-    "x-auth-request-user",
-  ]);
+  // In proxy deployments clients can send arbitrary request headers, so only
+  // the trusted upstream identity header (injected by the IAP/proxy) may
+  // establish identity. The permissive list is dev-only.
+  const emailHeaderCandidates =
+    authMode() === "proxy"
+      ? [configuredEmailHeader ?? "x-goog-authenticated-user-email"]
+      : [
+          configuredEmailHeader,
+          "x-spillio-user-email",
+          "x-goog-authenticated-user-email",
+          "x-forwarded-email",
+          "x-auth-request-email",
+        ];
+  const email = normalizeEmail(firstHeader(headerStore, emailHeaderCandidates));
+  const nameHeaderCandidates =
+    authMode() === "proxy"
+      ? [configuredNameHeader]
+      : [
+          configuredNameHeader,
+          "x-spillio-user-name",
+          "x-forwarded-user",
+          "x-auth-request-user",
+        ];
+  const rawName = firstHeader(headerStore, nameHeaderCandidates);
 
   if (!email) {
     return null;
@@ -149,6 +152,11 @@ function subjectForEmail(email: string) {
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function envNonempty(name: string) {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 export function localIdentityEnabled() {

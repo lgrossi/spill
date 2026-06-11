@@ -44,7 +44,7 @@ async fn session_endpoint_returns_identity_from_platform_headers() {
         .oneshot(
             Request::builder()
                 .uri("/api/session")
-                .header(HEADER_USER_SUBJECT, "user-123")
+                .header(HEADER_ON_BEHALF_OF, "user-123@example.com")
                 .header(HEADER_USER_NAME, "Ava")
                 .body(Body::empty())
                 .unwrap(),
@@ -56,7 +56,14 @@ async fn session_endpoint_returns_identity_from_platform_headers() {
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
 
-    assert_eq!(body["user"]["subject"], "user-123");
+    // Subject is derived from the email; the client no longer dictates it.
+    assert_eq!(body["user"]["email"], "user-123@example.com");
+    assert!(
+        body["user"]["subject"]
+            .as_str()
+            .unwrap()
+            .starts_with("email:")
+    );
     assert_eq!(body["user"]["display_name"], "Ava");
     assert_eq!(body["access_model"]["kind"], "link");
     assert_eq!(body["access_model"]["can_edit_with_link"], true);
@@ -81,6 +88,25 @@ async fn session_endpoint_returns_structured_error_without_identity() {
     assert_eq!(body["error"]["code"], "unauthorized");
 }
 
+// Regression: in token mode, a request carrying only identity headers (the
+// original exploit) must be rejected — no token, no access.
+#[tokio::test]
+async fn token_mode_rejects_header_only_request() {
+    let auth = identity::AuthState::token_test(None);
+    let response = app_with_auth(auth)
+        .oneshot(
+            Request::builder()
+                .uri("/api/session")
+                .header(HEADER_ON_BEHALF_OF, "user-123@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
@@ -90,9 +116,8 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "user-123")
+                    .header(HEADER_ON_BEHALF_OF, "user-123@example.com")
                     .header(HEADER_USER_NAME, "Ava")
-                    .header("x-spillio-user-email", "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"Sprint 43","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -124,7 +149,7 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "user-123")
+                .header(HEADER_ON_BEHALF_OF, "user-123@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -137,8 +162,7 @@ async fn retro_endpoints_create_list_and_open_standard_board(pool: sqlx::PgPool)
         .oneshot(
             Request::builder()
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "user-123")
-                .header("x-spillio-user-email", "ava@example.com")
+                .header(HEADER_ON_BEHALF_OF, "user-123@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -161,8 +185,7 @@ async fn create_retro_rejects_invalid_invitee_role_before_persisting(pool: sqlx:
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Bad invite","template":"standard","invitees":[{"email":"lee@example.com","role":"owner"}]}"#,
@@ -179,8 +202,7 @@ async fn create_retro_rejects_invalid_invitee_role_before_persisting(pool: sqlx:
             Request::builder()
                 .method("GET")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -201,11 +223,11 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header(HEADER_USER_NAME, "Ava")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"title":"Writing API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                        r#"{"title":"Writing API retro","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"lee@example.com","role":"member"}]}"#,
                     ))
                     .unwrap(),
             )
@@ -216,14 +238,17 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let retro_id = created["retro"]["id"].as_str().unwrap();
     let column_id = created["columns"][0]["id"].as_str().unwrap();
 
-    for (subject, body) in [("ava", "Ava draft"), ("lee", "Lee private draft")] {
+    for (subject, body) in [
+        ("ava@example.com", "Ava draft"),
+        ("lee@example.com", "Lee private draft"),
+    ] {
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/cards"))
-                    .header(HEADER_USER_SUBJECT, subject)
+                    .header(HEADER_ON_BEHALF_OF, subject)
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
                         r#"{{"column_id":"{column_id}","body_text":"{body}"}}"#
@@ -240,7 +265,7 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -286,7 +311,7 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ready"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -300,7 +325,7 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reveal"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -314,7 +339,7 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ready"))
-                .header(HEADER_USER_SUBJECT, "lee")
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -327,7 +352,7 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reveal"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -349,6 +374,49 @@ async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn participant_mutations_require_board_membership(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
+                .header(HEADER_USER_NAME, "Alice")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Membership gate","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"uninvited write"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_host(
     pool: sqlx::PgPool,
 ) {
@@ -359,8 +427,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -386,8 +453,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{future_retro_id}/start"))
-                .header(HEADER_USER_SUBJECT, "member")
-                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header(HEADER_ON_BEHALF_OF, "member@example.com")
                 .header(HEADER_USER_NAME, "Member")
                 .body(Body::empty())
                 .unwrap(),
@@ -402,8 +468,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -433,8 +498,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{due_retro_id}/start"))
-                .header(HEADER_USER_SUBJECT, "member")
-                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header(HEADER_ON_BEHALF_OF, "member@example.com")
                 .header(HEADER_USER_NAME, "Member")
                 .body(Body::empty())
                 .unwrap(),
@@ -455,8 +519,7 @@ async fn due_scheduled_retro_can_be_started_by_member_but_future_start_requires_
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{due_retro_id}/start"))
-                .header(HEADER_USER_SUBJECT, "member")
-                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header(HEADER_ON_BEHALF_OF, "member@example.com")
                 .header(HEADER_USER_NAME, "Member")
                 .body(Body::empty())
                 .unwrap(),
@@ -482,8 +545,7 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -508,8 +570,7 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reschedule"))
-                .header(HEADER_USER_SUBJECT, "member")
-                .header(HEADER_USER_EMAIL, "member@example.com")
+                .header(HEADER_ON_BEHALF_OF, "member@example.com")
                 .header(HEADER_USER_NAME, "Member")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"planned_for":"2099-05-16"}"#))
@@ -525,8 +586,7 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reschedule"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"planned_for":"2099-05-16"}"#))
@@ -550,8 +610,7 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/start"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .body(Body::empty())
                 .unwrap(),
@@ -565,8 +624,7 @@ async fn host_can_reschedule_only_while_retro_is_scheduled(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reschedule"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"planned_for":"2099-05-17"}"#))
@@ -586,8 +644,7 @@ async fn create_retro_rejects_invalid_planned_date(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -610,8 +667,7 @@ async fn scheduled_retro_rejects_card_creation_with_controlled_error(pool: sqlx:
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -636,8 +692,7 @@ async fn scheduled_retro_rejects_card_creation_with_controlled_error(pool: sqlx:
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header(HEADER_USER_NAME, "Host")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
@@ -744,7 +799,7 @@ async fn gif_endpoints_search_attach_and_degrade_gracefully(pool: sqlx::PgPool) 
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header(HEADER_USER_NAME, "Ava")
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -765,7 +820,7 @@ async fn gif_endpoints_search_attach_and_degrade_gracefully(pool: sqlx::PgPool) 
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/cards"))
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
                         r#"{{"column_id":"{column_id}","gif_url":"https://media.giphy.com/media/111ebonMs90YLu/giphy.gif","gif_alt_text":"high five"}}"#
@@ -792,10 +847,10 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"title":"Voting API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                        r#"{"title":"Voting API retro","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"lee@example.com","role":"member"}]}"#,
                     ))
                     .unwrap(),
             )
@@ -812,7 +867,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"column_id":"{column_id}","body_text":"vote here"}}"#
@@ -831,7 +886,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ready"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -846,7 +901,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/{path}"))
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -861,7 +916,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/votes"))
-                .header(HEADER_USER_SUBJECT, "lee")
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"card_id":"{card_id}","count":2}}"#
@@ -881,7 +936,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/votes"))
-                .header(HEADER_USER_SUBJECT, "lee")
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"card_id":"{card_id}","count":2}}"#
@@ -898,7 +953,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ready"))
-                .header(HEADER_USER_SUBJECT, "lee")
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -917,7 +972,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/actions/start"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -937,7 +992,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
                 .uri(format!(
                     "/api/retros/{retro_id}/actions/{action_id}/confirm"
                 ))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -951,7 +1006,7 @@ async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/complete"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -972,7 +1027,7 @@ async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgP
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"Ingestion API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -993,7 +1048,7 @@ async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgP
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/ingest"))
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"source":"pi","placement":"user_deck","suggested_text":"Deck idea","idempotency_key":"event-1"}"#,
@@ -1013,7 +1068,7 @@ async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgP
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/deck/{deck_item_id}/accept"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"column_id":"{first_column_id}"}}"#
@@ -1030,7 +1085,7 @@ async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgP
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/ingest"))
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
                         r#"{{"source":"claude_code","placement":"retro_draft","target_column_id":"{second_column_id}","suggested_text":"Direct idea","idempotency_key":"event-2"}}"#
@@ -1046,7 +1101,7 @@ async fn ingestion_endpoints_support_deck_and_direct_draft_modes(pool: sqlx::PgP
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1068,7 +1123,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"AI API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -1087,7 +1142,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary"}"#))
                 .unwrap(),
@@ -1106,7 +1161,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"mood","fail":true}"#))
                 .unwrap(),
@@ -1126,7 +1181,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
                 .uri(format!(
                     "/api/retros/{retro_id}/ai-jobs/{artifact_id}/retry"
                 ))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1142,7 +1197,7 @@ async fn ai_job_endpoints_persist_reviewable_outputs_and_retry_failure(pool: sql
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1164,7 +1219,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"Notes API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -1183,7 +1238,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary"}"#))
                 .unwrap(),
@@ -1200,7 +1255,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/meeting-notes"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Retro notes","body_text":"Release ownership was unclear."}"#,
@@ -1217,7 +1272,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"mood"}"#))
                 .unwrap(),
@@ -1237,7 +1292,7 @@ async fn meeting_notes_feed_summary_and_mood_ai_context_without_blocking_complet
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1257,7 +1312,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
                 Request::builder()
                     .method("POST")
                     .uri("/api/retros")
-                    .header(HEADER_USER_SUBJECT, "ava")
+                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         r#"{"title":"Delivery API retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -1276,7 +1331,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/deliveries"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary_export","fail":true}"#))
                 .unwrap(),
@@ -1297,7 +1352,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
                 .uri(format!(
                     "/api/retros/{retro_id}/deliveries/{delivery_id}/retry"
                 ))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1313,7 +1368,7 @@ async fn delivery_endpoints_export_summary_and_retry_failure(pool: sqlx::PgPool)
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, "ava")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1346,9 +1401,8 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header(HEADER_USER_NAME, "Alice")
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Uninvite test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -1369,8 +1423,7 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/grants"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(r#"{{"email":"{BOB_EMAIL}"}}"#)))
                 .unwrap(),
@@ -1385,9 +1438,8 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .header(HEADER_USER_NAME, "Bob")
-                .header(HEADER_USER_EMAIL, BOB_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1405,8 +1457,7 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/grants/remove"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(r#"{{"email":"{BOB_EMAIL}"}}"#)))
                 .unwrap(),
@@ -1420,9 +1471,8 @@ async fn uninvite_removes_participant_row(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header(HEADER_USER_NAME, "Alice")
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1451,9 +1501,8 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header(HEADER_USER_NAME, "Alice")
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Kick test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
@@ -1466,12 +1515,26 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     let retro_id = created["retro"]["id"].as_str().unwrap();
 
-    // Bob joins as a participant (no grant needed for this test).
+    // Alice grants Bob access (a participant must be a board member).
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/grants"))
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(r#"{{"email":"{BOB_EMAIL}"}}"#)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Bob joins as a participant.
     app.clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .header(HEADER_USER_NAME, "Bob")
                 .body(Body::empty())
                 .unwrap(),
@@ -1488,8 +1551,7 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
                 .uri(format!(
                     "/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"
                 ))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
-                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1506,8 +1568,7 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
                 .uri(format!(
                     "/api/retros/{retro_id}/participants/{ALICE_SUBJECT}"
                 ))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1522,8 +1583,7 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
             Request::builder()
                 .method("DELETE")
                 .uri(format!("/api/retros/{retro_id}/participants/{BOB_SUBJECT}"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
-                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1538,8 +1598,7 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
             Request::builder()
                 .method("DELETE")
                 .uri(format!("/api/retros/{retro_id}/participants/{BOB_SUBJECT}"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
-                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1554,8 +1613,7 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1578,12 +1636,11 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header(HEADER_USER_NAME, "Alice")
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"title":"Force reveal test","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    r#"{"title":"Force reveal test","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"bob@spill.test","role":"member"}]}"#,
                 ))
                 .unwrap(),
         )
@@ -1600,7 +1657,7 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .header(HEADER_USER_NAME, "Bob")
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
@@ -1618,8 +1675,7 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reveal"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"force":false}"#))
                 .unwrap(),
@@ -1635,8 +1691,7 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reveal"))
-                .header(HEADER_USER_SUBJECT, BOB_SUBJECT)
-                .header(HEADER_USER_EMAIL, BOB_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"force":true}"#))
                 .unwrap(),
@@ -1651,8 +1706,7 @@ async fn force_reveal_skips_ready_gate_for_host(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/reveal"))
-                .header(HEADER_USER_SUBJECT, ALICE_SUBJECT)
-                .header(HEADER_USER_EMAIL, ALICE_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"force":true}"#))
                 .unwrap(),
@@ -1681,7 +1735,10 @@ use std::time::Duration;
 
 use crate::ai_provider::{AiProvider, FakeProvider};
 
-const AUTHOR: &str = "ava";
+const AUTHOR: &str = "ava@spill.test";
+// Derived participant subject for AUTHOR (email:sha256(AUTHOR)).
+const AUTHOR_SUBJECT: &str =
+    "email:028a444c15f2f00008e2f5936831baecd1ef125bcedca7ba3a1ea7c2b61b4bc6";
 
 /// Create a retro and march it through ready → reveal → voting →
 /// actions/start so it is ready to be completed. Returns retro_id.
@@ -1694,7 +1751,7 @@ async fn seed_completable_retro(app: &axum::Router) -> String {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Retro under test","template":"standard"}"#,
@@ -1714,7 +1771,7 @@ async fn seed_completable_retro(app: &axum::Router) -> String {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"column_id":"{column_id}","body_text":"shipping cadence felt steady"}}"#
@@ -1733,7 +1790,7 @@ async fn seed_completable_retro(app: &axum::Router) -> String {
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/{path}"))
-                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1752,7 +1809,7 @@ async fn post_complete(app: &axum::Router, retro_id: &str) -> Value {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/complete"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1769,7 +1826,7 @@ async fn fetch_board(app: &axum::Router, retro_id: &str) -> Value {
             Request::builder()
                 .method("GET")
                 .uri(format!("/api/retros/{retro_id}"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1829,7 +1886,7 @@ async fn only_host_can_complete_retro(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/complete"))
-                .header(HEADER_USER_SUBJECT, "lee")
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1928,8 +1985,7 @@ async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Old retro","template":"standard","group_name":"Old group"}"#,
@@ -1949,8 +2005,7 @@ async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/retros/{retro_id}/details"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"New retro","group_name":"New group"}"#,
@@ -1975,8 +2030,7 @@ async fn host_can_create_update_and_list_retro_cover_gif(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Covered retro","template":"standard","cover_gif_url":"https://media.example/coffee.gif","cover_gif_alt_text":"coffee spill"}"#,
@@ -2001,8 +2055,7 @@ async fn host_can_create_update_and_list_retro_cover_gif(pool: sqlx::PgPool) {
             Request::builder()
                 .method("PATCH")
                 .uri(format!("/api/retros/{retro_id}/details"))
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"cover_gif_url":"https://media.example/rocket.gif","cover_gif_alt_text":"tiny rocket"}"#,
@@ -2026,8 +2079,7 @@ async fn host_can_create_update_and_list_retro_cover_gif(pool: sqlx::PgPool) {
             Request::builder()
                 .method("GET")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, "host")
-                .header(HEADER_USER_EMAIL, "host@example.com")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2055,7 +2107,7 @@ async fn real_provider_summary_job_before_completion_fails_without_running(pool:
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Premature summary retro","template":"standard"}"#,
@@ -2074,7 +2126,7 @@ async fn real_provider_summary_job_before_completion_fails_without_running(pool:
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/ai-jobs"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"kind":"summary"}"#))
                 .unwrap(),
@@ -2127,7 +2179,7 @@ async fn complete_retro_with_fake_provider_persists_succeeded_summary(pool: sqlx
         .collect();
     assert_eq!(
         subjects,
-        vec![AUTHOR],
+        vec![AUTHOR_SUBJECT],
         "runner must not appear as a participant"
     );
 }
@@ -2171,7 +2223,7 @@ async fn failing_provider_records_failed_artifact_then_retry_recovers(pool: sqlx
                 .uri(format!(
                     "/api/retros/{retro_id}/ai-jobs/{artifact_id}/retry"
                 ))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2214,7 +2266,7 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Cluster wiring","template":"standard","clustering_mode":"auto_on_vote_start"}"#,
@@ -2234,7 +2286,7 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"column_id":"{column_id}","body_text":"deploy alerts are noisy"}}"#
@@ -2252,7 +2304,7 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/{path}"))
-                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2272,7 +2324,7 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/voting/start"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2296,8 +2348,7 @@ async fn seed_ready_clustering_retro(app: &axum::Router) -> String {
             Request::builder()
                 .method("POST")
                 .uri("/api/retros")
-                .header(HEADER_USER_SUBJECT, AUTHOR)
-                .header(HEADER_USER_EMAIL, HOST_EMAIL)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"title":"Cluster endpoints","template":"standard","clustering_mode":"auto_on_vote_start"}"#,
@@ -2317,7 +2368,7 @@ async fn seed_ready_clustering_retro(app: &axum::Router) -> String {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"column_id":"{column_id}","body_text":"deploy alerts are noisy"}}"#
@@ -2335,7 +2386,7 @@ async fn seed_ready_clustering_retro(app: &axum::Router) -> String {
                 Request::builder()
                     .method("POST")
                     .uri(format!("/api/retros/{retro_id}/{path}"))
-                    .header(HEADER_USER_SUBJECT, AUTHOR)
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2357,7 +2408,6 @@ async fn post_cluster_action(
     app: &axum::Router,
     retro_id: &str,
     action: &str,
-    subject: &str,
     email: &str,
 ) -> axum::http::Response<Body> {
     app.clone()
@@ -2365,8 +2415,7 @@ async fn post_cluster_action(
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/cluster/{action}"))
-                .header(HEADER_USER_SUBJECT, subject)
-                .header(HEADER_USER_EMAIL, email)
+                .header(HEADER_ON_BEHALF_OF, email)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2376,15 +2425,18 @@ async fn post_cluster_action(
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn apply_clustering_requires_host_and_is_idempotent(pool: sqlx::PgPool) {
-    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(cluster_provider()));
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool),
+        Some(cluster_provider()),
+    );
     let retro_id = seed_ready_clustering_retro(&app).await;
 
     // Non-host cannot apply.
-    let denied = post_cluster_action(&app, &retro_id, "apply", BOB_SUBJECT, BOB_EMAIL).await;
+    let denied = post_cluster_action(&app, &retro_id, "apply", BOB_EMAIL).await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
 
     // Host applies the ready proposal.
-    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    let response = post_cluster_action(&app, &retro_id, "apply", HOST_EMAIL).await;
     assert_eq!(response.status(), StatusCode::OK);
     let first: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
@@ -2393,12 +2445,15 @@ async fn apply_clustering_requires_host_and_is_idempotent(pool: sqlx::PgPool) {
     assert!(clusters_after_first >= 1);
 
     // Re-applying is a no-op: no duplicate clusters, still applied.
-    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    let response = post_cluster_action(&app, &retro_id, "apply", HOST_EMAIL).await;
     assert_eq!(response.status(), StatusCode::OK);
     let second: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(second["retro"]["clustering_status"], "applied");
-    assert_eq!(second["clusters"].as_array().unwrap().len(), clusters_after_first);
+    assert_eq!(
+        second["clusters"].as_array().unwrap().len(),
+        clusters_after_first
+    );
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
@@ -2417,14 +2472,16 @@ async fn apply_clustering_rejected_after_action_discussion(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    let response = post_cluster_action(&app, &retro_id, "apply", AUTHOR, HOST_EMAIL).await;
+    let response = post_cluster_action(&app, &retro_id, "apply", HOST_EMAIL).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn retry_clustering_requires_host_and_recomputes(pool: sqlx::PgPool) {
-    let app =
-        app_with_repository_and_ai(retro_db::RetroRepository::new(pool.clone()), Some(cluster_provider()));
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool.clone()),
+        Some(cluster_provider()),
+    );
     let retro_id = seed_ready_clustering_retro(&app).await;
 
     // Simulate a prior compute failure.
@@ -2435,11 +2492,11 @@ async fn retry_clustering_requires_host_and_recomputes(pool: sqlx::PgPool) {
         .unwrap();
 
     // Non-host cannot retry.
-    let denied = post_cluster_action(&app, &retro_id, "retry", BOB_SUBJECT, BOB_EMAIL).await;
+    let denied = post_cluster_action(&app, &retro_id, "retry", BOB_EMAIL).await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
 
     // Host retry recomputes a fresh proposal.
-    let response = post_cluster_action(&app, &retro_id, "retry", AUTHOR, HOST_EMAIL).await;
+    let response = post_cluster_action(&app, &retro_id, "retry", HOST_EMAIL).await;
     assert_eq!(response.status(), StatusCode::OK);
     wait_for_clustering_status(&app, &retro_id, "ready").await;
 }
@@ -2459,7 +2516,7 @@ async fn retry_clustering_during_voting_auto_applies(pool: sqlx::PgPool) {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/voting/start"))
-                .header(HEADER_USER_SUBJECT, AUTHOR)
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2477,7 +2534,7 @@ async fn retry_clustering_during_voting_auto_applies(pool: sqlx::PgPool) {
 
     // A voting-phase retry must recompute AND apply (not leave a ready proposal
     // unapplied), since apply is automatic from voting onward.
-    let response = post_cluster_action(&app, &retro_id, "retry", AUTHOR, HOST_EMAIL).await;
+    let response = post_cluster_action(&app, &retro_id, "retry", HOST_EMAIL).await;
     assert_eq!(response.status(), StatusCode::OK);
     wait_for_clustering_status(&app, &retro_id, "applied").await;
 }

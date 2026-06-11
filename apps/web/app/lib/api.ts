@@ -1,4 +1,5 @@
-import { apiIdentityHeaders } from "./identity";
+import { canMintTokenForIdentity, currentIdentity } from "./identity";
+import { mintToken } from "./token";
 export type {
   AiArtifact,
   CreateRetroPayload,
@@ -363,11 +364,23 @@ export class ApiError extends Error {
 }
 
 async function apiRequest(path: string, init: RequestInit): Promise<Response> {
-  const identityHeaders = await apiIdentityHeaders();
+  const identity = await currentIdentity();
+  if (!identity?.email) {
+    throw new Error("identity required");
+  }
+  // Deployed: sign a first-party token carrying the user's identity. Dev: no
+  // secret, so the API runs in local mode and trusts the on-behalf-of header.
+  const secret = process.env.SPILLIO_TOKEN_SECRET?.trim();
+  const authHeaders: Record<string, string> = secret
+    ? tokenAuthHeaders(secret, identity)
+    : {
+        "x-spillio-on-behalf-of": identity.email,
+        "x-spillio-user-name": identity.displayName,
+      };
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      ...identityHeaders,
+      ...authHeaders,
       ...init.headers,
     },
   });
@@ -379,6 +392,18 @@ async function apiRequest(path: string, init: RequestInit): Promise<Response> {
   }
 
   return response;
+}
+
+function tokenAuthHeaders(secret: string, identity: Awaited<ReturnType<typeof currentIdentity>>) {
+  if (!identity?.email || !canMintTokenForIdentity(identity)) {
+    throw new Error("trusted identity required");
+  }
+  return {
+    authorization: `Bearer ${mintToken(secret, {
+      email: identity.email,
+      name: identity.displayName,
+    })}`,
+  };
 }
 
 async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
