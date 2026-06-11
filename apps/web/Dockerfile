@@ -11,7 +11,7 @@
 # the newer Debian line which ships them fresh.
 ARG NODE_VERSION=24
 
-FROM registry.hub.docker.com/library/node:${NODE_VERSION}-alpine AS build
+FROM registry.hub.docker.com/library/node:${NODE_VERSION}-trixie-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
