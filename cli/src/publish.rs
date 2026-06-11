@@ -11,6 +11,7 @@ use crate::api::ApiClient;
 use crate::model::{Board, IngestResponse};
 
 const KINDS: [&str; 3] = ["mood", "wentWell", "wentWrong"];
+const DEFAULT_SOURCE: &str = "claude_code";
 
 #[derive(Deserialize)]
 struct CardInput {
@@ -25,11 +26,18 @@ struct CardInput {
     idempotency_key: Option<String>,
 }
 
-pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool) -> Result<()> {
+pub fn run(
+    client: &ApiClient,
+    retro_id: &str,
+    file: Option<&str>,
+    source: Option<String>,
+    confirm: bool,
+) -> Result<()> {
     let cards: Vec<CardInput> = read_cards(file)?;
     if cards.is_empty() {
         bail!("no cards to publish");
     }
+    let source = source_label(source)?;
 
     let board: Board = client.get(&format!("/api/retros/{retro_id}"))?;
     let phase = board.retro.phase;
@@ -49,14 +57,14 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
     let mut ids = Vec::with_capacity(prepared.len());
     for card in prepared {
         let request = IngestItemRequest {
-            source: "claude_code".to_string(),
+            source: source.clone(),
             placement: placement.to_string(),
             target_column_id: if direct { Some(card.column_id) } else { None },
             suggested_text: card.text.clone(),
             gif_url: card.gif_url.clone(),
             idempotency_key: card.idempotency_key,
             source_metadata: json!({
-                "companion": "claude_code",
+                "companion": source.clone(),
                 "card_kind": card.kind,
                 "review_state": "approved",
                 "intended_column_id": card.column_id,
@@ -164,6 +172,17 @@ fn clean_optional(value: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn source_label(flag: Option<String>) -> Result<String> {
+    let source = flag
+        .or_else(|| std::env::var("SPILLIO_SOURCE").ok())
+        .unwrap_or_else(|| DEFAULT_SOURCE.to_owned());
+    let source = source.trim();
+    if source.is_empty() {
+        bail!("source cannot be empty");
+    }
+    Ok(source.to_owned())
+}
+
 fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
     let raw = match file {
         Some(path) => std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
@@ -228,6 +247,16 @@ mod tests {
             clean_optional(Some(" https://example.com/g.gif ")),
             Some("https://example.com/g.gif".to_owned())
         );
+    }
+
+    #[test]
+    fn source_label_defaults_and_trims() {
+        assert_eq!(
+            source_label(Some(" pi ".to_owned())).unwrap(),
+            "pi".to_owned()
+        );
+        assert_eq!(source_label(None).unwrap(), DEFAULT_SOURCE.to_owned());
+        assert!(source_label(Some("   ".to_owned())).is_err());
     }
 
     #[test]

@@ -62,4 +62,6 @@ spill publish --retro-id <target.id> --file cards.json --confirm
 Without `--confirm` it refuses and only reports the count + destination — the
 human gate. `publish` is phase-aware: in `writing`/`voting` cards land directly
 on the columns as your private drafts. Scheduled boards are read-only for the
-CLI until deck acceptance is wired in the web UI.
+CLI until deck acceptance is wired in the web UI. Use `--source pi` or
+`SPILLIO_SOURCE=pi` when publishing Pi-generated cards; the default source is
+`claude_code`.
