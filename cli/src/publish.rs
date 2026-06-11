@@ -54,7 +54,9 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
                 KINDS.join(", ")
             );
         }
-        if card.text.as_deref().unwrap_or("").trim().is_empty() && card.gif_url.is_none() {
+        let text = clean_optional(card.text.as_deref());
+        let gif_url = clean_optional(card.gif_url.as_deref());
+        if text.is_none() && gif_url.is_none() {
             bail!("card {} needs text or gif_url", index + 1);
         }
 
@@ -62,8 +64,8 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
             source: "claude_code".to_string(),
             placement: placement.to_string(),
             target_column_id: if direct { Some(card.column_id) } else { None },
-            suggested_text: card.text.clone(),
-            gif_url: card.gif_url.clone(),
+            suggested_text: text.clone(),
+            gif_url: gif_url.clone(),
             idempotency_key: idempotency_key_for(card),
             source_metadata: json!({
                 "companion": "claude_code",
@@ -73,7 +75,8 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
             }),
             raw_payload: json!({
                 "kind": kind,
-                "text": card.text,
+                "text": text,
+                "gif_url": gif_url,
                 "intended_column_id": card.column_id,
             }),
         };
@@ -119,6 +122,13 @@ fn publish_target_for_phase(phase: &str) -> Result<PublishTarget> {
 
 fn idempotency_key_for(card: &CardInput) -> Option<String> {
     card.idempotency_key.clone()
+}
+
+fn clean_optional(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
@@ -175,5 +185,15 @@ mod tests {
         assert!(publish_target_for_phase("discussion").is_err());
         assert!(publish_target_for_phase("action_discussion").is_err());
         assert!(publish_target_for_phase("completed").is_err());
+    }
+
+    #[test]
+    fn clean_optional_rejects_blank_text_and_gif_values() {
+        assert_eq!(clean_optional(None), None);
+        assert_eq!(clean_optional(Some("   ")), None);
+        assert_eq!(
+            clean_optional(Some(" https://example.com/g.gif ")),
+            Some("https://example.com/g.gif".to_owned())
+        );
     }
 }
