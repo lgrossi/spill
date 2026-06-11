@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Companion ingest request. Shared by the API (deserialize) and the `spill`
+/// CLI (serialize) so both validate the same shape.
+#[derive(Serialize, Deserialize)]
+pub struct IngestItemRequest {
+    pub source: String,
+    pub placement: String,
+    pub target_column_id: Option<Uuid>,
+    pub suggested_text: Option<String>,
+    pub gif_url: Option<String>,
+    pub idempotency_key: Option<String>,
+    #[serde(default)]
+    pub source_metadata: serde_json::Value,
+    #[serde(default)]
+    pub raw_payload: serde_json::Value,
+}
+
 macro_rules! domain_string_enum {
     ($name:ident, $domain:literal, { $($variant:ident => $value:literal),+ $(,)? }) => {
         impl $name {
