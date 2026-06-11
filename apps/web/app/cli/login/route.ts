@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentIdentity } from "@/lib/identity";
+import { canMintTokenForIdentity, currentIdentity } from "@/lib/identity";
 import { mintToken } from "@/lib/token";
 import { loopbackTarget } from "@/lib/loopback";
 
@@ -11,9 +11,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const secret = process.env.SPILLIO_TOKEN_SECRET;
+  const secret = process.env.SPILLIO_TOKEN_SECRET?.trim();
   if (!secret) {
     return NextResponse.json({ error: "token unavailable" }, { status: 503 });
+  }
+  if (!canMintTokenForIdentity(identity)) {
+    return NextResponse.json({ error: "trusted identity required" }, { status: 401 });
   }
 
   const params = new URL(request.url).searchParams;

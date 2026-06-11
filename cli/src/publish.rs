@@ -32,19 +32,10 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
 
     let board: Board = client.get(&format!("/api/retros/{retro_id}"))?;
     let phase = board.retro.phase;
-    if phase == "completed" {
-        bail!("board phase is {phase:?}; cannot publish (need scheduled/writing/voting)");
-    }
-
-    // writing/voting -> cards land directly on the columns as private drafts;
-    // otherwise they wait in the user's deck until the board opens.
-    let direct = phase == "writing" || phase == "voting";
-    let placement = if direct { "retro_draft" } else { "user_deck" };
-    let dest = if direct {
-        "board columns"
-    } else {
-        "your deck (board not open yet — accept when writing starts)"
-    };
+    let publish_target = publish_target_for_phase(&phase)?;
+    let direct = publish_target.direct;
+    let placement = publish_target.placement;
+    let dest = publish_target.destination;
 
     if !confirm {
         bail!(
@@ -73,11 +64,7 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
             target_column_id: if direct { Some(card.column_id) } else { None },
             suggested_text: card.text.clone(),
             gif_url: card.gif_url.clone(),
-            idempotency_key: Some(
-                card.idempotency_key
-                    .clone()
-                    .unwrap_or_else(|| format!("retro-{retro_id}-{}", index + 1)),
-            ),
+            idempotency_key: idempotency_key_for(card),
             source_metadata: json!({
                 "companion": "claude_code",
                 "card_kind": kind,
@@ -108,6 +95,32 @@ pub fn run(client: &ApiClient, retro_id: &str, file: Option<&str>, confirm: bool
     Ok(())
 }
 
+struct PublishTarget {
+    direct: bool,
+    placement: &'static str,
+    destination: &'static str,
+}
+
+fn publish_target_for_phase(phase: &str) -> Result<PublishTarget> {
+    match phase {
+        "scheduled" => Ok(PublishTarget {
+            direct: false,
+            placement: "user_deck",
+            destination: "your deck (board not open yet — accept when writing starts)",
+        }),
+        "writing" | "voting" => Ok(PublishTarget {
+            direct: true,
+            placement: "retro_draft",
+            destination: "board columns",
+        }),
+        _ => bail!("board phase is {phase:?}; cannot publish (need scheduled/writing/voting)"),
+    }
+}
+
+fn idempotency_key_for(card: &CardInput) -> Option<String> {
+    card.idempotency_key.clone()
+}
+
 fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
     let raw = match file {
         Some(path) => std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
@@ -122,4 +135,45 @@ fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
     serde_json::from_str(&raw).context(
         "cards must be a JSON list: [{column_id, text, kind?, gif_url?, idempotency_key?}]",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_idempotency_key_stays_absent() {
+        let card = CardInput {
+            column_id: Uuid::nil(),
+            text: Some("new thought".to_owned()),
+            kind: None,
+            gif_url: None,
+            idempotency_key: None,
+        };
+
+        assert_eq!(idempotency_key_for(&card), None);
+    }
+
+    #[test]
+    fn explicit_idempotency_key_is_preserved() {
+        let card = CardInput {
+            column_id: Uuid::nil(),
+            text: Some("same thought".to_owned()),
+            kind: None,
+            gif_url: None,
+            idempotency_key: Some("event-123".to_owned()),
+        };
+
+        assert_eq!(idempotency_key_for(&card), Some("event-123".to_owned()));
+    }
+
+    #[test]
+    fn publish_rejects_deck_phases_after_writing() {
+        assert!(publish_target_for_phase("scheduled").is_ok());
+        assert!(publish_target_for_phase("writing").is_ok());
+        assert!(publish_target_for_phase("voting").is_ok());
+        assert!(publish_target_for_phase("discussion").is_err());
+        assert!(publish_target_for_phase("action_discussion").is_err());
+        assert!(publish_target_for_phase("completed").is_err());
+    }
 }
