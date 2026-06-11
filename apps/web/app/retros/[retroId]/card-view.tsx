@@ -129,9 +129,9 @@ function CardActions({ board, card }: { board: RetroBoard; card: RetroCard }) {
   const editHref = card.cluster_id ? `/retros/${board.retro.id}?editCard=${card.id}` : `/retros/${board.retro.id}?addColumn=${card.column_id}&editCard=${card.id}`;
 
   return (
-    <div className="mb-1.5 flex justify-end gap-1" data-spill-no-drag>
-      <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" href={editHref}>✎</Link>
-      <form action={deleteDraftCardAction}>
+    <div className="mb-1.5 flex justify-end gap-1">
+      <Link aria-label="Edit card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[12px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" data-spill-no-drag href={editHref}>✎</Link>
+      <form action={deleteDraftCardAction} data-spill-no-drag>
         <input name="retro_id" type="hidden" value={board.retro.id} />
         <input name="card_id" type="hidden" value={card.id} />
         <button aria-label="Delete card" className="grid h-6 w-6 place-items-center rounded-full border border-white/35 bg-black/20 text-[13px] font-extrabold leading-none text-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.16)] transition hover:bg-black/30" type="submit">×</button>
