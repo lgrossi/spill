@@ -1010,6 +1010,13 @@ pub(crate) async fn authorize_retro_participant(
     user: &CurrentUser,
     retro_id: Uuid,
 ) -> Result<(), ApiError> {
+    if !repository
+        .is_board_member(retro_id, &user.email)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check board access: {error}")))?
+    {
+        return Err(ApiError::forbidden("not a member of this board"));
+    }
     if repository
         .authorize_retro_participant(retro_id, &user.subject, &user.display_name)
         .await
