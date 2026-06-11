@@ -106,18 +106,16 @@ export function BoardSync({ retroId, apiBaseUrl }: { retroId: string; apiBaseUrl
   return null;
 }
 
-// The API is a public, authenticated service the browser talks to directly for
-// the event socket. `apiBaseUrl` is injected at runtime from SPILLIO_API_URL
-// (passed by the server component); when unset we fall back to the page origin,
-// which works when the API is path-routed behind the web host.
-function resolveApiBaseUrl(apiBaseUrl: string) {
+// The event socket runs on the browser-reachable API origin. Server-side API
+// fetches may use an internal service URL, so this must not reuse SPILLIO_API_URL.
+export function resolveApiBaseUrl(apiBaseUrl: string) {
   if (apiBaseUrl) {
     return apiBaseUrl;
   }
-  return window.location.origin;
+  return "http://127.0.0.1:4000";
 }
 
-function toWebSocketUrl(baseUrl: string) {
+export function toWebSocketUrl(baseUrl: string) {
   const url = new URL(baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString().replace(/\/$/, "");
