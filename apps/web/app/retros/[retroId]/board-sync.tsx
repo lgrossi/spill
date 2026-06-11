@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { shouldRefreshBoard } from "./board-sync-policy";
 import { WS_SUBPROTOCOL } from "@/lib/ws-protocol";
 
-const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_SPILLIO_API_URL;
 // Fast poll only while the socket is down.
 const FAST_POLL_INTERVAL_MS = 5000;
 // Always-on safety net: a websocket can stay "open" through a proxy/load
@@ -15,7 +14,7 @@ const FAST_POLL_INTERVAL_MS = 5000;
 const SAFETY_POLL_INTERVAL_MS = 15000;
 const RECONNECT_DELAY_MS = 1500;
 
-export function BoardSync({ retroId }: { retroId: string }) {
+export function BoardSync({ retroId, apiBaseUrl }: { retroId: string; apiBaseUrl: string }) {
   const router = useRouter();
   const routerRef = useRef(router);
 
@@ -62,7 +61,7 @@ export function BoardSync({ retroId }: { retroId: string }) {
       if (closed) return;
 
       socket = new WebSocket(
-        `${toWebSocketUrl(browserApiBaseUrl())}/api/retros/${retroId}/events`,
+        `${toWebSocketUrl(resolveApiBaseUrl(apiBaseUrl))}/api/retros/${retroId}/events`,
         protocols,
       );
       socket.addEventListener("open", stopFastPolling);
@@ -102,22 +101,20 @@ export function BoardSync({ retroId }: { retroId: string }) {
         window.clearTimeout(reconnectTimer);
       }
     };
-  }, [retroId]);
+  }, [retroId, apiBaseUrl]);
 
   return null;
 }
 
-function browserApiBaseUrl() {
-  if (CONFIGURED_API_BASE_URL) {
-    return CONFIGURED_API_BASE_URL;
+// The API is a public, authenticated service the browser talks to directly for
+// the event socket. `apiBaseUrl` is injected at runtime from SPILLIO_API_URL
+// (passed by the server component); when unset we fall back to the page origin,
+// which works when the API is path-routed behind the web host.
+function resolveApiBaseUrl(apiBaseUrl: string) {
+  if (apiBaseUrl) {
+    return apiBaseUrl;
   }
-
-  const url = new URL(window.location.href);
-  url.pathname = "";
-  url.search = "";
-  url.hash = "";
-  url.port = "4000";
-  return url.toString().replace(/\/$/, "");
+  return window.location.origin;
 }
 
 function toWebSocketUrl(baseUrl: string) {

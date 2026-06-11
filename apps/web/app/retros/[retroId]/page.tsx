@@ -70,7 +70,7 @@ export default async function RetroBoardPage({
       subtitle={<TitleSubtitle board={board} />}
       title={board.retro.title}
     >
-      <BoardSync retroId={board.retro.id} />
+      <BoardSync retroId={board.retro.id} apiBaseUrl={process.env.SPILLIO_API_URL ?? ""} />
       {board.retro.phase === "completed" ? (
         <WrappedSummary board={board} isHost={isHost} />
       ) : board.retro.phase === "scheduled" ? (
