@@ -19,7 +19,10 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   }
 
   function suppressCardAutosubmit(event: React.PointerEvent<HTMLElement>) {
-    const form = event.currentTarget.closest("form");
+    suppressFormAutosubmit(event.currentTarget.closest("form"));
+  }
+
+  function suppressFormAutosubmit(form: HTMLFormElement | null) {
     if (!form) {
       return;
     }
@@ -48,7 +51,10 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
     <div className="relative" onBlurCapture={submitCardIfLeavingForm} onPointerDown={suppressCardAutosubmit} ref={rootRef}>
       <button
         className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-full border border-white/35 px-2.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
-        onClick={() => setOpen((value) => !value)}
+        onClick={(event) => {
+          suppressFormAutosubmit(event.currentTarget.form);
+          setOpen((value) => !value);
+        }}
         type="button"
       >
         <span>gif</span>
