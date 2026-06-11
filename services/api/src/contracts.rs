@@ -3,6 +3,8 @@ use uuid::Uuid;
 
 use crate::identity::{AccessModel, CurrentUser};
 
+pub use retro_core::IngestItemRequest;
+
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,
@@ -91,20 +93,6 @@ pub struct CastVoteRequest {
 pub struct UpdateActionRequest {
     pub title: String,
     pub details: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct IngestItemRequest {
-    pub source: String,
-    pub placement: String,
-    pub target_column_id: Option<Uuid>,
-    pub suggested_text: Option<String>,
-    pub gif_url: Option<String>,
-    pub idempotency_key: Option<String>,
-    #[serde(default)]
-    pub source_metadata: serde_json::Value,
-    #[serde(default)]
-    pub raw_payload: serde_json::Value,
 }
 
 #[derive(Deserialize)]

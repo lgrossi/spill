@@ -123,7 +123,7 @@ production auth boundary.
 - **API:** Rust Axum API/WebSocket service in `services/api`
 - **Domain:** Rust crates under `services/api/crates`
 - **Database:** Postgres with SQLx migrations
-- **Companions:** connector/ingestion helpers in `packages/companions`
+- **Companion:** the single-binary `spill` CLI in `cli/` (board access + ingest)
 
 The Rust API owns durable board state, visibility rules, phase transitions,
 participants, grants, votes, and WebSocket events. The Next.js app renders the

@@ -3,6 +3,7 @@ members = [
     "services/api",
     "services/api/crates/retro-core",
     "services/api/crates/retro-db",
+    "cli",
 ]
 resolver = "3"
 

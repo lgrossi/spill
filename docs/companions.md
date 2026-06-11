@@ -1,66 +1,60 @@
-# Spill. companions
+# Spill companion CLI (`spill`)
 
-Slice 14 adds first-party companion tooling for Pi and Claude Code. The companion does not write to a retro by default.
+`spill` is the single-binary companion (Rust, in `cli/`) that an agent uses to
+read a user's retro board and push reviewed cards onto it. It replaces the old
+JS/Python companions. The board API is the source of truth — no window or column
+guessing.
 
-## Review flow
-
-1. Generate the default personal retro prompt:
-
-   ```bash
-   pnpm --filter @spillio/companions exec spillio-companion prompt
-   ```
-
-2. Optionally include local/session context. Context is opt-in only:
-
-   ```bash
-   pnpm --filter @spillio/companions exec spillio-companion prompt \
-     --include-local-context \
-     --context-file /tmp/context.txt \
-     --include-session-context
-   ```
-
-3. Draft a reviewed ingestion payload:
-
-   ```bash
-   pnpm --filter @spillio/companions exec spillio-companion draft \
-     --source pi \
-     --kind wentWell \
-     --text "Pairing caught the regression early" \
-     --idempotency-key pi-2026-05-22-1 > /tmp/spillio-payload.json
-   ```
-
-4. Review/edit/reject the JSON. Nothing is sent until `send --approve` is used.
-
-5. Send an approved payload:
-
-   ```bash
-   pnpm --filter @spillio/companions exec spillio-companion send \
-     --file /tmp/spillio-payload.json \
-     --retro-id "$RETRO_ID" \
-     --user-subject "$USER_SUBJECT" \
-     --approve
-   ```
-
-## Approved card kinds
-
-The companion accepts only:
-
-- `mood`
-- `wentWell`
-- `wentWrong`
-
-Sources are limited to:
-
-- `pi`
-- `claude_code`
-
-Placement defaults to `user_deck`. Direct private draft placement requires a target column:
+## Install
 
 ```bash
-pnpm --filter @spillio/companions exec spillio-companion draft \
-  --source claude_code \
-  --kind wentWrong \
-  --text "Deploy feedback was too slow" \
-  --placement retro_draft \
-  --target-column-id "$COLUMN_ID"
+curl -fsSL https://raw.githubusercontent.com/lgrossi/spill/main/scripts/install-spill.sh | sh
 ```
+
+It drops `spill` in `~/.local/bin` (override with `SPILL_BIN_DIR`). The binary
+self-updates: a throttled background check installs newer releases and applies
+them on the next run. Force it with `spill update`.
+
+## Authentication
+
+Identity rides in a first-party token minted by the web app behind its auth
+proxy. `spill` fetches it for you:
+
+```bash
+spill login            # opens the browser, captures the token via loopback
+spill login --manual   # headless/SSH: paste a token from <web>/api/token
+spill logout           # clear the cached token
+```
+
+The token is cached under `~/.config/spill` and refreshed automatically on a
+401. Override endpoints with `SPILLIO_API_URL` / `SPILLIO_WEB_URL`, or pass a
+ready token with `--token` / `SPILLIO_API_TOKEN`.
+
+## 1. State (read-only, run first)
+
+```bash
+spill state
+```
+
+Returns the target board (scheduled/writing), the previous retro in the same
+series, the derived `{since, until}` window, and the board's real columns
+(`id`, `key`, `title`, `position`). Map each drafted card to a column `id`.
+
+## 2. Publish (human-gated)
+
+Build a JSON list of cards, each mapped to a column `id`:
+
+```json
+[{ "column_id": "<id from state>", "kind": "wentWell", "text": "<one line>", "gif_url": null }]
+```
+
+`kind` is `mood | wentWell | wentWrong`. Then:
+
+```bash
+spill publish --retro-id <target.id> --file cards.json --confirm
+```
+
+Without `--confirm` it refuses and only reports the count + destination — the
+human gate. `publish` is phase-aware: in `writing`/`voting` cards land directly
+on the columns as your private drafts; otherwise they wait in your deck until
+the board opens.
