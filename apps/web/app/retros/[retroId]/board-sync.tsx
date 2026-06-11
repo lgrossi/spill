@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { shouldRefreshBoard } from "./board-sync-policy";
+import { WS_SUBPROTOCOL } from "@/lib/ws-protocol";
 
 const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_SPILLIO_API_URL;
 // Fast poll only while the socket is down.
@@ -40,10 +41,30 @@ export function BoardSync({ retroId }: { retroId: string }) {
       }
     }
 
-    function connect() {
+    async function connect() {
       if (closed) return;
 
-      socket = new WebSocket(`${toWebSocketUrl(browserApiBaseUrl())}/api/retros/${retroId}/events`);
+      // The browser cannot set headers on a WS handshake, so the short-lived
+      // board token rides as a negotiated subprotocol alongside the marker.
+      // Tokenless (local/dev) still connects.
+      let protocols: string[] | undefined;
+      try {
+        const res = await fetch(`/api/retros/${retroId}/ws-token`, { cache: "no-store" });
+        if (res.ok) {
+          const { token } = (await res.json()) as { token?: string };
+          if (token) {
+            protocols = [WS_SUBPROTOCOL, token];
+          }
+        }
+      } catch {
+        // Fall through to a tokenless connection; the safety poll still syncs.
+      }
+      if (closed) return;
+
+      socket = new WebSocket(
+        `${toWebSocketUrl(browserApiBaseUrl())}/api/retros/${retroId}/events`,
+        protocols,
+      );
       socket.addEventListener("open", stopFastPolling);
       socket.addEventListener("message", (event) => {
         if (shouldRefreshBoard(parseBoardEvent(event.data))) {
