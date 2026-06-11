@@ -110,6 +110,7 @@ SPILLIO_AUTH_MODE=proxy
 SPILLIO_AUTH_EMAIL_HEADER=x-goog-authenticated-user-email
 SPILLIO_AUTH_NAME_HEADER=x-goog-authenticated-user-name
 SPILLIO_API_URL=http://api:4000
+SPILLIO_BROWSER_API_URL=https://your-public-api.example.com
 NEXT_PUBLIC_SPILLIO_API_URL=https://your-public-api.example.com
 ```
 
