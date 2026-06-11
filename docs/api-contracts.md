@@ -18,22 +18,49 @@ Rules:
 
 ## Identity and access contract
 
-Production uses platform-provided request headers. The web app normalizes those
-headers and forwards Spill identity to the Rust API.
+The API is the sole authentication gate. It trusts a single credential: a
+first-party token signed with the shared `SPILLIO_TOKEN_SECRET`. The web tier
+(which sits behind its own auth proxy and therefore knows who the user is) is
+the only minter — it vouches for the authenticated user by signing a short-lived
+HS256 token the API verifies. There is no OIDC, JWKS, or service account: one
+mechanism, vendor-neutral, identity bound into the token rather than a spoofable
+header.
 
-Required header:
+### Token mode (deployed)
 
-- `x-spillio-user-subject`
+Each request carries `Authorization: Bearer <first-party token>`. The API
+verifies the HS256 signature against `SPILLIO_TOKEN_SECRET` and checks expiry,
+then reads the identity from the claims:
 
-Optional header:
+- `email` (required) — the acting user; board ownership and ACL key.
+- `name` (optional) — display hint.
+- `retro` (optional) — board scope; present only on WebSocket tokens.
 
-- `x-spillio-user-name`
-- `x-spillio-user-email`
+The participant subject is always derived server-side as
+`email:sha256(lowercased-email)` — never an input. Token mode fails closed:
+`SPILLIO_TOKEN_SECRET` is required or the API refuses to start. On-behalf-of and
+other identity headers are ignored in token mode.
 
-If the display name header is absent, the API uses the subject as display name.
+### Local mode (dev)
 
-Email is the board ownership and ACL key. The subject is the stable participant
-identity used inside a board.
+When `SPILLIO_AUTH_MODE` is unset/`local` (no token secret), the API trusts the
+`x-spillio-on-behalf-of` header for the user plus an optional
+`x-spillio-user-name`. The API refuses to start in local mode on Cloud Run.
+
+### WebSocket (`/retros/{id}/events`)
+
+Browsers cannot set headers on a WS handshake, so the connection presents a
+short-lived, board-scoped token (the same first-party token, with a `retro`
+claim) as a `Sec-WebSocket-Protocol` entry alongside the `spillio.ws.v1` marker.
+The API verifies the token, checks the `retro` claim matches the requested
+board, and confirms board membership before upgrading.
+
+### Companion CLI
+
+A signed-in user fetches a longer-lived token from the web UI (`GET /api/token`)
+and passes it to the companion (`--token` / `SPILLIO_API_TOKEN`). The companion
+presents it as `Authorization: Bearer`; identity rides in the token, so no
+service account or impersonation is needed.
 
 ## Board access model
 

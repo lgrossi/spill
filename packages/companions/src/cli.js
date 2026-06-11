@@ -34,14 +34,29 @@ async function main(argv) {
     const payload = await readJson(options.file);
     const retroId = requireOption(options.retroId, "retroId");
     const apiUrl = options.apiUrl ?? "http://127.0.0.1:4000";
-    const subject = requireOption(options.userSubject, "userSubject");
+    // Auth is a ready first-party token whose claims carry the user's identity
+    // (get one from the web UI: GET /api/token). This CLI never mints tokens.
+    // For a local/dev API running without a token secret, fall back to the
+    // on-behalf-of header instead.
+    const token = options.token ?? process.env.SPILLIO_API_TOKEN;
+    const onBehalfOf = options.onBehalfOf ?? process.env.SPILLIO_ON_BEHALF_OF;
+    if (!token && !onBehalfOf) {
+      throw new Error(
+        "send requires --token (or SPILLIO_API_TOKEN); for local dev use --on-behalf-of",
+      );
+    }
+    const headers = {
+      "content-type": "application/json",
+      ...(token
+        ? { authorization: `Bearer ${token}` }
+        : {
+            "x-spillio-on-behalf-of": onBehalfOf,
+            ...(options.userName ? { "x-spillio-user-name": options.userName } : {}),
+          }),
+    };
     const response = await fetch(`${apiUrl}/api/retros/${retroId}/ingest`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-spillio-user-subject": subject,
-        "x-spillio-user-name": options.userName ?? subject,
-      },
+      headers,
       body: JSON.stringify(payload.payload ?? payload),
     });
     if (!response.ok) {
@@ -55,7 +70,8 @@ async function main(argv) {
   process.stdout.write(`Usage:
   spillio-companion prompt [--include-local-context --context-file path] [--include-session-context]
   spillio-companion draft --source pi|claude_code --kind mood|wentWell|wentWrong --text "..." [--placement user_deck|retro_draft --target-column-id uuid]
-  spillio-companion send --file payload.json --retro-id uuid --user-subject subject --approve [--api-url url]
+  spillio-companion send --file payload.json --retro-id uuid --approve --token <bearer> (or env SPILLIO_API_TOKEN; get one from the web UI at /api/token) [--api-url url]
+      (local dev without a token secret: use --on-behalf-of email [--user-name name] instead of --token)
 `);
 }
 
