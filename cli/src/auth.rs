@@ -42,16 +42,41 @@ pub fn logout() -> Result<()> {
 }
 
 fn manual_login(web_url: &str) -> Result<String> {
-    eprintln!("Open {web_url}/api/token while signed in, then paste the token here:");
+    eprintln!(
+        "Open {web_url}/api/token while signed in, then paste the token or JSON response here:"
+    );
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
         .context("read token from stdin")?;
-    let token = input.trim().to_string();
+    token_from_manual_input(&input)
+}
+
+fn token_from_manual_input(input: &str) -> Result<String> {
+    let pasted = input.trim();
+    if pasted.is_empty() {
+        bail!("no token pasted");
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(pasted) {
+        if let Some(token) = value.get("token").and_then(|token| token.as_str()) {
+            return non_empty_token(token);
+        }
+        if let Some(token) = value.as_str() {
+            return non_empty_token(token);
+        }
+        bail!("pasted JSON did not contain a token string");
+    }
+
+    non_empty_token(pasted)
+}
+
+fn non_empty_token(token: &str) -> Result<String> {
+    let token = token.trim();
     if token.is_empty() {
         bail!("no token pasted");
     }
-    Ok(token)
+    Ok(token.to_owned())
 }
 
 fn loopback_login(web_url: &str) -> Result<String> {
@@ -181,3 +206,30 @@ fn restrict(path: &std::path::Path, mode: u32) {
 
 #[cfg(not(unix))]
 fn restrict(_path: &std::path::Path, _mode: u32) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_login_accepts_raw_token() {
+        assert_eq!(
+            token_from_manual_input("ey.raw.token\n").unwrap(),
+            "ey.raw.token"
+        );
+    }
+
+    #[test]
+    fn manual_login_extracts_token_from_json_response() {
+        assert_eq!(
+            token_from_manual_input(r#"{"token":"ey.json.token","email":"ava@example.com"}"#)
+                .unwrap(),
+            "ey.json.token"
+        );
+    }
+
+    #[test]
+    fn manual_login_rejects_json_without_token() {
+        assert!(token_from_manual_input(r#"{"email":"ava@example.com"}"#).is_err());
+    }
+}

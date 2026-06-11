@@ -47,6 +47,7 @@ fn try_update_quiet() -> Result<bool> {
         .current_version(env!("CARGO_PKG_VERSION"))
         .no_confirm(true)
         .show_download_progress(false)
+        .show_output(false)
         .build()?
         .update()?;
     Ok(status.updated())

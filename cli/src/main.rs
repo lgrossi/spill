@@ -20,6 +20,9 @@ struct Cli {
     /// Bearer token (or SPILLIO_API_TOKEN); bypasses the cached/login token.
     #[arg(long, global = true)]
     token: Option<String>,
+    /// Local dev identity header (or SPILLIO_ON_BEHALF_OF); ignored when a token is provided.
+    #[arg(long, global = true)]
+    on_behalf_of: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -81,7 +84,7 @@ fn run() -> anyhow::Result<()> {
         Command::Logout => auth::logout(),
         Command::Update => update::update_now(),
         Command::State => {
-            let client = api::ApiClient::new(api_url, web_url, cli.token)?;
+            let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
             state::run(&client)
         }
         Command::Publish {
@@ -89,7 +92,7 @@ fn run() -> anyhow::Result<()> {
             file,
             confirm,
         } => {
-            let client = api::ApiClient::new(api_url, web_url, cli.token)?;
+            let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
             publish::run(&client, &retro_id, file.as_deref(), confirm)
         }
     }

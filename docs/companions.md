@@ -30,6 +30,11 @@ The token is cached under `~/.config/spill` and refreshed automatically on a
 401. Override endpoints with `SPILLIO_API_URL` / `SPILLIO_WEB_URL`, or pass a
 ready token with `--token` / `SPILLIO_API_TOKEN`.
 
+For local development against an API running with `SPILLIO_AUTH_MODE=local` and
+no token secret, use `--on-behalf-of you@example.com` or
+`SPILLIO_ON_BEHALF_OF=you@example.com`. This sends the dev-only
+`x-spillio-on-behalf-of` header instead of a bearer token.
+
 ## 1. State (read-only, run first)
 
 ```bash
