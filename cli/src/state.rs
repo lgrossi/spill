@@ -4,21 +4,21 @@ use serde_json::json;
 use crate::api::ApiClient;
 use crate::model::{Board, Overview};
 
-/// Find the board to prepare for (scheduled/writing), the previous retro in the
-/// same series, the derived window, and the board's real columns.
+/// Find the board to prepare for (scheduled/writing/voting), the previous retro
+/// in the same series, the derived window, and the board's real columns.
 pub fn run(client: &ApiClient) -> Result<()> {
     let overview: Overview = client.get("/api/retros")?;
 
     let active: Vec<_> = overview
         .active
         .into_iter()
-        .filter(|r| r.phase == "scheduled" || r.phase == "writing")
+        .filter(is_state_target_phase)
         .collect();
 
     let Some(target) = select_target(active) else {
         print(&json!({
             "target": null,
-            "note": "no scheduled or writing board for this user",
+            "note": "no scheduled, writing, or voting board for this user",
         }))?;
         return Ok(());
     };
@@ -62,6 +62,10 @@ fn select_target(mut active: Vec<crate::model::Summary>) -> Option<crate::model:
         (None, None) => a.title.cmp(&b.title),
     });
     active.into_iter().next()
+}
+
+fn is_state_target_phase(retro: &crate::model::Summary) -> bool {
+    retro.phase == "scheduled" || retro.phase == "writing" || retro.phase == "voting"
 }
 
 fn previous_in_series(
@@ -113,6 +117,17 @@ mod tests {
         .expect("target");
 
         assert_eq!(target.title, "Scheduled");
+    }
+
+    #[test]
+    fn state_target_phase_includes_voting_boards() {
+        assert!(is_state_target_phase(&summary(
+            "Voting",
+            "voting",
+            Some("2099-05-15"),
+            None,
+            None,
+        )));
     }
 
     #[test]

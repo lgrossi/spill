@@ -38,6 +38,9 @@ enum Command {
         /// Cards JSON file (defaults to stdin).
         #[arg(long)]
         file: Option<String>,
+        /// Ingestion source label (or SPILLIO_SOURCE), e.g. claude_code or pi.
+        #[arg(long)]
+        source: Option<String>,
         #[arg(long)]
         confirm: bool,
     },
@@ -90,10 +93,11 @@ fn run() -> anyhow::Result<()> {
         Command::Publish {
             retro_id,
             file,
+            source,
             confirm,
         } => {
             let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
-            publish::run(&client, &retro_id, file.as_deref(), confirm)
+            publish::run(&client, &retro_id, file.as_deref(), source, confirm)
         }
     }
 }
