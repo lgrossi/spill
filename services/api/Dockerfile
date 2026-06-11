@@ -1,4 +1,4 @@
-FROM rust:1.89-bookworm AS build
+FROM registry.hub.docker.com/library/rust:1.89-bookworm AS build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY services/api services/api
@@ -7,9 +7,12 @@ COPY services/api services/api
 COPY cli cli
 RUN cargo build --release -p spillio-api
 
-FROM debian:bookworm-slim AS runtime
+FROM registry.hub.docker.com/library/debian:bookworm-slim AS runtime
 WORKDIR /app
+# Patch the OS layer so the image doesn't ship known-fixable CVEs (libgnutls30,
+# libgcrypt20, ...) that the Sysdig build gate rejects on HIGH/CRITICAL.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/target/release/spillio-api /usr/local/bin/spillio-api
