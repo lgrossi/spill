@@ -7,7 +7,7 @@ export function BoardMedia({ alt, src }: { alt: string; src: string }) {
     return <VideoMedia alt={alt} src={src} />;
   }
 
-  return <img className="media-image gif-image" src={src} alt={alt} loading="lazy" />;
+  return <img className="media-image gif-image" src={src} alt={alt} loading="lazy" draggable={false} />;
 }
 
 function VideoMedia({ alt, src }: { alt: string; src: string }) {
@@ -21,6 +21,7 @@ function VideoMedia({ alt, src }: { alt: string; src: string }) {
         aria-label={alt}
         autoPlay
         className="media-video gif-image"
+        draggable={false}
         loop
         muted={muted}
         playsInline
