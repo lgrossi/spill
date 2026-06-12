@@ -224,9 +224,9 @@ impl RetroWorkflow {
                 .await
                 .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
                 .ok_or_else(|| ApiError::not_found("retro not found"))?;
-            if retro.phase != "scheduled" {
+            if retro.phase == "completed" {
                 return Err(ApiError::bad_request(format!(
-                    "board config can only be updated while scheduled, current phase is {}",
+                    "board config cannot be updated after completion, current phase is {}",
                     retro.phase
                 )));
             }
