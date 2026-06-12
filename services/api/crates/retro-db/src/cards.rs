@@ -55,6 +55,14 @@ impl RetroRepository {
         cluster_details: Option<&str>,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        let previous_title = sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE(NULLIF(btrim(body_text), ''), gif_alt_text, 'Untitled action')
+             FROM cards
+             WHERE id = $1",
+        )
+        .bind(card_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let updated = sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
              SET body_text = CASE
@@ -85,7 +93,12 @@ impl RetroRepository {
 
         if updated.is_some() {
             // A card-backed action mirrors its card text.
-            crate::actions::sync_action_item_title_for_card(&mut tx, card_id).await?;
+            crate::actions::sync_action_item_title_for_card(
+                &mut tx,
+                card_id,
+                previous_title.as_deref(),
+            )
+            .await?;
         }
         tx.commit().await?;
         Ok(updated)
@@ -206,6 +219,15 @@ impl RetroRepository {
                 .bind(card_id)
                 .fetch_all(&mut *tx)
                 .await?;
+        let retro_id = sqlx::query_scalar::<_, Uuid>("SELECT retro_id FROM cards WHERE id = $1")
+            .bind(card_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let child_card_ids =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM cards WHERE parent_card_id = $1")
+                .bind(card_id)
+                .fetch_all(&mut *tx)
+                .await?;
         let result = sqlx::query(
             "DELETE FROM cards c
              USING participants p, retros r
@@ -231,6 +253,13 @@ impl RetroRepository {
                 .bind(&linked_action_ids)
                 .execute(&mut *tx)
                 .await?;
+        }
+        if deleted {
+            let retro_id = retro_id.expect("deleted card was fetched before delete");
+            for child_card_id in child_card_ids {
+                crate::actions::reconcile_action_item_for_card(&mut tx, retro_id, child_card_id)
+                    .await?;
+            }
         }
         tx.commit().await?;
         Ok(deleted)

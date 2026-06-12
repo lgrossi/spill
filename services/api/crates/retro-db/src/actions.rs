@@ -44,6 +44,10 @@ impl RetroRepository {
                  FROM cards c
                  LEFT JOIN votes v ON v.target_card_id = c.id
                  WHERE c.retro_id = $1 AND c.state = 'revealed' AND c.column_id <> $2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM action_items ai
+                       WHERE ai.source_card_id = c.id
+                   )
                  GROUP BY c.id
                  HAVING COALESCE(SUM(v.count), 0) > 0
                  ORDER BY vote_count DESC, c.created_at ASC
@@ -315,15 +319,23 @@ pub(crate) async fn reconcile_action_item_for_card(
 pub(crate) async fn sync_action_item_title_for_card(
     conn: &mut sqlx::PgConnection,
     card_id: Uuid,
+    previous_title: Option<&str>,
 ) -> Result<(), sqlx::Error> {
+    let Some(previous_title) = previous_title else {
+        return Ok(());
+    };
     let updated = sqlx::query_scalar::<_, String>(
         "UPDATE action_items ai
          SET title = COALESCE(NULLIF(btrim(c.body_text), ''), c.gif_alt_text, 'Untitled action')
          FROM cards c
-         WHERE ai.source_card_id = $1 AND c.id = ai.source_card_id
+         WHERE ai.source_card_id = $1
+           AND c.id = ai.source_card_id
+           AND ai.status NOT IN ('done', 'rejected')
+           AND ai.title = $2
          RETURNING ai.title",
     )
     .bind(card_id)
+    .bind(previous_title)
     .fetch_optional(&mut *conn)
     .await?;
 

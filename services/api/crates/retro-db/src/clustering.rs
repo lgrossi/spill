@@ -589,6 +589,7 @@ impl RetroRepository {
         };
 
         if source_is_group_card {
+            crate::actions::discard_open_action_item_for_card(&mut tx, source.id).await?;
             sqlx::query(
                 "UPDATE votes
                  SET target_card_id = $1
@@ -704,7 +705,10 @@ impl RetroRepository {
         // Source/target are now cluster children, and the visible cluster parent
         // is the action when this happens in an Actions column.
         crate::actions::discard_open_action_item_for_card(&mut tx, input.card_id).await?;
-        crate::actions::discard_open_action_item_for_card(&mut tx, input.target_card_id).await?;
+        if input.target_card_id != cluster_parent_id {
+            crate::actions::discard_open_action_item_for_card(&mut tx, input.target_card_id)
+                .await?;
+        }
         crate::actions::ensure_action_item_for_card(&mut tx, input.retro_id, cluster_parent_id)
             .await?;
 
