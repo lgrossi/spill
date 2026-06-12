@@ -1,6 +1,7 @@
 import type { RetroBoard } from "@/lib/contracts";
 import { BoardInviteButton } from "@/components/board-invite-button";
 import { DeleteBoardButton } from "@/components/delete-board-button";
+import { BoardSettingsButton } from "./board-settings-button";
 
 // Right-side topbar: people button and host delete affordance.
 // Phase advance happens in the centered PhaseLine (auto-advance countdown
@@ -24,6 +25,17 @@ export function PhaseControls({
   const deleteButton = isHost ? (
     <DeleteBoardButton retroId={board.retro.id} boardTitle={board.retro.title} />
   ) : null;
+  const settingsButton =
+    isHost && board.retro.phase !== "completed" ? (
+      <BoardSettingsButton
+        retroId={board.retro.id}
+        returnTo={`/retros/${board.retro.id}`}
+        voteLimit={board.retro.vote_limit}
+        actionDiscussionLimit={board.retro.action_discussion_limit}
+        clusteringMode={board.retro.clustering_mode}
+        hasActionColumn={board.columns.some((column) => column.title.toLowerCase().includes("action"))}
+      />
+    ) : null;
 
   if (board.retro.phase === "completed") {
     return (
@@ -36,6 +48,7 @@ export function PhaseControls({
 
   return (
     <>
+      {settingsButton}
       {peopleButton}
       {deleteButton}
     </>
