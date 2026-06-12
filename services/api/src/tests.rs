@@ -2071,7 +2071,7 @@ async fn host_can_update_board_configs(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
-async fn host_cannot_update_board_configs_after_scheduled_phase(pool: sqlx::PgPool) {
+async fn host_can_update_board_configs_after_scheduled_phase(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
         .clone()
@@ -2107,7 +2107,10 @@ async fn host_cannot_update_board_configs_after_scheduled_phase(pool: sqlx::PgPo
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(updated["retro"]["vote_limit"], 8);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
