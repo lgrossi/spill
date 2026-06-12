@@ -217,6 +217,7 @@ impl RetroWorkflow {
             .map(|value| clustering_mode(Some(value)));
         let updates_board_config =
             vote_limit.is_some() || action_discussion_limit.is_some() || clustering_mode.is_some();
+        let mut trigger_voting_auto_cluster = false;
         if updates_board_config {
             let retro = self
                 .repository
@@ -230,6 +231,18 @@ impl RetroWorkflow {
                     retro.phase
                 )));
             }
+            if retro.phase == "action_discussion" {
+                return Err(ApiError::bad_request(
+                    "board config cannot be updated after wrap-up has started",
+                ));
+            }
+            if retro.phase == "voting" && matches!(vote_limit, Some(0)) {
+                return Err(ApiError::bad_request(
+                    "voting cannot be disabled after voting has started",
+                ));
+            }
+            trigger_voting_auto_cluster =
+                retro.phase == "voting" && clustering_mode.as_deref() == Some("auto_on_vote_start");
         }
         // Moving top-voted cards into actions requires an actions column. Reject
         // enabling it on a board that has none so the action-discussion phase
@@ -279,6 +292,9 @@ impl RetroWorkflow {
                 ApiError::internal(format!("failed to update retro details: {error}"))
             })?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if trigger_voting_auto_cluster {
+            self.trigger_auto_clustering_apply(retro_id).await;
+        }
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         self.fetch_board_for_user(retro_id, &user).await
     }
