@@ -201,12 +201,11 @@ impl RetroRepository {
         let mut tx = self.pool.begin().await?;
         // Capture linked actions before the delete: the FK only nulls
         // source_card_id, so we would lose the link afterwards.
-        let linked_action_ids = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM action_items WHERE source_card_id = $1",
-        )
-        .bind(card_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let linked_action_ids =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM action_items WHERE source_card_id = $1")
+                .bind(card_id)
+                .fetch_all(&mut *tx)
+                .await?;
         let result = sqlx::query(
             "DELETE FROM cards c
              USING participants p, retros r
@@ -226,9 +225,9 @@ impl RetroRepository {
 
         let deleted = result.rows_affected() > 0;
         if deleted && !linked_action_ids.is_empty() {
-            // The card is gone, so its action must go too — otherwise it lingers
-            // as an open action with no backing card.
-            sqlx::query("DELETE FROM action_items WHERE id = ANY($1)")
+            // The card is gone, so open actions must not linger without backing
+            // cards. Completed/rejected outcomes are preserved for history.
+            sqlx::query("DELETE FROM action_items WHERE id = ANY($1) AND status NOT IN ('done', 'rejected')")
                 .bind(&linked_action_ids)
                 .execute(&mut *tx)
                 .await?;
@@ -267,7 +266,7 @@ impl RetroRepository {
         .fetch_optional(&mut *tx)
         .await?;
 
-        sqlx::query(
+        let singleton_survivors = sqlx::query_scalar::<_, Uuid>(
             "WITH singleton_groups AS (
                  SELECT parent.id, parent.column_id
                  FROM cards parent
@@ -292,14 +291,16 @@ impl RetroRepository {
                  updated_at = NOW()
              FROM singleton_groups
              WHERE member.retro_id = $1
-               AND member.parent_card_id = singleton_groups.id",
+               AND member.parent_card_id = singleton_groups.id
+             RETURNING member.id",
         )
         .bind(retro_id)
-        .execute(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
 
-        sqlx::query(
-            "DELETE FROM cards parent
+        let empty_cluster_parents = sqlx::query_scalar::<_, Uuid>(
+            "SELECT parent.id
+             FROM cards parent
              WHERE parent.retro_id = $1
                AND parent.cluster_id IS NOT NULL
                AND parent.parent_card_id IS NULL
@@ -308,6 +309,17 @@ impl RetroRepository {
                )",
         )
         .bind(retro_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for card_id in &empty_cluster_parents {
+            crate::actions::discard_open_action_item_for_card(&mut tx, *card_id).await?;
+        }
+
+        sqlx::query(
+            "DELETE FROM cards parent
+             WHERE parent.id = ANY($1)",
+        )
+        .bind(&empty_cluster_parents)
         .execute(&mut *tx)
         .await?;
 
@@ -315,6 +327,9 @@ impl RetroRepository {
         // actions column, which makes it an action.
         if let Some(card) = removed.as_ref() {
             crate::actions::reconcile_action_item_for_card(&mut tx, retro_id, card.id).await?;
+        }
+        for card_id in singleton_survivors {
+            crate::actions::reconcile_action_item_for_card(&mut tx, retro_id, card_id).await?;
         }
 
         tx.commit().await?;
