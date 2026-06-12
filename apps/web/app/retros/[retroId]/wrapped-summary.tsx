@@ -15,18 +15,6 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
   const cards = boardColumns.flatMap((column) => column.cards.filter((card) => !card.hidden));
   const mood = generatedTeamMood(board.ai_artifacts);
   const boardCategories = generatedBoardCategories(board.ai_artifacts);
-  const actionColumnCards = board.columns
-    .filter(isActionsColumn)
-    .flatMap((column) => column.cards.filter((card) => !card.hidden && card.parent_card_id === null));
-  // Cards in the actions column that aren't already linked to an action_item.
-  // These are user-added during action_discussion and would otherwise vanish
-  // from the wrap because the column is hidden and they have no action row.
-  const linkedCardIds = new Set(
-    board.actions
-      .map((action) => action.source_card_id)
-      .filter((id): id is string => Boolean(id)),
-  );
-  const adhocActionCards = actionColumnCards.filter((card) => !linkedCardIds.has(card.id));
   const cover = { url: board.retro.cover_gif_url, altText: board.retro.cover_gif_alt_text };
   const hasCover = Boolean(cover.url);
 
@@ -65,7 +53,7 @@ export function WrappedSummary({ board, isHost = false }: { board: RetroBoard; i
           </div>
         </div>
 
-        <CommittedActions allCards={allCards} board={board} adhocActionCards={adhocActionCards} />
+        <CommittedActions allCards={allCards} board={board} />
         <FinalBoard board={board} boardColumns={boardColumns} cards={cards} />
       </main>
 
@@ -290,13 +278,11 @@ function FinalBoard({
 function CommittedActions({
   allCards,
   board,
-  adhocActionCards,
 }: {
   allCards: RetroCard[];
   board: RetroBoard;
-  adhocActionCards: RetroCard[];
 }) {
-  const total = board.actions.length + adhocActionCards.length;
+  const total = board.actions.length;
   return (
     <div className="mt-6">
       <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-action">actions committed . {total}</p>
@@ -320,13 +306,6 @@ function CommittedActions({
                 <button aria-label="Mark action done" className={actionCheckClass(false)} type="submit">✓</button>
               </form>
             ) : null}
-          </div>
-        ))}
-        {adhocActionCards.map((card) => (
-          <div className="sp-panel-grain flex items-center gap-3 rounded-[12px] border border-spill-line bg-spill-panel p-4 shadow-[var(--shadow-1)]" id={`card-${card.id}`} key={card.id}>
-            <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[6px] bg-spill-action text-[12px] font-extrabold text-white">ok</span>
-            <Link className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-spill-fg hover:underline" href={`/retros/${board.retro.id}#card-${card.id}`}>{cardLabel(card)}</Link>
-            <Pill tone="neutral">added</Pill>
           </div>
         ))}
       </div>

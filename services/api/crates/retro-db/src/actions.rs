@@ -91,6 +91,31 @@ impl RetroRepository {
             .await?;
         }
 
+        // Manually added actions-column cards are actions too. Backfill an
+        // action_item for any revealed top-level actions-column card that does
+        // not have one yet (e.g. cards added during writing/voting), so every
+        // action is a single concept from here on.
+        let manual_card_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT c.id
+             FROM cards c
+             JOIN retro_columns col ON col.id = c.column_id
+             WHERE c.retro_id = $1
+               AND (col.column_key = 'actions' OR lower(col.title) LIKE '%action%')
+               AND c.state = 'revealed'
+               AND c.parent_card_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM action_items ai
+                   WHERE ai.retro_id = $1 AND ai.source_card_id = c.id
+               )
+             ORDER BY c.position, c.created_at",
+        )
+        .bind(retro_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for card_id in manual_card_ids {
+            ensure_action_item_for_card(&mut tx, retro_id, card_id).await?;
+        }
+
         tx.commit().await?;
         Ok(self.fetch_actions(retro_id).await?)
     }
@@ -178,4 +203,59 @@ impl RetroRepository {
 
         Ok(row.map(Into::into))
     }
+}
+
+/// Ensure a revealed, top-level card sitting in an actions column has a backing
+/// action_item. Manually added action cards become first-class actions this way,
+/// exactly like the auto top-voted cards already do. No-op if the card is not an
+/// eligible actions-column card or already has an action_item.
+pub(crate) async fn ensure_action_item_for_card(
+    conn: &mut sqlx::PgConnection,
+    retro_id: Uuid,
+    card_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let title = sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE(NULLIF(btrim(c.body_text), ''), c.gif_alt_text, 'Untitled action')
+         FROM cards c
+         JOIN retro_columns col ON col.id = c.column_id
+         WHERE c.id = $2
+           AND c.retro_id = $1
+           AND (col.column_key = 'actions' OR lower(col.title) LIKE '%action%')
+           AND c.state = 'revealed'
+           AND c.parent_card_id IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM action_items ai
+               WHERE ai.retro_id = $1 AND ai.source_card_id = c.id
+           )",
+    )
+    .bind(retro_id)
+    .bind(card_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    let Some(title) = title else {
+        return Ok(());
+    };
+
+    let tags = action_tags(&title);
+    sqlx::query(
+        "INSERT INTO action_items (retro_id, source_card_id, title, details, status, position, tags)
+         VALUES (
+            $1,
+            $2,
+            $3,
+            NULL,
+            'confirmed',
+            (SELECT COALESCE(MAX(position) + 1, 0) FROM action_items WHERE retro_id = $1),
+            $4
+         )",
+    )
+    .bind(retro_id)
+    .bind(card_id)
+    .bind(&title)
+    .bind(Json(tags))
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
 }
