@@ -12,13 +12,15 @@ const numberInputStyle = {
   boxShadow: "none",
 } as const;
 
-export function BoardConfigEditor({
+export function BoardConfigForm({
   retroId,
   returnTo,
   voteLimit,
   actionDiscussionLimit,
   clusteringMode,
   hasActionColumn,
+  onCancel,
+  className,
 }: {
   retroId: string;
   returnTo: string;
@@ -26,29 +28,18 @@ export function BoardConfigEditor({
   actionDiscussionLimit: number;
   clusteringMode: string;
   hasActionColumn: boolean;
+  onCancel?: () => void;
+  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [votingEnabled, setVotingEnabled] = useState(voteLimit > 0);
   const [topVotedToActions, setTopVotedToActions] = useState(actionDiscussionLimit > 0);
   const [autoOrganize, setAutoOrganize] = useState(clusteringMode === "auto_on_vote_start");
   const [isPending, startTransition] = useTransition();
 
-  if (!open) {
-    return (
-      <button
-        className="mx-auto mt-4 block text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted underline decoration-dashed underline-offset-4 transition hover:text-spill-fg"
-        onClick={() => setOpen(true)}
-        type="button"
-      >
-        edit board settings
-      </button>
-    );
-  }
-
   return (
     <form
       action={(formData) => startTransition(() => void updateRetroDetailsAction(formData))}
-      className="mx-auto mt-4 max-w-md space-y-2.5 text-left"
+      className={`space-y-2.5 text-left ${className ?? ""}`}
     >
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="return_to" type="hidden" value={returnTo} />
@@ -120,13 +111,15 @@ export function BoardConfigEditor({
         </label>
       </Tile>
       <div className="flex items-center justify-end gap-2">
-        <button
-          className="text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted transition hover:text-spill-fg"
-          onClick={() => setOpen(false)}
-          type="button"
-        >
-          cancel
-        </button>
+        {onCancel ? (
+          <button
+            className="text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted transition hover:text-spill-fg"
+            onClick={onCancel}
+            type="button"
+          >
+            cancel
+          </button>
+        ) : null}
         <Btn accent={spillColors.well} disabled={isPending} kind="primary" type="submit">
           {isPending ? "saving..." : "save settings"}
         </Btn>

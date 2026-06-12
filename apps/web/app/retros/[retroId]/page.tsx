@@ -15,7 +15,6 @@ import { PlannedDateEditor } from "./planned-date-editor";
 import { ScheduledAutoStart } from "./scheduled-auto-start";
 import { WrappedSummary } from "./wrapped-summary";
 import { InlineDetailEditor } from "./inline-detail-editor";
-import { BoardConfigEditor } from "./board-config-editor";
 
 type BoardSearchParams = {
   addColumn?: string;
@@ -229,16 +228,6 @@ function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: b
           ) : (
             <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-spill-muted">starting</p>
           )}
-          {isHost ? (
-            <BoardConfigEditor
-              retroId={board.retro.id}
-              returnTo={`/retros/${board.retro.id}`}
-              voteLimit={board.retro.vote_limit}
-              actionDiscussionLimit={board.retro.action_discussion_limit}
-              clusteringMode={board.retro.clustering_mode}
-              hasActionColumn={board.columns.some((column) => column.title.toLowerCase().includes("action"))}
-            />
-          ) : null}
         </Tile>
       </div>
     </div>
