@@ -90,7 +90,9 @@ impl GatewayProvider {
             .http
             .post(&self.endpoint)
             .bearer_auth(token)
-            .json(&CompleteRequest { prompt_text: prompt })
+            .json(&CompleteRequest {
+                prompt_text: prompt,
+            })
             .send()
             .await?;
 

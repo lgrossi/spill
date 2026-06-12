@@ -26,8 +26,7 @@ impl<W: Write> DdInjectWriter<W> {
             // DD uses the lower 64 bits of the 128-bit OTel trace ID.
             let dd_trace_id =
                 u64::from_be_bytes(trace_bytes[8..16].try_into().unwrap()).to_string();
-            let dd_span_id =
-                u64::from_be_bytes(span_ctx.span_id().to_bytes()).to_string();
+            let dd_span_id = u64::from_be_bytes(span_ctx.span_id().to_bytes()).to_string();
             (Some(dd_trace_id), Some(dd_span_id))
         } else {
             (None, None)

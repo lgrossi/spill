@@ -13,9 +13,9 @@ export async function createRetroCommand(formData: FormData) {
   const coverGifAltText = String(formData.get("cover_gif_alt_text") ?? "").trim();
   const plannedFor = String(formData.get("planned_for") ?? "").trim();
   const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
-  const voteLimit = votingEnabled ? Number(formData.get("vote_limit") ?? 3) : 0;
+  const voteLimit = votingEnabled ? enabledLimit(formData, "vote_limit", 3) : 0;
   const actionDiscussionEnabled = formData.getAll("action_discussion_enabled").at(-1) === "1";
-  const actionDiscussionLimit = actionDiscussionEnabled ? Number(formData.get("action_discussion_limit") ?? 3) : 0;
+  const actionDiscussionLimit = actionDiscussionEnabled ? enabledLimit(formData, "action_discussion_limit", 3) : 0;
   const clusteringMode = String(formData.getAll("clustering_mode").at(-1) ?? "disabled");
   const customColumns = formData
     .getAll("custom_column")
@@ -82,12 +82,12 @@ export async function updateRetroDetailsCommand(formData: FormData) {
   // (e.g. inline title edits, or the actions tile hidden when no actions column).
   if (formData.has("voting_enabled")) {
     const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
-    payload.vote_limit = votingEnabled ? Math.max(0, Number(formData.get("vote_limit") ?? 3)) : 0;
+    payload.vote_limit = votingEnabled ? enabledLimit(formData, "vote_limit", 3) : 0;
   }
   if (formData.has("action_discussion_enabled")) {
     const topVotedToActions = formData.getAll("action_discussion_enabled").at(-1) !== "0";
     payload.action_discussion_limit = topVotedToActions
-      ? Math.max(0, Number(formData.get("action_discussion_limit") ?? 3))
+      ? enabledLimit(formData, "action_discussion_limit", 3)
       : 0;
   }
   if (formData.has("clustering_mode")) {
@@ -99,6 +99,12 @@ export async function updateRetroDetailsCommand(formData: FormData) {
 
   await updateRetroDetails(retroId, payload);
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);
+}
+
+function enabledLimit(formData: FormData, name: string, fallback: number) {
+  const raw = String(formData.get(name) ?? "").trim();
+  const value = raw ? Number(raw) : fallback;
+  return Math.max(1, Number.isFinite(value) ? value : fallback);
 }
 
 function retroPayload({
