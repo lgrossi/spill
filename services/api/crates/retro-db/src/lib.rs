@@ -3117,6 +3117,100 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn action_card_lifecycle_keeps_actions_in_sync(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Lifecycle retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 0,
+                action_discussion_limit: 1,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let action_column_id = created
+            .columns
+            .iter()
+            .find(|column| column.title.to_lowercase().contains("action"))
+            .unwrap()
+            .id;
+        let other_column_id = created.columns[0].id;
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Do the thing".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Do the thing");
+
+        // Editing the card keeps the action title in sync.
+        repo.update_draft_card(card.id, "ava", Some("Do the better thing"), None, None, None)
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(actions[0].title, "Do the better thing");
+
+        // Moving the card out of the actions column drops the open action.
+        repo.move_draft_card(created.retro.id, card.id, other_column_id, None, "ava")
+            .await
+            .unwrap();
+        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+
+        // Moving it back recreates the action.
+        repo.move_draft_card(created.retro.id, card.id, action_column_id, None, "ava")
+            .await
+            .unwrap();
+        assert_eq!(repo.fetch_actions(created.retro.id).await.unwrap().len(), 1);
+
+        // Deleting the card removes its action.
+        repo.delete_draft_card(card.id, "ava").await.unwrap();
+        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+
+        // A completed action is preserved even if its card later leaves.
+        let done_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Already handled".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let done_action_id = repo.fetch_actions(created.retro.id).await.unwrap()[0].id;
+        repo.set_action_status(created.retro.id, done_action_id, "done")
+            .await
+            .unwrap()
+            .unwrap();
+        repo.move_draft_card(created.retro.id, done_card.id, other_column_id, None, "ava")
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].status, "done");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn ingestion_supports_idempotent_deck_and_direct_draft_modes(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo

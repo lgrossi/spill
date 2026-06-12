@@ -701,6 +701,10 @@ impl RetroRepository {
         .fetch_one(&mut *tx)
         .await?;
 
+        // The source card is now a cluster child, not a top-level card, so it is
+        // no longer a standalone action.
+        crate::actions::discard_open_action_item_for_card(&mut tx, input.card_id).await?;
+
         tx.commit().await?;
         Ok(cluster.into())
     }
