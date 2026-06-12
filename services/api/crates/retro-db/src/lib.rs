@@ -1535,7 +1535,10 @@ mod tests {
             ["How are you feeling?", "Went well", "To improve", "Actions"]
         );
 
-        let overview = repo.list_retros_for_user("user-123", "ava@example.com").await.unwrap();
+        let overview = repo
+            .list_retros_for_user("user-123", "ava@example.com")
+            .await
+            .unwrap();
         assert_eq!(overview.active.len(), 1);
         assert_eq!(overview.completed.len(), 0);
         assert_eq!(overview.active[0].participant_count, 1);
@@ -2318,7 +2321,11 @@ mod tests {
         let manual = board.columns[1]
             .cards
             .iter()
-            .find(|card| card.cluster_members.iter().any(|member| member.id == first.id))
+            .find(|card| {
+                card.cluster_members
+                    .iter()
+                    .any(|member| member.id == first.id)
+            })
             .expect("manual cluster preserved");
         assert_eq!(manual.vote_count, 1);
         // Member order is incidental here (reveal author-grouping can reorder
@@ -2335,13 +2342,19 @@ mod tests {
         let third_group = board.columns[1]
             .cards
             .iter()
-            .find(|card| card.cluster_members.iter().any(|member| member.id == third.id))
+            .find(|card| {
+                card.cluster_members
+                    .iter()
+                    .any(|member| member.id == third.id)
+            })
             .expect("loose card organized separately");
         assert_ne!(manual.id, third_group.id);
-        assert!(!third_group
-            .cluster_members
-            .iter()
-            .any(|member| member.id == first.id || member.id == second.id));
+        assert!(
+            !third_group
+                .cluster_members
+                .iter()
+                .any(|member| member.id == first.id || member.id == second.id)
+        );
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
@@ -2395,7 +2408,11 @@ mod tests {
             .unwrap();
         repo.reveal_board(created.retro.id).await.unwrap();
 
-        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        assert!(
+            repo.claim_clustering_compute(created.retro.id)
+                .await
+                .unwrap()
+        );
         assert_eq!(
             repo.fetch_retro(created.retro.id)
                 .await
@@ -2405,7 +2422,12 @@ mod tests {
             "computing"
         );
         // A second claim while computing loses: one live compute at a time.
-        assert!(!repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        assert!(
+            !repo
+                .claim_clustering_compute(created.retro.id)
+                .await
+                .unwrap()
+        );
 
         repo.store_clustering_proposal(
             created.retro.id,
@@ -2436,7 +2458,11 @@ mod tests {
         assert_eq!(stored[0].title, "First proposal");
 
         // A fresh compute replaces the prior proposal; never two live proposals.
-        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        assert!(
+            repo.claim_clustering_compute(created.retro.id)
+                .await
+                .unwrap()
+        );
         repo.store_clustering_proposal(
             created.retro.id,
             &[AutoClusterGroupInput {
@@ -2515,7 +2541,11 @@ mod tests {
             .await
             .unwrap();
         repo.reveal_board(created.retro.id).await.unwrap();
-        assert!(repo.claim_clustering_compute(created.retro.id).await.unwrap());
+        assert!(
+            repo.claim_clustering_compute(created.retro.id)
+                .await
+                .unwrap()
+        );
         repo.store_clustering_proposal(
             created.retro.id,
             &[AutoClusterGroupInput {
@@ -2996,7 +3026,10 @@ mod tests {
             .unwrap();
         assert_eq!(completed.phase, "completed");
 
-        let overview = repo.list_retros_for_user("ava", "ava@example.com").await.unwrap();
+        let overview = repo
+            .list_retros_for_user("ava", "ava@example.com")
+            .await
+            .unwrap();
         assert_eq!(overview.active.len(), 0);
         assert_eq!(overview.completed.len(), 1);
         assert_eq!(overview.completed[0].unresolved_action_count, 1);
@@ -3048,7 +3081,12 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+        assert!(
+            repo.fetch_actions(created.retro.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         repo.reveal_board(created.retro.id).await.unwrap();
 
@@ -3084,9 +3122,15 @@ mod tests {
             })
             .await
             .unwrap();
-        repo.move_draft_card(created.retro.id, dragged_card.id, action_column_id, None, "ava")
-            .await
-            .unwrap();
+        repo.move_draft_card(
+            created.retro.id,
+            dragged_card.id,
+            action_column_id,
+            None,
+            "ava",
+        )
+        .await
+        .unwrap();
         assert_eq!(repo.fetch_actions(created.retro.id).await.unwrap().len(), 2);
 
         // Starting action discussion backfills the writing-phase action card.
@@ -3095,7 +3139,11 @@ mod tests {
             .unwrap();
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
         assert_eq!(actions.len(), 3);
-        assert!(actions.iter().any(|action| action.source_card_id == Some(writing_card.id)));
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(writing_card.id))
+        );
 
         let overview = repo
             .list_retros_for_user("ava", "ava@example.com")
@@ -3166,9 +3214,16 @@ mod tests {
         assert_eq!(actions[0].title, "Do the thing");
 
         // Editing the card keeps the action title in sync.
-        repo.update_draft_card(card.id, "ava", Some("Do the better thing"), None, None, None)
-            .await
-            .unwrap();
+        repo.update_draft_card(
+            card.id,
+            "ava",
+            Some("Do the better thing"),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
         assert_eq!(actions[0].title, "Do the better thing");
 
@@ -3176,7 +3231,12 @@ mod tests {
         repo.move_draft_card(created.retro.id, card.id, other_column_id, None, "ava")
             .await
             .unwrap();
-        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+        assert!(
+            repo.fetch_actions(created.retro.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // Moving it back recreates the action.
         repo.move_draft_card(created.retro.id, card.id, action_column_id, None, "ava")
@@ -3186,7 +3246,12 @@ mod tests {
 
         // Deleting the card removes its action.
         repo.delete_draft_card(card.id, "ava").await.unwrap();
-        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+        assert!(
+            repo.fetch_actions(created.retro.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // A completed action is preserved even if its card later leaves.
         let done_card = repo
@@ -3212,6 +3277,122 @@ mod tests {
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].status, "done");
+
+        // Deleting the backing card also preserves a completed action outcome.
+        let done_deleted_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Handled then deleted".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let done_deleted_action_id = repo
+            .fetch_actions(created.retro.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|action| action.source_card_id == Some(done_deleted_card.id))
+            .unwrap()
+            .id;
+        repo.set_action_status(created.retro.id, done_deleted_action_id, "done")
+            .await
+            .unwrap()
+            .unwrap();
+        repo.delete_draft_card(done_deleted_card.id, "ava")
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.id == done_deleted_action_id && action.status == "done")
+        );
+
+        // Clustering two action cards transfers the open action to the visible
+        // cluster parent and drops open actions for hidden children.
+        let first_cluster_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Cluster action one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let second_cluster_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Cluster action two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: first_cluster_card.id,
+            target_card_id: second_cluster_card.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let cluster_parent_id = board
+            .columns
+            .iter()
+            .flat_map(|column| &column.cards)
+            .find(|card| {
+                card.cluster_members
+                    .iter()
+                    .any(|member| member.id == first_cluster_card.id)
+            })
+            .unwrap()
+            .id;
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(cluster_parent_id))
+        );
+        assert!(!actions.iter().any(|action| {
+            action.status == "confirmed"
+                && (action.source_card_id == Some(first_cluster_card.id)
+                    || action.source_card_id == Some(second_cluster_card.id))
+        }));
+
+        // Splitting one member out of a two-card action cluster leaves both the
+        // removed member and singleton survivor visible, so both need actions.
+        repo.remove_cluster_member(created.retro.id, first_cluster_card.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(first_cluster_card.id))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(second_cluster_card.id))
+        );
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
