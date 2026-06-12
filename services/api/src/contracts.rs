@@ -53,6 +53,9 @@ pub struct UpdateRetroDetailsRequest {
     pub cover_gif_alt_text: Option<String>,
     #[serde(default)]
     pub remove_cover_gif: bool,
+    pub vote_limit: Option<i32>,
+    pub action_discussion_limit: Option<i32>,
+    pub clustering_mode: Option<String>,
 }
 
 #[derive(Deserialize)]

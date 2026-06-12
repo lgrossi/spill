@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createRetro, rescheduleRetro, updateRetroDetails, type CreateRetroPayload } from "@/lib/api";
-import type { InviteeRequest } from "@/lib/contracts";
+import type { InviteeRequest, UpdateRetroDetailsPayload } from "@/lib/contracts";
 import { field } from "./form-utils";
 
 export async function createRetroCommand(formData: FormData) {
@@ -70,12 +70,34 @@ export async function updateRetroDetailsCommand(formData: FormData) {
   const removeCoverGif = String(formData.get("remove_cover_gif") ?? "") === "1";
   const returnTo = String(formData.get("return_to") ?? `/retros/${retroId}`);
 
-  await updateRetroDetails(retroId, {
+  const payload: UpdateRetroDetailsPayload = {
     ...(title ? { title } : {}),
     ...(groupName ? { group_name: groupName } : {}),
     ...(coverGifUrl ? { cover_gif_url: coverGifUrl, cover_gif_alt_text: coverGifAltText || null } : {}),
     ...(removeCoverGif ? { remove_cover_gif: true } : {}),
-  });
+  };
+
+  // Each config control submits a hidden enable-marker that is always present
+  // when its tile renders, so a missing marker means "leave this config alone"
+  // (e.g. inline title edits, or the actions tile hidden when no actions column).
+  if (formData.has("voting_enabled")) {
+    const votingEnabled = formData.getAll("voting_enabled").at(-1) !== "0";
+    payload.vote_limit = votingEnabled ? Math.max(0, Number(formData.get("vote_limit") ?? 3)) : 0;
+  }
+  if (formData.has("action_discussion_enabled")) {
+    const topVotedToActions = formData.getAll("action_discussion_enabled").at(-1) !== "0";
+    payload.action_discussion_limit = topVotedToActions
+      ? Math.max(0, Number(formData.get("action_discussion_limit") ?? 3))
+      : 0;
+  }
+  if (formData.has("clustering_mode")) {
+    payload.clustering_mode =
+      String(formData.getAll("clustering_mode").at(-1) ?? "disabled") === "auto_on_vote_start"
+        ? "auto_on_vote_start"
+        : "disabled";
+  }
+
+  await updateRetroDetails(retroId, payload);
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);
 }
 

@@ -204,13 +204,45 @@ impl RetroWorkflow {
         };
         let cover_gif_url = optional_non_empty(request.cover_gif_url);
         let cover_gif_alt_text = optional_non_empty(request.cover_gif_alt_text);
+        let vote_limit = match request.vote_limit {
+            Some(value) => Some(require_non_negative("vote_limit", value)?),
+            None => None,
+        };
+        let action_discussion_limit = match request.action_discussion_limit {
+            Some(value) => Some(require_non_negative("action_discussion_limit", value)?),
+            None => None,
+        };
+        // Moving top-voted cards into actions requires an actions column. Reject
+        // enabling it on a board that has none so the action-discussion phase
+        // cannot break later.
+        if matches!(action_discussion_limit, Some(value) if value > 0) {
+            let columns = self
+                .repository
+                .fetch_columns(retro_id)
+                .await
+                .map_err(|error| ApiError::internal(format!("failed to fetch columns: {error}")))?;
+            let has_action_column = columns
+                .iter()
+                .any(|column| column.title.to_lowercase().contains("action"));
+            if !has_action_column {
+                return Err(ApiError::bad_request(
+                    "this board has no actions column, so top voted cards cannot move to actions",
+                ));
+            }
+        }
+        let clustering_mode = request
+            .clustering_mode
+            .map(|value| clustering_mode(Some(value)));
         if title.is_none()
             && group_name.is_none()
             && cover_gif_url.is_none()
             && !request.remove_cover_gif
+            && vote_limit.is_none()
+            && action_discussion_limit.is_none()
+            && clustering_mode.is_none()
         {
             return Err(ApiError::bad_request(
-                "title, group_name, or cover_gif_url is required",
+                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, or clustering_mode is required",
             ));
         }
 
@@ -222,6 +254,9 @@ impl RetroWorkflow {
                 cover_gif_url,
                 cover_gif_alt_text,
                 remove_cover_gif: request.remove_cover_gif,
+                vote_limit,
+                action_discussion_limit,
+                clustering_mode,
             })
             .await
             .map_err(|error| {

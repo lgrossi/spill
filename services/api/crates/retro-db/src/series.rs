@@ -11,6 +11,7 @@ struct NextSource {
     title: String,
     vote_limit: i32,
     action_discussion_limit: i32,
+    clustering_mode: String,
     planned_for: String,
     creator_email: String,
     group_id: Option<Uuid>,
@@ -81,6 +82,7 @@ impl RetroRepository {
                 title,
                 vote_limit,
                 action_discussion_limit,
+                clustering_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 creator_email,
                 group_id
@@ -122,8 +124,13 @@ impl RetroRepository {
                 title, phase, planned_for, vote_limit, action_discussion_limit,
                 clustering_mode, creator_email, group_id, previous_retro_id
              )
-             VALUES ($1, 'scheduled', $2::date, $3, $4, 'disabled', $5, $6, $7)
+             VALUES (
+                $1, 'scheduled', $2::date, $3, $4,
+                CASE WHEN $5 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
+                $6, $7, $8
+             )
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                clustering_mode, clustering_status,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -131,6 +138,7 @@ impl RetroRepository {
         .bind(planned_for)
         .bind(source.vote_limit)
         .bind(source.action_discussion_limit)
+        .bind(&source.clustering_mode)
         .bind(&new_creator_email)
         .bind(group_id)
         .bind(source_retro_id)
@@ -370,6 +378,35 @@ impl RetroRepository {
                     .map(str::trim)
                     .unwrap_or(""),
             )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(vote_limit) = input.vote_limit {
+            sqlx::query("UPDATE retros SET vote_limit = $2 WHERE id = $1")
+                .bind(input.retro_id)
+                .bind(vote_limit)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        if let Some(action_discussion_limit) = input.action_discussion_limit {
+            sqlx::query("UPDATE retros SET action_discussion_limit = $2 WHERE id = $1")
+                .bind(input.retro_id)
+                .bind(action_discussion_limit)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        if let Some(clustering_mode) = input.clustering_mode.as_deref().map(str::trim) {
+            sqlx::query(
+                "UPDATE retros
+                 SET clustering_mode = CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
+                     clustering_status = 'not_run'
+                 WHERE id = $1",
+            )
+            .bind(input.retro_id)
+            .bind(clustering_mode)
             .execute(&mut *tx)
             .await?;
         }

@@ -249,6 +249,9 @@ export type UpdateRetroDetailsPayload = {
   cover_gif_url?: string | null;
   cover_gif_alt_text?: string | null;
   remove_cover_gif?: boolean;
+  vote_limit?: number;
+  action_discussion_limit?: number;
+  clustering_mode?: "disabled" | "auto_on_vote_start";
 };
 
 export type Grant = {
