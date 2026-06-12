@@ -15,7 +15,8 @@ impl RetroRepository {
             )
             .await?;
 
-        sqlx::query_as::<_, CardRecord>(
+        let mut tx = self.pool.begin().await?;
+        let card = sqlx::query_as::<_, CardRecord>(
             "INSERT INTO cards (retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position)
              SELECT
                 $1,
@@ -36,8 +37,12 @@ impl RetroRepository {
         .bind(input.body_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .bind(input.gif_url.as_deref().map(str::trim).filter(|value| !value.is_empty()))
         .bind(input.gif_alt_text.as_deref().map(str::trim).filter(|value| !value.is_empty()))
-        .fetch_one(&self.pool)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        // A card dropped straight into an actions column is a first-class action.
+        crate::actions::ensure_action_item_for_card(&mut tx, card.retro_id, card.id).await?;
+        tx.commit().await?;
+        Ok(card)
     }
 
     pub async fn update_draft_card(
@@ -171,6 +176,9 @@ impl RetroRepository {
         .bind(card_id)
         .fetch_one(&mut *tx)
         .await?;
+
+        // Dragging a card into an actions column promotes it to an action.
+        crate::actions::ensure_action_item_for_card(&mut tx, retro_id, card_id).await?;
 
         tx.commit().await?;
         Ok(Some(moved))

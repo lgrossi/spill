@@ -3004,6 +3004,119 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
+    async fn manual_action_cards_become_tracked_actions(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Manual actions retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 0,
+                action_discussion_limit: 1,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let action_column_id = created
+            .columns
+            .iter()
+            .find(|column| column.title.to_lowercase().contains("action"))
+            .expect("standard board with actions enabled has an actions column")
+            .id;
+        let regular_column_id = created.columns[0].id;
+
+        // Added to the actions column while writing: a draft, not yet an action.
+        let writing_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Written during writing".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        assert!(repo.fetch_actions(created.retro.id).await.unwrap().is_empty());
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        // Added to the actions column after reveal: a revealed card becomes an
+        // action immediately.
+        let live_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Added after reveal".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].source_card_id, Some(live_card.id));
+        assert_eq!(actions[0].status, "confirmed");
+
+        // A regular card dragged into the actions column also becomes an action.
+        let dragged_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: regular_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Moved into actions".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.move_draft_card(created.retro.id, dragged_card.id, action_column_id, None, "ava")
+            .await
+            .unwrap();
+        assert_eq!(repo.fetch_actions(created.retro.id).await.unwrap().len(), 2);
+
+        // Starting action discussion backfills the writing-phase action card.
+        repo.start_action_discussion(created.retro.id)
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(actions.len(), 3);
+        assert!(actions.iter().any(|action| action.source_card_id == Some(writing_card.id)));
+
+        let overview = repo
+            .list_retros_for_user("ava", "ava@example.com")
+            .await
+            .unwrap();
+        assert_eq!(overview.active[0].unresolved_action_count, 3);
+        assert_eq!(overview.active[0].open_actions.len(), 3);
+
+        // Completing one (the normal action flow) drops it from open actions.
+        let target = actions
+            .iter()
+            .find(|action| action.source_card_id == Some(live_card.id))
+            .unwrap();
+        repo.set_action_status(created.retro.id, target.id, "done")
+            .await
+            .unwrap()
+            .unwrap();
+        let overview = repo
+            .list_retros_for_user("ava", "ava@example.com")
+            .await
+            .unwrap();
+        assert_eq!(overview.active[0].unresolved_action_count, 2);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
     async fn ingestion_supports_idempotent_deck_and_direct_draft_modes(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
