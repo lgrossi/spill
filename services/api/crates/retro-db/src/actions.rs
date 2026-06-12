@@ -259,3 +259,80 @@ pub(crate) async fn ensure_action_item_for_card(
 
     Ok(())
 }
+
+/// Drop the open action_item linked to a card. Used when a card stops being an
+/// action (moved out of the Actions column, or pulled into a cluster). Done and
+/// rejected actions are kept so completed outcomes are not lost.
+pub(crate) async fn discard_open_action_item_for_card(
+    conn: &mut sqlx::PgConnection,
+    card_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM action_items
+         WHERE source_card_id = $1 AND status NOT IN ('done', 'rejected')",
+    )
+    .bind(card_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// Reconcile a card's action_item with its current placement: ensure one exists
+/// while the card is a revealed, top-level Actions-column card, and drop the open
+/// one once it no longer is. Title is left untouched here so reordering or moving
+/// a card never rewrites an action's text.
+pub(crate) async fn reconcile_action_item_for_card(
+    conn: &mut sqlx::PgConnection,
+    retro_id: Uuid,
+    card_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let eligible = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM cards c
+            JOIN retro_columns col ON col.id = c.column_id
+            WHERE c.id = $2
+              AND c.retro_id = $1
+              AND (col.column_key = 'actions' OR lower(col.title) LIKE '%action%')
+              AND c.state = 'revealed'
+              AND c.parent_card_id IS NULL
+         )",
+    )
+    .bind(retro_id)
+    .bind(card_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    if eligible {
+        ensure_action_item_for_card(conn, retro_id, card_id).await
+    } else {
+        discard_open_action_item_for_card(conn, card_id).await
+    }
+}
+
+/// Keep a card-backed action's title (and tags) in step with edits to its
+/// source card, so the open action and wrap-up never show stale text.
+pub(crate) async fn sync_action_item_title_for_card(
+    conn: &mut sqlx::PgConnection,
+    card_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let updated = sqlx::query_scalar::<_, String>(
+        "UPDATE action_items ai
+         SET title = COALESCE(NULLIF(btrim(c.body_text), ''), c.gif_alt_text, 'Untitled action')
+         FROM cards c
+         WHERE ai.source_card_id = $1 AND c.id = ai.source_card_id
+         RETURNING ai.title",
+    )
+    .bind(card_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    if let Some(title) = updated {
+        sqlx::query("UPDATE action_items SET tags = $2 WHERE source_card_id = $1")
+            .bind(card_id)
+            .bind(Json(action_tags(&title)))
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}

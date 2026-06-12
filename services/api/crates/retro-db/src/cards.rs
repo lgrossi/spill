@@ -54,7 +54,8 @@ impl RetroRepository {
         gif_alt_text: Option<&str>,
         cluster_details: Option<&str>,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
-        sqlx::query_as::<_, CardRecord>(
+        let mut tx = self.pool.begin().await?;
+        let updated = sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
              SET body_text = CASE
                      WHEN c.cluster_id IS NOT NULL AND c.parent_card_id IS NULL THEN COALESCE($3, c.body_text)
@@ -79,8 +80,15 @@ impl RetroRepository {
         .bind(gif_url.map(str::trim).filter(|value| !value.is_empty()))
         .bind(gif_alt_text.map(str::trim).filter(|value| !value.is_empty()))
         .bind(cluster_details.map(str::trim).filter(|value| !value.is_empty()))
-        .fetch_optional(&self.pool)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if updated.is_some() {
+            // A card-backed action mirrors its card text.
+            crate::actions::sync_action_item_title_for_card(&mut tx, card_id).await?;
+        }
+        tx.commit().await?;
+        Ok(updated)
     }
 
     pub async fn move_draft_card(
@@ -177,8 +185,9 @@ impl RetroRepository {
         .fetch_one(&mut *tx)
         .await?;
 
-        // Dragging a card into an actions column promotes it to an action.
-        crate::actions::ensure_action_item_for_card(&mut tx, retro_id, card_id).await?;
+        // Keep the card's action in step with where it now lives: promote it when
+        // it enters an actions column, drop the open action when it leaves.
+        crate::actions::reconcile_action_item_for_card(&mut tx, retro_id, card_id).await?;
 
         tx.commit().await?;
         Ok(Some(moved))
@@ -189,6 +198,15 @@ impl RetroRepository {
         card_id: Uuid,
         subject: &str,
     ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        // Capture linked actions before the delete: the FK only nulls
+        // source_card_id, so we would lose the link afterwards.
+        let linked_action_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM action_items WHERE source_card_id = $1",
+        )
+        .bind(card_id)
+        .fetch_all(&mut *tx)
+        .await?;
         let result = sqlx::query(
             "DELETE FROM cards c
              USING participants p, retros r
@@ -203,10 +221,20 @@ impl RetroRepository {
         )
         .bind(card_id)
         .bind(subject)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected() > 0)
+        let deleted = result.rows_affected() > 0;
+        if deleted && !linked_action_ids.is_empty() {
+            // The card is gone, so its action must go too — otherwise it lingers
+            // as an open action with no backing card.
+            sqlx::query("DELETE FROM action_items WHERE id = ANY($1)")
+                .bind(&linked_action_ids)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     pub async fn remove_cluster_member(
@@ -282,6 +310,12 @@ impl RetroRepository {
         .bind(retro_id)
         .execute(&mut *tx)
         .await?;
+
+        // Splitting a card out of a cluster can land it as a top-level card in an
+        // actions column, which makes it an action.
+        if let Some(card) = removed.as_ref() {
+            crate::actions::reconcile_action_item_for_card(&mut tx, retro_id, card.id).await?;
+        }
 
         tx.commit().await?;
         Ok(removed)
