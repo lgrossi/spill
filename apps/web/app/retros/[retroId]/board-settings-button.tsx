@@ -5,6 +5,7 @@ import { BoardConfigForm } from "./board-config-editor";
 
 export function BoardSettingsButton({
   retroId,
+  phase,
   returnTo,
   voteLimit,
   actionDiscussionLimit,
@@ -12,6 +13,7 @@ export function BoardSettingsButton({
   hasActionColumn,
 }: {
   retroId: string;
+  phase: string;
   returnTo: string;
   voteLimit: number;
   actionDiscussionLimit: number;
@@ -75,6 +77,7 @@ export function BoardSettingsButton({
           </div>
           <BoardConfigForm
             retroId={retroId}
+            phase={phase}
             returnTo={returnTo}
             voteLimit={voteLimit}
             actionDiscussionLimit={actionDiscussionLimit}

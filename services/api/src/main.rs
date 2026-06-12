@@ -348,11 +348,13 @@ async fn reschedule_retro(
 async fn update_retro_details(
     State(repository): State<Option<RetroRepository>>,
     State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     user: CurrentUser,
     Path(retro_id): Path<Uuid>,
     Json(request): Json<UpdateRetroDetailsRequest>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
     retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
         .update_retro_details(user, retro_id, request)
         .await
         .map(Json)

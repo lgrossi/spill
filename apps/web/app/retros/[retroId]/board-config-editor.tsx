@@ -14,6 +14,7 @@ const numberInputStyle = {
 
 export function BoardConfigForm({
   retroId,
+  phase,
   returnTo,
   voteLimit,
   actionDiscussionLimit,
@@ -23,6 +24,7 @@ export function BoardConfigForm({
   className,
 }: {
   retroId: string;
+  phase?: string;
   returnTo: string;
   voteLimit: number;
   actionDiscussionLimit: number;
@@ -35,6 +37,7 @@ export function BoardConfigForm({
   const [topVotedToActions, setTopVotedToActions] = useState(actionDiscussionLimit > 0);
   const [autoOrganize, setAutoOrganize] = useState(clusteringMode === "auto_on_vote_start");
   const [isPending, startTransition] = useTransition();
+  const canToggleVoting = phase !== "voting";
 
   return (
     <form
@@ -46,8 +49,14 @@ export function BoardConfigForm({
       <Tile className="flex items-center gap-3">
         <RuleMark>●●●</RuleMark>
         <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-          <input name="voting_enabled" type="hidden" value="0" />
-          <input className="sr-only" name="voting_enabled" type="checkbox" value="1" checked={votingEnabled} onChange={(event) => setVotingEnabled(event.currentTarget.checked)} />
+          {canToggleVoting ? (
+            <>
+              <input name="voting_enabled" type="hidden" value="0" />
+              <input className="sr-only" name="voting_enabled" type="checkbox" value="1" checked={votingEnabled} onChange={(event) => setVotingEnabled(event.currentTarget.checked)} />
+            </>
+          ) : (
+            <input name="voting_enabled" type="hidden" value="1" />
+          )}
           <span className="min-w-0">
             <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">voting</span>
             <span className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold transition ${votingEnabled ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>

@@ -26,9 +26,10 @@ export function PhaseControls({
     <DeleteBoardButton retroId={board.retro.id} boardTitle={board.retro.title} />
   ) : null;
   const settingsButton =
-    isHost && board.retro.phase !== "completed" ? (
+    isHost && board.retro.phase !== "completed" && board.retro.phase !== "action_discussion" ? (
       <BoardSettingsButton
         retroId={board.retro.id}
+        phase={board.retro.phase}
         returnTo={`/retros/${board.retro.id}`}
         voteLimit={board.retro.vote_limit}
         actionDiscussionLimit={board.retro.action_discussion_limit}

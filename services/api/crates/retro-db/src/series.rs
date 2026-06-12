@@ -401,8 +401,12 @@ impl RetroRepository {
         if let Some(clustering_mode) = input.clustering_mode.as_deref().map(str::trim) {
             sqlx::query(
                 "UPDATE retros
-                 SET clustering_mode = CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
-                     clustering_status = 'not_run'
+                 SET clustering_status = CASE
+                         WHEN clustering_mode IS DISTINCT FROM CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END
+                         THEN 'not_run'
+                         ELSE clustering_status
+                     END,
+                     clustering_mode = CASE WHEN $2 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END
                  WHERE id = $1",
             )
             .bind(input.retro_id)

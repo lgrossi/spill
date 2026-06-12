@@ -2114,6 +2114,114 @@ async fn host_can_update_board_configs_after_scheduled_phase(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_cannot_disable_voting_after_voting_started(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Voting config retro","template":"standard","vote_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    for path in ["ready", "reveal", "voting/start"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"vote_limit":0}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_cannot_update_transition_config_after_wrap_up_started(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Action config retro","template":"standard","action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    for path in ["ready", "reveal", "actions/start"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"action_discussion_limit":1}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn enabling_actions_without_actions_column_is_rejected(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
@@ -2468,6 +2576,84 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
     assert_eq!(board["retro"]["phase"], "voting");
 }
 
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn enabling_auto_clustering_during_voting_applies(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        r#"{"groups":[{"title":"Deploy noise","summary":"deploy alerts","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"delivery","tags":["delivery"]}]}"#,
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Late cluster retro","template":"standard","clustering_mode":"disabled"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap().to_owned();
+    let column_id = created["columns"][1]["id"].as_str().unwrap().to_owned();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"deploy alerts are noisy"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for path in ["ready", "reveal", "voting/start"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"clustering_mode":"auto_on_vote_start"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+}
+
 const HOST_EMAIL: &str = "ava@spill.test";
 
 /// Create an auto-clustering retro hosted by `AUTHOR`, add a card, march it to a
@@ -2585,6 +2771,50 @@ async fn apply_clustering_requires_host_and_is_idempotent(pool: sqlx::PgPool) {
         second["clusters"].as_array().unwrap().len(),
         clusters_after_first
     );
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn saving_unchanged_auto_clustering_mode_preserves_applied_status(pool: sqlx::PgPool) {
+    let app = app_with_repository_and_ai(
+        retro_db::RetroRepository::new(pool),
+        Some(cluster_provider()),
+    );
+    let retro_id = seed_ready_clustering_retro(&app).await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    wait_for_clustering_status(&app, &retro_id, "applied").await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, HOST_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"vote_limit":4,"clustering_mode":"auto_on_vote_start"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board["retro"]["clustering_status"], "applied");
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
