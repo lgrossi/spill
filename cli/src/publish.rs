@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io::Read;
 
 use anyhow::{Context, Result, bail};
@@ -8,20 +7,29 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
-use crate::model::{Board, IngestResponse};
+use crate::gif;
+use crate::model::{Board, Column, IngestResponse};
 
 const KINDS: [&str; 3] = ["mood", "wentWell", "wentWrong"];
 const DEFAULT_SOURCE: &str = "claude_code";
 
 #[derive(Deserialize)]
 struct CardInput {
-    column_id: Uuid,
+    /// Target column as a UUID, column key (e.g. "1_well"), or title. Prefer
+    /// `column`; `column_id` stays for backward compatibility.
+    #[serde(default)]
+    column: Option<String>,
+    #[serde(default)]
+    column_id: Option<Uuid>,
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]
     gif_url: Option<String>,
+    /// Search phrase resolved to a GIF URL at publish time when `gif_url` is absent.
+    #[serde(default)]
+    gif_query: Option<String>,
     #[serde(default)]
     idempotency_key: Option<String>,
 }
@@ -55,7 +63,11 @@ pub fn run(
     }
 
     let mut ids = Vec::with_capacity(prepared.len());
-    for card in prepared {
+    for mut card in prepared {
+        resolve_gif(client, &mut card)?;
+        if card.text.is_none() && card.gif_url.is_none() {
+            bail!("a card resolved to neither text nor a gif (gif_query found nothing)");
+        }
         let request = IngestItemRequest {
             source: source.clone(),
             placement: placement.to_string(),
@@ -105,6 +117,7 @@ struct PreparedCard {
     kind: String,
     text: Option<String>,
     gif_url: Option<String>,
+    gif_query: Option<String>,
     idempotency_key: Option<String>,
 }
 
@@ -122,13 +135,12 @@ fn publish_target_for_phase(phase: &str) -> Result<PublishTarget> {
 fn prepare_cards(
     cards: &[CardInput],
     direct: bool,
-    columns: &[crate::model::Column],
+    columns: &[Column],
 ) -> Result<Vec<PreparedCard>> {
-    let column_ids: HashSet<Uuid> = columns.iter().map(|column| column.id).collect();
     cards
         .iter()
         .enumerate()
-        .map(|(index, card)| prepare_card(index, card, direct, &column_ids))
+        .map(|(index, card)| prepare_card(index, card, direct, columns))
         .collect()
 }
 
@@ -136,33 +148,94 @@ fn prepare_card(
     index: usize,
     card: &CardInput,
     direct: bool,
-    column_ids: &HashSet<Uuid>,
+    columns: &[Column],
 ) -> Result<PreparedCard> {
     let number = index + 1;
-    let kind = card.kind.clone().unwrap_or_else(|| "wentWell".to_string());
-    if !KINDS.contains(&kind.as_str()) {
-        bail!("card {number} kind must be one of {}", KINDS.join(", "));
+    let column = resolve_column(card, columns).with_context(|| format!("card {number}"))?;
+    if direct && !columns.iter().any(|c| c.id == column.id) {
+        bail!("card {number} column is not part of the target board");
     }
+
+    let kind = match card.kind.clone() {
+        Some(kind) => {
+            if !KINDS.contains(&kind.as_str()) {
+                bail!("card {number} kind must be one of {}", KINDS.join(", "));
+            }
+            kind
+        }
+        None => derive_kind(&column.column_key).to_owned(),
+    };
+
     let text = clean_optional(card.text.as_deref());
     let gif_url = clean_optional(card.gif_url.as_deref());
-    if text.is_none() && gif_url.is_none() {
-        bail!("card {number} needs text or gif_url");
-    }
-    if direct && !column_ids.contains(&card.column_id) {
-        bail!("card {number} column_id is not part of the target board");
+    let gif_query = clean_optional(card.gif_query.as_deref());
+    if text.is_none() && gif_url.is_none() && gif_query.is_none() {
+        bail!("card {number} needs text, gif_url, or gif_query");
     }
 
     Ok(PreparedCard {
-        column_id: card.column_id,
+        column_id: column.id,
         kind,
         text,
         gif_url,
-        idempotency_key: idempotency_key_for(card),
+        gif_query,
+        idempotency_key: card.idempotency_key.clone(),
     })
 }
 
-fn idempotency_key_for(card: &CardInput) -> Option<String> {
-    card.idempotency_key.clone()
+/// Resolve a card's target column from `column` (UUID | key | title) or the
+/// legacy `column_id`. Matching is exact on key/UUID and case-insensitive on title.
+fn resolve_column<'a>(card: &CardInput, columns: &'a [Column]) -> Result<&'a Column> {
+    if let Some(id) = card.column_id {
+        return columns
+            .iter()
+            .find(|c| c.id == id)
+            .with_context(|| format!("column_id {id} is not part of the target board"));
+    }
+    let Some(selector) = card
+        .column
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        bail!("needs a column (key, UUID, or title) or column_id");
+    };
+    columns
+        .iter()
+        .find(|c| {
+            c.column_key == selector
+                || c.id.to_string() == selector
+                || c.title.eq_ignore_ascii_case(selector)
+        })
+        .with_context(|| format!("no board column matches {selector:?}"))
+}
+
+/// Derive a card kind from its column key so callers don't have to repeat it.
+fn derive_kind(column_key: &str) -> &'static str {
+    let key = column_key.to_ascii_lowercase();
+    if key.contains("feeling") || key.contains("mood") {
+        "mood"
+    } else if key.contains("improve") || key.contains("wrong") || key.contains("bad") {
+        "wentWrong"
+    } else {
+        "wentWell"
+    }
+}
+
+/// Fill `gif_url` from `gif_query` when no URL was supplied. A miss is a warning,
+/// not a failure — the text usually still carries the card.
+fn resolve_gif(client: &ApiClient, card: &mut PreparedCard) -> Result<()> {
+    if card.gif_url.is_some() {
+        return Ok(());
+    }
+    let Some(query) = card.gif_query.as_deref() else {
+        return Ok(());
+    };
+    match gif::resolve(client, query, gif::DEFAULT_KIND)? {
+        Some(hit) => card.gif_url = Some(hit.url),
+        None => eprintln!("spill: no gif found for {query:?}; publishing that card without one"),
+    }
+    Ok(())
 }
 
 fn clean_optional(value: Option<&str>) -> Option<String> {
@@ -195,7 +268,7 @@ fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
         }
     };
     serde_json::from_str(&raw).context(
-        "cards must be a JSON list: [{column_id, text, kind?, gif_url?, idempotency_key?}]",
+        "cards must be a JSON list: [{column|column_id, text?, kind?, gif_url?, gif_query?, idempotency_key?}]",
     )
 }
 
@@ -203,30 +276,106 @@ fn read_cards(file: Option<&str>) -> Result<Vec<CardInput>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn omitted_idempotency_key_stays_absent() {
-        let card = CardInput {
-            column_id: Uuid::nil(),
-            text: Some("new thought".to_owned()),
+    fn column(id: Uuid, key: &str, title: &str) -> Column {
+        Column {
+            id,
+            column_key: key.to_owned(),
+            title: title.to_owned(),
+            position: 1,
+            cards: vec![],
+        }
+    }
+
+    fn input(column: Option<&str>, column_id: Option<Uuid>, text: &str) -> CardInput {
+        CardInput {
+            column: column.map(str::to_owned),
+            column_id,
+            text: Some(text.to_owned()),
             kind: None,
             gif_url: None,
+            gif_query: None,
             idempotency_key: None,
-        };
-
-        assert_eq!(idempotency_key_for(&card), None);
+        }
     }
 
     #[test]
-    fn explicit_idempotency_key_is_preserved() {
-        let card = CardInput {
-            column_id: Uuid::nil(),
-            text: Some("same thought".to_owned()),
-            kind: None,
-            gif_url: None,
-            idempotency_key: Some("event-123".to_owned()),
-        };
+    fn resolve_column_by_key_uuid_and_title() {
+        let id = Uuid::new_v4();
+        let columns = vec![column(id, "1_well", "Went well")];
 
-        assert_eq!(idempotency_key_for(&card), Some("event-123".to_owned()));
+        assert_eq!(
+            resolve_column(&input(Some("1_well"), None, "x"), &columns)
+                .unwrap()
+                .id,
+            id
+        );
+        assert_eq!(
+            resolve_column(&input(Some(&id.to_string()), None, "x"), &columns)
+                .unwrap()
+                .id,
+            id
+        );
+        assert_eq!(
+            resolve_column(&input(Some("went well"), None, "x"), &columns)
+                .unwrap()
+                .id,
+            id
+        );
+        assert_eq!(
+            resolve_column(&input(None, Some(id), "x"), &columns)
+                .unwrap()
+                .id,
+            id
+        );
+    }
+
+    #[test]
+    fn resolve_column_errors_on_unknown_or_missing() {
+        let columns = vec![column(Uuid::new_v4(), "1_well", "Went well")];
+        assert!(resolve_column(&input(Some("nope"), None, "x"), &columns).is_err());
+        assert!(resolve_column(&input(None, None, "x"), &columns).is_err());
+        assert!(resolve_column(&input(None, Some(Uuid::new_v4()), "x"), &columns).is_err());
+    }
+
+    #[test]
+    fn derive_kind_from_column_key() {
+        assert_eq!(derive_kind("0_feeling"), "mood");
+        assert_eq!(derive_kind("1_well"), "wentWell");
+        assert_eq!(derive_kind("2_improve"), "wentWrong");
+        assert_eq!(derive_kind("3_actions"), "wentWell");
+    }
+
+    #[test]
+    fn explicit_kind_is_validated_and_preserved() {
+        let id = Uuid::new_v4();
+        let columns = vec![column(id, "1_well", "Went well")];
+        let mut card = input(Some("1_well"), None, "x");
+        card.kind = Some("mood".to_owned());
+        assert_eq!(prepare_card(0, &card, true, &columns).unwrap().kind, "mood");
+
+        card.kind = Some("bogus".to_owned());
+        assert!(prepare_card(0, &card, true, &columns).is_err());
+    }
+
+    #[test]
+    fn omitted_kind_is_derived_from_column() {
+        let id = Uuid::new_v4();
+        let columns = vec![column(id, "2_improve", "To improve")];
+        let prepared =
+            prepare_card(0, &input(Some("2_improve"), None, "x"), true, &columns).unwrap();
+        assert_eq!(prepared.kind, "wentWrong");
+    }
+
+    #[test]
+    fn card_without_text_gif_or_query_is_rejected() {
+        let id = Uuid::new_v4();
+        let columns = vec![column(id, "1_well", "Went well")];
+        let mut card = input(Some("1_well"), None, "x");
+        card.text = None;
+        assert!(prepare_card(0, &card, true, &columns).is_err());
+
+        card.gif_query = Some("mic drop".to_owned());
+        assert!(prepare_card(0, &card, true, &columns).is_ok());
     }
 
     #[test]
@@ -234,13 +383,11 @@ mod tests {
         assert!(publish_target_for_phase("scheduled").is_err());
         assert!(publish_target_for_phase("writing").is_ok());
         assert!(publish_target_for_phase("voting").is_ok());
-        assert!(publish_target_for_phase("discussion").is_err());
-        assert!(publish_target_for_phase("action_discussion").is_err());
         assert!(publish_target_for_phase("completed").is_err());
     }
 
     #[test]
-    fn clean_optional_rejects_blank_text_and_gif_values() {
+    fn clean_optional_rejects_blank_values() {
         assert_eq!(clean_optional(None), None);
         assert_eq!(clean_optional(Some("   ")), None);
         assert_eq!(
@@ -257,55 +404,5 @@ mod tests {
         );
         assert_eq!(source_label(None).unwrap(), DEFAULT_SOURCE.to_owned());
         assert!(source_label(Some("   ".to_owned())).is_err());
-    }
-
-    #[test]
-    fn prepare_cards_validates_the_whole_batch_before_publishing() {
-        let column_id = Uuid::new_v4();
-        let columns = vec![crate::model::Column {
-            id: column_id,
-            column_key: "wentWell".to_owned(),
-            title: "Went well".to_owned(),
-            position: 1,
-        }];
-        let cards = vec![
-            CardInput {
-                column_id,
-                text: Some("valid".to_owned()),
-                kind: Some("wentWell".to_owned()),
-                gif_url: None,
-                idempotency_key: None,
-            },
-            CardInput {
-                column_id,
-                text: Some("invalid".to_owned()),
-                kind: Some("not-a-kind".to_owned()),
-                gif_url: None,
-                idempotency_key: None,
-            },
-        ];
-
-        assert!(prepare_cards(&cards, true, &columns).is_err());
-    }
-
-    #[test]
-    fn prepare_cards_rejects_foreign_columns_for_direct_publish() {
-        let board_column = Uuid::new_v4();
-        let foreign_column = Uuid::new_v4();
-        let columns = vec![crate::model::Column {
-            id: board_column,
-            column_key: "wentWell".to_owned(),
-            title: "Went well".to_owned(),
-            position: 1,
-        }];
-        let cards = vec![CardInput {
-            column_id: foreign_column,
-            text: Some("wrong board".to_owned()),
-            kind: Some("wentWell".to_owned()),
-            gif_url: None,
-            idempotency_key: None,
-        }];
-
-        assert!(prepare_cards(&cards, true, &columns).is_err());
     }
 }

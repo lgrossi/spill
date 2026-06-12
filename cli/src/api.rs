@@ -45,23 +45,32 @@ impl ApiClient {
     }
 
     pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        self.send::<(), T>(Method::GET, path, None)
+        self.send::<(), T>(Method::GET, path, &[], None)
+    }
+
+    /// GET with URL query parameters; reqwest handles the percent-encoding.
+    pub fn get_query<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
+        self.send::<(), T>(Method::GET, path, query, None)
     }
 
     pub fn post<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
-        self.send(Method::POST, path, Some(body))
+        self.send(Method::POST, path, &[], Some(body))
     }
 
     fn send<B: Serialize, T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
+        query: &[(&str, &str)],
         body: Option<&B>,
     ) -> Result<T> {
         let mut reauthed = false;
         loop {
             let url = format!("{}{}", self.base_url, path);
             let mut req = self.http.request(method.clone(), &url);
+            if !query.is_empty() {
+                req = req.query(query);
+            }
             if let Some(user) = &self.local_on_behalf_of {
                 req = req.header("x-spillio-on-behalf-of", user);
             } else {

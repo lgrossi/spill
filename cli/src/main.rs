@@ -1,7 +1,9 @@
 mod api;
 mod auth;
+mod gif;
 mod model;
 mod publish;
+mod read;
 mod state;
 mod update;
 
@@ -44,6 +46,24 @@ enum Command {
         #[arg(long)]
         confirm: bool,
     },
+    /// Search GIFs for a phrase and print matches as JSON.
+    Gif {
+        /// Search phrase, e.g. "mic drop".
+        query: String,
+        /// What to match: gif | sticker | clip | all.
+        #[arg(long, default_value = "gif")]
+        kind: String,
+        /// Maximum number of results to print.
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
+    /// Print a board's columns and the cards visible to you (JSON).
+    Read {
+        #[arg(long)]
+        retro_id: String,
+    },
+    /// Print the resolved API bearer token (for scripting).
+    Token,
     /// Authenticate via the browser and cache a token.
     Login {
         /// Paste a token from the web app instead of opening a browser.
@@ -98,6 +118,24 @@ fn run() -> anyhow::Result<()> {
         } => {
             let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
             publish::run(&client, &retro_id, file.as_deref(), source, confirm)
+        }
+        Command::Gif { query, kind, limit } => {
+            let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
+            gif::run(&client, &query, &kind, limit)
+        }
+        Command::Read { retro_id } => {
+            let client = api::ApiClient::new(api_url, web_url, cli.token, cli.on_behalf_of)?;
+            read::run(&client, &retro_id)
+        }
+        Command::Token => {
+            let token = cli
+                .token
+                .or_else(|| std::env::var("SPILLIO_API_TOKEN").ok())
+                .filter(|t| !t.trim().is_empty())
+                .map(Ok)
+                .unwrap_or_else(|| auth::ensure_token(&web_url))?;
+            println!("{token}");
+            Ok(())
         }
     }
 }
