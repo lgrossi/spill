@@ -57,7 +57,9 @@ impl JobWorkflow {
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to create AI job: {error}")))?;
-        let artifact = self.dispatch_ai_job(artifact, retro_id, request.fail).await?;
+        let artifact = self
+            .dispatch_ai_job(artifact, retro_id, request.fail)
+            .await?;
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok(artifact)
     }

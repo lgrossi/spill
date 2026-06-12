@@ -212,6 +212,25 @@ impl RetroWorkflow {
             Some(value) => Some(require_non_negative("action_discussion_limit", value)?),
             None => None,
         };
+        let clustering_mode = request
+            .clustering_mode
+            .map(|value| clustering_mode(Some(value)));
+        let updates_board_config =
+            vote_limit.is_some() || action_discussion_limit.is_some() || clustering_mode.is_some();
+        if updates_board_config {
+            let retro = self
+                .repository
+                .fetch_retro(retro_id)
+                .await
+                .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+                .ok_or_else(|| ApiError::not_found("retro not found"))?;
+            if retro.phase != "scheduled" {
+                return Err(ApiError::bad_request(format!(
+                    "board config can only be updated while scheduled, current phase is {}",
+                    retro.phase
+                )));
+            }
+        }
         // Moving top-voted cards into actions requires an actions column. Reject
         // enabling it on a board that has none so the action-discussion phase
         // cannot break later.
@@ -230,9 +249,6 @@ impl RetroWorkflow {
                 ));
             }
         }
-        let clustering_mode = request
-            .clustering_mode
-            .map(|value| clustering_mode(Some(value)));
         if title.is_none()
             && group_name.is_none()
             && cover_gif_url.is_none()
@@ -558,7 +574,9 @@ impl RetroWorkflow {
                     .publish(BoardEvent::ClusteringChanged { retro_id });
             }
             _ => {
-                return Err(ApiError::bad_request("no clustering proposal is ready to apply"));
+                return Err(ApiError::bad_request(
+                    "no clustering proposal is ready to apply",
+                ));
             }
         }
         self.fetch_board_for_user(retro_id, &user).await
@@ -881,7 +899,10 @@ async fn run_clustering_compute(
 ) {
     match compute_clustering_proposal(&repository, provider, retro_id).await {
         Ok(groups) => {
-            if let Err(error) = repository.store_clustering_proposal(retro_id, &groups).await {
+            if let Err(error) = repository
+                .store_clustering_proposal(retro_id, &groups)
+                .await
+            {
                 tracing::warn!(%retro_id, %error, "failed to store clustering proposal");
                 let _ = repository.mark_clustering_failed(retro_id).await;
             } else if let Err(error) = apply_ready_during_voting(&repository, retro_id).await {
@@ -958,7 +979,8 @@ async fn compute_clustering_proposal(
         .complete(&prompt)
         .await
         .map_err(|error| ApiError::internal(format!("organization AI failed: {error}")))?;
-    auto_cluster_groups_from_response(&response).map_err(|error| ApiError::internal(error.to_owned()))
+    auto_cluster_groups_from_response(&response)
+        .map_err(|error| ApiError::internal(error.to_owned()))
 }
 
 async fn run_auto_clustering_apply(
@@ -1021,15 +1043,22 @@ async fn ensure_clustering_applied(
                 let Some(provider) = provider.clone() else {
                     return Ok(());
                 };
-                if repository.claim_clustering_compute(retro_id).await.map_err(|error| {
-                    ApiError::internal(format!("failed to claim clustering compute: {error}"))
-                })? {
-                    let groups = compute_clustering_proposal(repository, provider, retro_id).await?;
+                if repository
+                    .claim_clustering_compute(retro_id)
+                    .await
+                    .map_err(|error| {
+                        ApiError::internal(format!("failed to claim clustering compute: {error}"))
+                    })?
+                {
+                    let groups =
+                        compute_clustering_proposal(repository, provider, retro_id).await?;
                     repository
                         .store_clustering_proposal(retro_id, &groups)
                         .await
                         .map_err(|error| {
-                            ApiError::internal(format!("failed to store clustering proposal: {error}"))
+                            ApiError::internal(format!(
+                                "failed to store clustering proposal: {error}"
+                            ))
                         })?;
                 } else {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

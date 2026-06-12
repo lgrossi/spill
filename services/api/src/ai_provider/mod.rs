@@ -12,11 +12,11 @@
 //! routes degrade to `503 Service Unavailable`. The rest of the API
 //! keeps working.
 
-mod gateway;
 mod fake;
+mod gateway;
 
-pub use gateway::GatewayProvider;
 pub use fake::FakeProvider;
+pub use gateway::GatewayProvider;
 
 use std::env;
 

@@ -67,6 +67,7 @@ export function BoardConfigEditor({
                 min="1"
                 defaultValue={Math.max(1, voteLimit)}
                 disabled={!votingEnabled}
+                required={votingEnabled}
                 aria-label="Votes per person"
                 style={numberInputStyle}
               />
@@ -93,6 +94,7 @@ export function BoardConfigEditor({
                   min="1"
                   defaultValue={Math.max(1, actionDiscussionLimit)}
                   disabled={!topVotedToActions}
+                  required={topVotedToActions}
                   aria-label="Number of top voted cards moved to actions"
                   style={numberInputStyle}
                 />

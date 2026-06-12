@@ -121,6 +121,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
                         min="1"
                         defaultValue="3"
                         disabled={!votingEnabled}
+                        required={votingEnabled}
                         aria-label="Votes per person"
                         style={{ borderWidth: "0 0 1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 0, boxShadow: "none" }}
                       />
@@ -150,6 +151,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
                         min="1"
                         defaultValue="3"
                         disabled={!topVotedToActions}
+                        required={topVotedToActions}
                         aria-label="Number of top voted cards moved to actions"
                         style={{ borderWidth: "0 0 1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 0, boxShadow: "none" }}
                       />

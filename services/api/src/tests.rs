@@ -2036,7 +2036,7 @@ async fn host_can_update_board_configs(pool: sqlx::PgPool) {
                 .header(HEADER_ON_BEHALF_OF, "host@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"title":"Config retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                    r#"{"title":"Config retro","template":"standard","planned_for":"2099-05-15","vote_limit":3,"action_discussion_limit":3}"#,
                 ))
                 .unwrap(),
         )
@@ -2068,6 +2068,46 @@ async fn host_can_update_board_configs(pool: sqlx::PgPool) {
     assert_eq!(updated["retro"]["vote_limit"], 8);
     assert_eq!(updated["retro"]["action_discussion_limit"], 0);
     assert_eq!(updated["retro"]["clustering_mode"], "auto_on_vote_start");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_cannot_update_board_configs_after_scheduled_phase(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Live config retro","template":"standard","vote_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(created["retro"]["phase"], "writing");
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"vote_limit":8}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
