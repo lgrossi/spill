@@ -3226,6 +3226,33 @@ mod tests {
         .unwrap();
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
         assert_eq!(actions[0].title, "Do the better thing");
+        let customized_action_id = actions[0].id;
+        repo.update_action(UpdateActionInput {
+            retro_id: created.retro.id,
+            action_id: customized_action_id,
+            title: "Custom action wording".to_owned(),
+            details: Some("Keep this context".to_owned()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        repo.update_draft_card(
+            card.id,
+            "ava",
+            Some("Card wording changed again"),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        let customized = actions
+            .iter()
+            .find(|action| action.id == customized_action_id)
+            .unwrap();
+        assert_eq!(customized.title, "Custom action wording");
+        assert_eq!(customized.details.as_deref(), Some("Keep this context"));
 
         // Moving the card out of the actions column drops the open action.
         repo.move_draft_card(created.retro.id, card.id, other_column_id, None, "ava")
@@ -3375,10 +3402,160 @@ mod tests {
                 && (action.source_card_id == Some(first_cluster_card.id)
                     || action.source_card_id == Some(second_cluster_card.id))
         }));
+        let cluster_action_id = actions
+            .iter()
+            .find(|action| action.source_card_id == Some(cluster_parent_id))
+            .unwrap()
+            .id;
+        repo.update_action(UpdateActionInput {
+            retro_id: created.retro.id,
+            action_id: cluster_action_id,
+            title: "Custom cluster action".to_owned(),
+            details: None,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Adding a card to the existing visible cluster keeps that cluster's
+        // action row instead of deleting/recreating it.
+        let third_cluster_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Cluster action three".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: third_cluster_card.id,
+            target_card_id: cluster_parent_id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        let cluster_action = actions
+            .iter()
+            .find(|action| action.id == cluster_action_id)
+            .unwrap();
+        assert_eq!(cluster_action.title, "Custom cluster action");
+        assert!(!actions.iter().any(|action| {
+            action.status == "confirmed" && action.source_card_id == Some(third_cluster_card.id)
+        }));
+
+        // Merging an action cluster into another cluster discards the old source
+        // group action before deleting the source parent.
+        let source_group_one = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Source group one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let source_group_two = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Source group two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: source_group_one.id,
+            target_card_id: source_group_two.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let source_group_parent_id = board
+            .columns
+            .iter()
+            .flat_map(|column| &column.cards)
+            .find(|card| {
+                card.cluster_members
+                    .iter()
+                    .any(|member| member.id == source_group_one.id)
+            })
+            .unwrap()
+            .id;
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: source_group_parent_id,
+            target_card_id: cluster_parent_id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert!(!actions.iter().any(|action| {
+            action.status == "confirmed" && action.source_card_id == Some(source_group_parent_id)
+        }));
+        assert!(
+            !actions
+                .iter()
+                .any(|action| { action.status == "confirmed" && action.source_card_id.is_none() })
+        );
 
         // Splitting one member out of a two-card action cluster leaves both the
         // removed member and singleton survivor visible, so both need actions.
-        repo.remove_cluster_member(created.retro.id, first_cluster_card.id)
+        let split_one = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Split one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let split_two = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Split two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: split_one.id,
+            target_card_id: split_two.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        repo.remove_cluster_member(created.retro.id, split_one.id)
             .await
             .unwrap()
             .unwrap();
@@ -3386,13 +3563,153 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|action| action.source_card_id == Some(first_cluster_card.id))
+                .any(|action| action.source_card_id == Some(split_one.id))
         );
         assert!(
             actions
                 .iter()
-                .any(|action| action.source_card_id == Some(second_cluster_card.id))
+                .any(|action| action.source_card_id == Some(split_two.id))
         );
+
+        // Deleting a visible cluster parent exposes its children as top-level
+        // action cards, so each exposed child gets a backing action.
+        let delete_parent_one = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Delete parent one".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let delete_parent_two = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Delete parent two".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: delete_parent_one.id,
+            target_card_id: delete_parent_two.id,
+            subject: "ava".to_owned(),
+            display_name: "Ava".to_owned(),
+        })
+        .await
+        .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let delete_parent_id = board
+            .columns
+            .iter()
+            .flat_map(|column| &column.cards)
+            .find(|card| {
+                card.cluster_members
+                    .iter()
+                    .any(|member| member.id == delete_parent_one.id)
+            })
+            .unwrap()
+            .id;
+        repo.delete_draft_card(delete_parent_id, "ava")
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(delete_parent_one.id))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.source_card_id == Some(delete_parent_two.id))
+        );
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn top_voted_selection_skips_cards_with_existing_completed_actions(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "No duplicate actions retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 1,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let action_column_id = created
+            .columns
+            .iter()
+            .find(|column| column.title.to_lowercase().contains("action"))
+            .unwrap()
+            .id;
+        let regular_column_id = created.columns[0].id;
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: action_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Already completed once".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let action_id = repo.fetch_actions(created.retro.id).await.unwrap()[0].id;
+        repo.set_action_status(created.retro.id, action_id, "done")
+            .await
+            .unwrap()
+            .unwrap();
+        repo.move_draft_card(created.retro.id, card.id, regular_column_id, None, "ava")
+            .await
+            .unwrap();
+        repo.start_voting(created.retro.id).await.unwrap();
+        repo.cast_vote(CastVoteInput {
+            retro_id: created.retro.id,
+            card_id: card.id,
+            subject: "lee".to_owned(),
+            display_name: "Lee".to_owned(),
+            count: 3,
+        })
+        .await
+        .unwrap();
+
+        repo.start_action_discussion(created.retro.id)
+            .await
+            .unwrap();
+        let actions = repo.fetch_actions(created.retro.id).await.unwrap();
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.source_card_id == Some(card.id))
+                .count(),
+            1
+        );
+        assert_eq!(actions[0].status, "done");
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
