@@ -1969,6 +1969,9 @@ async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
         cover_gif_url: None,
         cover_gif_alt_text: None,
         remove_cover_gif: false,
+        vote_limit: None,
+        action_discussion_limit: None,
+        clustering_mode: None,
     })
     .await
     .unwrap();
@@ -2019,6 +2022,91 @@ async fn host_can_update_retro_title_and_group(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(updated["retro"]["title"], "New retro");
     assert_eq!(updated["series"]["name"], "New group");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn host_can_update_board_configs(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Config retro","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"vote_limit":8,"action_discussion_limit":0,"clustering_mode":"auto_on_vote_start"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(updated["retro"]["vote_limit"], 8);
+    assert_eq!(updated["retro"]["action_discussion_limit"], 0);
+    assert_eq!(updated["retro"]["clustering_mode"], "auto_on_vote_start");
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn enabling_actions_without_actions_column_is_rejected(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"No actions retro","template":"standard","action_discussion_limit":0}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"action_discussion_limit":3}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]

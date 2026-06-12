@@ -1296,6 +1296,9 @@ pub struct UpdateRetroDetailsInput {
     pub cover_gif_url: Option<String>,
     pub cover_gif_alt_text: Option<String>,
     pub remove_cover_gif: bool,
+    pub vote_limit: Option<i32>,
+    pub action_discussion_limit: Option<i32>,
+    pub clustering_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -3301,6 +3304,9 @@ mod tests {
         repo.add_board_grant(created.retro.id, "lee@example.com", "member")
             .await
             .unwrap();
+        repo.set_clustering_mode(created.retro.id, "auto_on_vote_start")
+            .await
+            .unwrap();
         repo.start_scheduled_retro(created.retro.id).await.unwrap();
         repo.reveal_board(created.retro.id).await.unwrap();
         repo.start_action_discussion(created.retro.id)
@@ -3333,6 +3339,7 @@ mod tests {
         assert_eq!(next.retro.planned_for, expected_planned_for);
         assert_eq!(next.retro.vote_limit, 4);
         assert_eq!(next.retro.action_discussion_limit, 2);
+        assert_eq!(next.retro.clustering_mode, "auto_on_vote_start");
         assert_eq!(next.retro.creator_email, "ava@example.com");
         assert_eq!(next.participants[0].role, "host");
         assert_eq!(next.series.unwrap().name, "Platform");
@@ -3499,6 +3506,9 @@ mod tests {
             cover_gif_url: None,
             cover_gif_alt_text: None,
             remove_cover_gif: false,
+            vote_limit: None,
+            action_discussion_limit: None,
+            clustering_mode: None,
         })
         .await
         .unwrap()
@@ -3511,6 +3521,49 @@ mod tests {
             .unwrap();
         assert_eq!(board.retro.title, "New retro");
         assert_eq!(board.series.unwrap().name, "Payments");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn retro_details_update_board_configs(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Config retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        repo.update_retro_details(UpdateRetroDetailsInput {
+            retro_id: created.retro.id,
+            title: None,
+            group_name: None,
+            cover_gif_url: None,
+            cover_gif_alt_text: None,
+            remove_cover_gif: false,
+            vote_limit: Some(7),
+            action_discussion_limit: Some(0),
+            clustering_mode: Some("auto_on_vote_start".to_owned()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        let updated = repo.fetch_retro(created.retro.id).await.unwrap().unwrap();
+        assert_eq!(updated.vote_limit, 7);
+        assert_eq!(updated.action_discussion_limit, 0);
+        assert_eq!(updated.clustering_mode, "auto_on_vote_start");
+        assert_eq!(updated.clustering_status, "not_run");
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
