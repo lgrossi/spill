@@ -50,20 +50,9 @@ describe('GifSearchPicker', () => {
 
     // Selecting must not submit: that previously created a duplicate standalone card.
     expect(onSubmit).not.toHaveBeenCalled();
-    // The gif is staged onto the open form so the explicit ✓ / blur submit carries it.
+    // The gif is staged onto the open form so the explicit ✓ (or Enter) carries it.
     expect(container.querySelector('input[name="gif_choice"]')).not.toBeNull();
     // The overlay closes after selection.
     expect(screen.queryByRole('radio', { name: /Choose card GIF/i })).toBeNull();
-  });
-
-  it('returns focus to the trigger so the staged gif can still blur-save', () => {
-    renderInForm();
-
-    fireEvent.click(screen.getByRole('button', { name: 'gif' }));
-    fireEvent.click(screen.getByRole('radio', { name: /Choose card GIF: a cat/i }));
-
-    // Focus must land on a form control (not document.body, which the portal would
-    // leave it on) so a later click-away blurs the form and saves the gif.
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'gif' }));
   });
 });

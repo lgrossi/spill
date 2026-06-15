@@ -2,14 +2,13 @@ import Link from "next/link";
 import { CardComposer, type ColumnAccent } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { createDraftCardAction, updateDraftCardAction } from "@/lib/actions";
-import { CardAutosaveForm } from "./card-autosave-form";
 import { ComposerSubmit } from "./composer-submit";
 import { GifDraftProvider, GifSelectedPreview } from "./gif-draft";
 import { GifSearchPicker } from "./gif-search-picker";
 
 export function DraftCardEditor({ board, card, color, semantic }: { board: RetroBoard; card: RetroCard; color: string; semantic: ColumnAccent }) {
   return (
-    <CardAutosaveForm action={updateDraftCardAction} className="grid min-w-0 gap-2">
+    <form action={updateDraftCardAction} className="grid min-w-0 gap-2">
       <input name="card_id" type="hidden" value={card.id} />
       <input name="existing_gif_url" type="hidden" value={card.gif_url ?? ""} />
       <input name="existing_gif_alt_text" type="hidden" value={card.gif_alt_text ?? ""} />
@@ -30,7 +29,7 @@ export function DraftCardEditor({ board, card, color, semantic }: { board: Retro
           retroId={board.retro.id}
         />
       </GifDraftProvider>
-    </CardAutosaveForm>
+    </form>
   );
 }
 
@@ -48,7 +47,7 @@ export function InlineComposer({
   retroId: string;
 }) {
   return (
-    <CardAutosaveForm action={createDraftCardAction} className="grid min-w-0 gap-2">
+    <form action={createDraftCardAction} className="grid min-w-0 gap-2">
       <GifDraftProvider>
         <CardComposer
           accent={color}
@@ -66,7 +65,7 @@ export function InlineComposer({
           retroId={retroId}
         />
       </GifDraftProvider>
-    </CardAutosaveForm>
+    </form>
   );
 }
 
