@@ -15,15 +15,36 @@ export function CardAutosaveForm({
 }) {
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Single blur owner for the whole card. relatedTarget is unreliable when focus
-  // crosses into the GIF picker's portaled overlay (it even starts visibility:
-  // hidden), so instead defer one tick and decide from where focus actually
-  // landed. Autosave only when focus truly left the form and the overlay.
-  function handleBlur(event: FocusEvent<HTMLFormElement>) {
-    const form = event.currentTarget;
+  function cancelPending() {
     if (pending.current) {
       clearTimeout(pending.current);
+      pending.current = null;
     }
+  }
+
+  function saveIfDirty(form: HTMLFormElement) {
+    if (cardFormHasContent(form)) {
+      requestCardSubmit(form);
+    }
+  }
+
+  // Single blur owner for the whole card.
+  function handleBlur(event: FocusEvent<HTMLFormElement>) {
+    const form = event.currentTarget;
+    const next = event.relatedTarget;
+    // Definite exit: focus moved to a real element outside the form and outside
+    // the GIF overlay. Save synchronously, so a click that also unmounts the
+    // editor (route or phase change) still persists the draft.
+    if (next instanceof HTMLElement && !form.contains(next) && !next.closest("[data-gif-overlay]")) {
+      cancelPending();
+      saveIfDirty(form);
+      return;
+    }
+    // Ambiguous (null relatedTarget, or focus into the form/overlay — e.g. the
+    // picker opening, whose portaled panel even starts visibility:hidden): defer
+    // one tick and decide from where focus actually settled, since relatedTarget
+    // is unreliable across the portal.
+    cancelPending();
     pending.current = setTimeout(() => {
       pending.current = null;
       if (!form.isConnected) {
@@ -33,9 +54,7 @@ export function CardAutosaveForm({
       if (active instanceof HTMLElement && (form.contains(active) || active.closest("[data-gif-overlay]"))) {
         return;
       }
-      if (cardFormHasContent(form)) {
-        requestCardSubmit(form);
-      }
+      saveIfDirty(form);
     }, 0);
   }
 

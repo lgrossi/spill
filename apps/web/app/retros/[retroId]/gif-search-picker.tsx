@@ -21,6 +21,10 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
       <button
         ref={triggerRef}
         className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-full border border-white/35 px-2.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
+        // Keep focus on the card when opening the picker. Safari does not focus a
+        // clicked button, so without this the card would blur to <body> and the
+        // autosave could fire before the overlay's field takes focus.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => (open ? closeAndRefocus() : setOpen(true))}
         type="button"
       >
