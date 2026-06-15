@@ -116,7 +116,6 @@ export function GifPickerOverlay({
     <div
       ref={panelRef}
       className="sp-panel-grain fixed z-[200] rounded-[14px] border border-[var(--line-2)] bg-spill-panel p-4 text-spill-fg shadow-[var(--shadow-3)]"
-      data-gif-overlay
       style={{
         top: position?.top ?? 0,
         left: position?.left ?? 0,
