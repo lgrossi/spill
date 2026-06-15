@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-const setQuery = vi.fn();
-const loadMore = vi.fn();
+// vi.mock is hoisted above imports, so spies it references must come from vi.hoisted.
+const { setQuery, loadMore } = vi.hoisted(() => ({ setQuery: vi.fn(), loadMore: vi.fn() }));
 
 vi.mock('../app/retros/[retroId]/gif-search-data', () => ({
   useGifSearch: () => ({

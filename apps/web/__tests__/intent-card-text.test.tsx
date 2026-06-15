@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { IntentCardText } from '../app/components/intent-controls';
 
-describe('IntentCardText autosave', () => {
+describe('IntentCardText Enter-to-submit', () => {
   let requestSubmit: ReturnType<typeof vi.fn>;
   let original: typeof HTMLFormElement.prototype.requestSubmit;
 
@@ -19,37 +19,38 @@ describe('IntentCardText autosave', () => {
 
   function setup({ withGif }: { withGif: boolean }) {
     render(
-      <>
-        <form>
-          {withGif ? <input name="gif_choice" type="hidden" value="{}" /> : null}
-          <button data-intent-card-submit type="submit">save</button>
-          <IntentCardText className="t" name="body_text" />
-        </form>
-        <button type="button">outside</button>
-      </>,
+      <form>
+        {withGif ? <input name="gif_choice" type="hidden" value="{}" /> : null}
+        <button data-intent-card-submit type="submit">save</button>
+        <IntentCardText className="t" name="body_text" />
+      </form>,
     );
-    return {
-      textarea: screen.getByRole('textbox'),
-      outside: screen.getByRole('button', { name: 'outside' }),
-    };
+    return { textarea: screen.getByRole('textbox') as HTMLTextAreaElement };
   }
 
-  it('autosaves a gif-only card when focus leaves the form (hidden gif_choice)', () => {
-    const { textarea, outside } = setup({ withGif: true });
-    fireEvent.blur(textarea, { relatedTarget: outside });
+  it('submits on Enter when the card has text', () => {
+    const { textarea } = setup({ withGif: false });
+    fireEvent.change(textarea, { target: { value: 'ship it' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('does not autosave an empty card with no gif', () => {
-    const { textarea, outside } = setup({ withGif: false });
-    fireEvent.blur(textarea, { relatedTarget: outside });
+  it('submits on Enter for a gif-only card (hidden gif_choice)', () => {
+    const { textarea } = setup({ withGif: true });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not submit on Enter when the card is empty', () => {
+    const { textarea } = setup({ withGif: false });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 
-  it('lets the GIF picker own submission while it is open', () => {
-    const { textarea, outside } = setup({ withGif: true });
-    textarea.closest('form')!.dataset.gifPickerOpen = '1';
-    fireEvent.blur(textarea, { relatedTarget: outside });
+  it('does not submit on Shift+Enter (newline)', () => {
+    const { textarea } = setup({ withGif: false });
+    fireEvent.change(textarea, { target: { value: 'line one' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 });
