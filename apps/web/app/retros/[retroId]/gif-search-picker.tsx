@@ -21,10 +21,6 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
       <button
         ref={triggerRef}
         className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-full border border-white/35 px-2.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-white/85 shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition hover:bg-white/15 ${open ? "bg-white/15" : "bg-white/10"}`}
-        // Don't steal focus from the card on click — the overlay autofocuses its
-        // own search field, and keeping focus off this button avoids a spurious
-        // blur that the form-level autosave would otherwise have to special-case.
-        onMouseDown={(event) => event.preventDefault()}
         onClick={() => (open ? closeAndRefocus() : setOpen(true))}
         type="button"
       >

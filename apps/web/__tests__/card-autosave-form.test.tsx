@@ -3,6 +3,8 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CardAutosaveForm } from '../app/retros/[retroId]/card-autosave-form';
 
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe('CardAutosaveForm blur-save', () => {
   let requestSubmit: ReturnType<typeof vi.fn>;
   let original: typeof HTMLFormElement.prototype.requestSubmit;
@@ -27,45 +29,52 @@ describe('CardAutosaveForm blur-save', () => {
         </CardAutosaveForm>
         <button type="button">outside</button>
         <div data-gif-overlay>
-          <button type="button">in overlay</button>
+          <input aria-label="overlay field" />
         </div>
       </>,
     );
     return {
-      textarea: screen.getByRole('textbox'),
+      textarea: screen.getByRole('textbox', { name: '' }) as HTMLTextAreaElement,
       outside: screen.getByRole('button', { name: 'outside' }),
-      inOverlay: screen.getByRole('button', { name: 'in overlay' }),
+      overlay: screen.getByLabelText('overlay field'),
       save: screen.getByRole('button', { name: 'save' }),
     };
   }
 
-  it('autosaves a gif-only card when focus leaves the form', () => {
+  // The handler reads document.activeElement after a tick, so move focus first.
+  async function leaveTo(textarea: HTMLElement, target: HTMLElement) {
+    target.focus();
+    fireEvent.blur(textarea);
+    await flush();
+  }
+
+  it('autosaves a gif-only card when focus leaves the form', async () => {
     const { textarea, outside } = setup({ withGif: true });
-    fireEvent.blur(textarea, { relatedTarget: outside });
+    await leaveTo(textarea, outside);
     expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('autosaves a text card when focus leaves the form', () => {
+  it('autosaves a text card when focus leaves the form', async () => {
     const { textarea, outside } = setup({ withGif: false, text: 'remember this' });
-    fireEvent.blur(textarea, { relatedTarget: outside });
+    await leaveTo(textarea, outside);
     expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('does not autosave an empty card', () => {
+  it('does not autosave an empty card', async () => {
     const { textarea, outside } = setup({ withGif: false });
-    fireEvent.blur(textarea, { relatedTarget: outside });
+    await leaveTo(textarea, outside);
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 
-  it('does not autosave when focus moves into the gif overlay', () => {
-    const { textarea, inOverlay } = setup({ withGif: true });
-    fireEvent.blur(textarea, { relatedTarget: inOverlay });
+  it('does not autosave a non-empty card when opening the gif picker (focus into overlay)', async () => {
+    const { textarea, overlay } = setup({ withGif: false, text: 'has text' });
+    await leaveTo(textarea, overlay);
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 
-  it('does not autosave when focus stays inside the form', () => {
+  it('does not autosave when focus stays inside the form', async () => {
     const { textarea, save } = setup({ withGif: true });
-    fireEvent.blur(textarea, { relatedTarget: save });
+    await leaveTo(textarea, save);
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 });
