@@ -9,15 +9,6 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  function submitCard() {
-    const form = rootRef.current?.closest("form");
-    if (!form) {
-      return;
-    }
-    const submitter = form.querySelector<HTMLButtonElement>("[data-intent-card-submit]");
-    window.setTimeout(() => form.requestSubmit(submitter ?? undefined), 0);
-  }
-
   function suppressCardAutosubmit(event: React.PointerEvent<HTMLElement>) {
     suppressFormAutosubmit(event.currentTarget.closest("form"));
   }
@@ -33,6 +24,11 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
   }
 
   function submitCardIfLeavingForm(event: React.FocusEvent<HTMLElement>) {
+    // The picker lives in a portal outside the form, so focus moving into it
+    // looks like leaving the form. Never auto-submit while it is open.
+    if (open) {
+      return;
+    }
     const form = event.currentTarget.closest("form");
     const next = event.relatedTarget;
     if (!form || (next instanceof HTMLElement && form.contains(next))) {
@@ -67,10 +63,9 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
           emptyText="Search for a GIF to add to this card."
           kicker="opened from card"
           onClose={() => {
+            // Closing must not submit: it would re-create or duplicate the card.
+            suppressFormAutosubmit(rootRef.current?.closest("form") ?? null);
             setOpen(false);
-            if (selectedGif) {
-              submitCard();
-            }
           }}
           placeholder={`search ${columnTitle}`}
           selected={(gif) => selectedGif?.id === gif.id}
@@ -81,8 +76,12 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
                 checked={selected}
                 className="sr-only"
                 onChange={() => {
+                  // Stage the gif onto the open card and close; the user confirms
+                  // with the card's ✓ (or the single blur-autosubmit) so a gif
+                  // never spawns its own standalone card.
+                  suppressFormAutosubmit(rootRef.current?.closest("form") ?? null);
                   selectGif(gif);
-                  submitCard();
+                  setOpen(false);
                 }}
                 type="radio"
               />
