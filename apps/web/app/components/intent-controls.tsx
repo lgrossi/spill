@@ -71,10 +71,13 @@ export function IntentCardText({
 }) {
   function submitIfComplete(target: HTMLTextAreaElement) {
     const form = target.form;
-    if (form?.dataset.suppressCardAutosubmit === "1") {
+    // The GIF picker owns submission while it is open (its overlay is a portal
+    // outside the form, so focus crossing into it must not auto-submit here).
+    if (form?.dataset.gifPickerOpen === "1") {
       return;
     }
-    const hasGif = Boolean(form?.querySelector<HTMLInputElement>('input[name="gif_choice"]:checked'));
+    // gif_choice is a hidden input, so match on presence, not :checked.
+    const hasGif = Boolean(form?.querySelector<HTMLInputElement>('input[name="gif_choice"]'));
     const existingGif = form?.querySelector<HTMLInputElement>('input[name="existing_gif_url"]')?.value.trim();
     if (target.value.trim() || hasGif || existingGif) {
       const submitter = form?.querySelector<HTMLButtonElement>("[data-intent-card-submit]");
