@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import type { ComponentProps, FocusEvent, ReactNode } from "react";
 import { cardFormHasContent, requestCardSubmit } from "@/lib/card-submit";
 
@@ -12,18 +13,30 @@ export function CardAutosaveForm({
   className?: string;
   children: ReactNode;
 }) {
-  // Single blur owner for the whole card. When focus truly leaves the form — and
-  // not into the GIF picker's portaled overlay (rendered outside the form DOM but
-  // marked with data-gif-overlay) — autosave if there is anything to save.
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Single blur owner for the whole card. relatedTarget is unreliable when focus
+  // crosses into the GIF picker's portaled overlay (it even starts visibility:
+  // hidden), so instead defer one tick and decide from where focus actually
+  // landed. Autosave only when focus truly left the form and the overlay.
   function handleBlur(event: FocusEvent<HTMLFormElement>) {
     const form = event.currentTarget;
-    const next = event.relatedTarget;
-    if (next instanceof HTMLElement && (form.contains(next) || next.closest("[data-gif-overlay]"))) {
-      return;
+    if (pending.current) {
+      clearTimeout(pending.current);
     }
-    if (cardFormHasContent(form)) {
-      requestCardSubmit(form);
-    }
+    pending.current = setTimeout(() => {
+      pending.current = null;
+      if (!form.isConnected) {
+        return;
+      }
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && (form.contains(active) || active.closest("[data-gif-overlay]"))) {
+        return;
+      }
+      if (cardFormHasContent(form)) {
+        requestCardSubmit(form);
+      }
+    }, 0);
   }
 
   return (
