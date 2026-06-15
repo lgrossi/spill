@@ -77,4 +77,18 @@ describe('CardAutosaveForm blur-save', () => {
     await leaveTo(textarea, save);
     expect(requestSubmit).not.toHaveBeenCalled();
   });
+
+  it('saves synchronously when focus moves to an outside element (survives an unmounting click)', () => {
+    const { textarea, outside } = setup({ withGif: false, text: 'draft' });
+    // relatedTarget is a known outside element: do not wait for the timer, because
+    // the click may unmount the editor before it would fire.
+    fireEvent.blur(textarea, { relatedTarget: outside });
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not save synchronously when focus moves into the gif overlay', () => {
+    const { textarea, overlay } = setup({ withGif: false, text: 'has text' });
+    fireEvent.blur(textarea, { relatedTarget: overlay });
+    expect(requestSubmit).not.toHaveBeenCalled();
+  });
 });
