@@ -4,7 +4,7 @@ import type { RetroBoard, RetroCard } from "@/lib/contracts";
 export function columnSemantic(column: RetroBoard["columns"][number]): { kind: ColumnAccent; label: string; color: string } {
   const title = column.title.toLowerCase();
   const label = column.title.toLowerCase();
-  if (isActionsColumn(column) || title.includes("action")) return { kind: "action", label, color: spillColors.action };
+  if (isActionsColumn(column)) return { kind: "action", label, color: spillColors.action };
   if (title.includes("feeling")) return { kind: "mood", label, color: columnColor(column, "#0f5f72") };
   if (title.includes("mood") || title.includes("mad") || title.includes("sad") || title.includes("glad")) return { kind: "mood", label, color: columnColor(column, spillColors.mood) };
   if (title.includes("well") || title.includes("liked") || title.includes("learned") || title.includes("wind") || title.includes("continue") || title.includes("glad")) return { kind: "well", label, color: columnColor(column, spillColors.well) };
@@ -13,7 +13,7 @@ export function columnSemantic(column: RetroBoard["columns"][number]): { kind: C
 }
 
 export function isActionsColumn(column: RetroBoard["columns"][number]) {
-  return column.column_key === "actions" || column.title.toLowerCase().includes("action");
+  return column.column_key === "actions" || /\bactions?\b/.test(column.title.toLowerCase());
 }
 
 function columnColor(column: RetroBoard["columns"][number], fallback: string) {
