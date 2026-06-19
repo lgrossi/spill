@@ -29,6 +29,13 @@ describe('columnSemantic', () => {
     });
   });
 
+  it('does not classify action substrings as action columns', () => {
+    expect(columnSemantic(column({ title: 'Satisfaction' }))).toMatchObject({
+      kind: 'neutral',
+      color: spillColors.muted,
+    });
+  });
+
   it('uses a neutral semantic for unmatched custom columns', () => {
     expect(columnSemantic(column({ title: 'Love notes' }))).toMatchObject({
       kind: 'neutral',

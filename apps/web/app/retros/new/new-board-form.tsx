@@ -333,7 +333,7 @@ function BoardPreview({ columns }: { columns: { label: string; color: string }[]
 
 function colorForPreviewColumn(label: string, index = 0) {
   const normalized = label.toLowerCase();
-  if (normalized.includes("action")) return spillColors.action;
+  if (/\bactions?\b/.test(normalized)) return spillColors.action;
   if (normalized.includes("well") || normalized.includes("liked")) return spillColors.well;
   if (normalized.includes("wrong") || normalized.includes("lacked") || normalized.includes("improve")) return spillColors.wrong;
   if (normalized.includes("learned")) return "#0f5f72";
