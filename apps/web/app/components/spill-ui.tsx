@@ -389,14 +389,12 @@ export function CardFooter({
   author = "??",
   authorName,
   color = spillColors.muted,
-  tag,
   trailing,
   votes,
 }: {
   author?: string;
   authorName?: string;
   color?: string;
-  tag?: string;
   trailing?: ReactNode;
   votes?: number;
 }) {
@@ -408,7 +406,6 @@ export function CardFooter({
           {authorName}
         </span>
       ) : null}
-      {tag ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9.5px] font-semibold tracking-[0.03em] text-white">#{tag}</span> : null}
       <div className="flex-1" />
       {trailing ?? (votes !== undefined ? (
         <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-2 text-[10.5px] font-bold text-[var(--card-button-fg)]" aria-label={`${votes} total votes`}>

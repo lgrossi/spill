@@ -263,7 +263,7 @@ function FinalBoard({
                   <span className="ml-auto text-[10.5px] font-semibold text-spill-muted">{visibleCards.length}</span>
                 </div>
                 <div className="space-y-2">
-                  {visibleCards.map((card) => <WrappedBoardCard board={board} card={card} color={semantic.color} semantic={semantic.kind} key={card.id} />)}
+                  {visibleCards.map((card) => <WrappedBoardCard board={board} card={card} color={semantic.color} key={card.id} />)}
                   {visibleCards.length === 0 ? <p className="rounded-[8px] border border-dashed border-spill-line px-3 py-2 text-[11.5px] text-spill-muted">No cards</p> : null}
                 </div>
               </Tile>
@@ -317,12 +317,10 @@ function WrappedBoardCard({
   board,
   card,
   color,
-  semantic,
 }: {
   board: RetroBoard;
   card: RetroCard;
   color: string;
-  semantic: string;
 }) {
   const author = participantById(board, card.author_participant_id);
   const cluster = card.cluster_id ? board.clusters.find((item) => item.id === card.cluster_id) : null;
@@ -359,7 +357,6 @@ function WrappedBoardCard({
         author={avatarInitials(author?.display_name)}
         authorName={shortAuthorName(author?.display_name)}
         color={avatarColorForSeed(author?.id)}
-        tag={semantic}
       />
     </SpillCard>
   );

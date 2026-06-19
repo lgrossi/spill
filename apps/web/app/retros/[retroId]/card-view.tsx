@@ -52,7 +52,6 @@ export function CardView({
           author={avatarInitials(author?.display_name)}
           authorName={shortAuthorName(author?.display_name)}
           color={avatarColorForSeed(author?.id)}
-          tag={semantic}
           trailing={board.retro.phase === "voting" ? <VoteControls board={board} card={card} color={color} /> : undefined}
           votes={board.retro.phase === "action_discussion" ? card.vote_count : undefined}
         />
