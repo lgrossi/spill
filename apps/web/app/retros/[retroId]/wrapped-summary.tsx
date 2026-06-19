@@ -252,8 +252,8 @@ function FinalBoard({
             minWidth: `${Math.max(1, boardColumns.length) * 240}px`,
           }}
         >
-          {boardColumns.map((column, index) => {
-            const semantic = columnSemantic(column, index);
+          {boardColumns.map((column) => {
+            const semantic = columnSemantic(column);
             const visibleCards = column.cards.filter((card) => !card.hidden);
             return (
               <Tile className="min-w-0" key={column.id}>

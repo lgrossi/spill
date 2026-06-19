@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, shortAuthorName, type ColumnAccent } from "@/components/spill-ui";
+import { Avatar, CardFooter, GifTile, HiddenDraft, SpillCard, avatarColorForSeed, avatarInitials, shortAuthorName } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { deleteDraftCardAction, removeClusterMemberAction, updateDraftCardAction } from "@/lib/actions";
 import { BoardMedia } from "./media-card";
@@ -15,7 +15,7 @@ export function CardView({
   editing,
   moving,
   clustering,
-  semantic,
+  semanticLabel,
 }: {
   board: RetroBoard;
   card: RetroCard;
@@ -24,7 +24,7 @@ export function CardView({
   editing: boolean;
   moving: boolean;
   clustering: boolean;
-  semantic: ColumnAccent;
+  semanticLabel: string;
 }) {
   if (card.hidden) {
     return <HiddenDraft accent={color} />;
@@ -34,7 +34,7 @@ export function CardView({
   const author = participantById(board, card.author_participant_id);
 
   if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null) {
-    return <DraftCardEditor board={board} card={card} color={color} semantic={semantic} />;
+    return <DraftCardEditor board={board} card={card} color={color} semanticLabel={semanticLabel} />;
   }
 
   const hasMedia = !card.cluster_id && Boolean(card.gif_url);

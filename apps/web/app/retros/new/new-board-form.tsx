@@ -10,9 +10,9 @@ import { RetroCoverPicker } from "@/components/retro-cover-picker";
 export type TemplateId = "standard" | "4ls" | "custom";
 
 const ruleInputClass = `${fieldControlClass} mt-1 min-h-8 py-1.5 text-[13.5px]`;
-const customColorOptions = [spillColors.mood, spillColors.well, spillColors.wrong, spillColors.action, "#0f5f72"];
+const customColorOptions = [spillColors.mood, spillColors.well, spillColors.wrong, "#0f5f72", spillColors.muted];
 const defaultCustomColumns = ["Wins", "Pains", "Questions", "Love notes"];
-const defaultCustomColors = [spillColors.well, spillColors.wrong, "#0f5f72", spillColors.action];
+const defaultCustomColors = [spillColors.well, spillColors.wrong, "#0f5f72", spillColors.mood];
 const templates: {
   id: TemplateId;
   label: string;

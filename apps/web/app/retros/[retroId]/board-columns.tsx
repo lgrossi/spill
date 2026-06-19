@@ -29,8 +29,8 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
               minWidth: `${Math.max(1, columns.length) * 270}px`,
             }}
           >
-            {columns.map((column, index) => {
-              const semantic = columnSemantic(column, index);
+            {columns.map((column) => {
+              const semantic = columnSemantic(column);
               // Render the server-persisted order for every phase. Notably,
               // voting must NOT re-sort by votes: it would both disorient people
               // and leak the otherwise-hidden relative vote tallies.
@@ -50,7 +50,7 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
                   {canAddCards ? <ColumnComposer board={board} columnId={column.id} columnLabel={semantic.label} color={semantic.color} isActive={isActiveColumn} /> : null}
 
                   <div className="sp-scroll min-h-0 flex-1 space-y-2.5 overflow-auto pr-1">
-                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semantic={semantic.kind} />)}
+                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} />)}
                     <DropEndMarker accent={semantic.color} columnId={column.id} enabled={canDrag} />
                   </div>
                 </DropColumn>
