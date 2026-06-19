@@ -1,27 +1,25 @@
 import { spillColors, type ColumnAccent } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/contracts";
 
-export function columnSemantic(column: RetroBoard["columns"][number], index: number): { kind: ColumnAccent; label: string; color: string } {
+export function columnSemantic(column: RetroBoard["columns"][number]): { kind: ColumnAccent; label: string; color: string } {
   const title = column.title.toLowerCase();
-  const savedColor = column.accent_color || undefined;
-  if (isActionsColumn(column) || title.includes("action")) return { kind: "action", label: column.title.toLowerCase(), color: spillColors.action };
-  if (title.includes("feeling")) return { kind: "mood", label: column.title.toLowerCase(), color: savedColor ?? "#0f5f72" };
-  if (title.includes("mood") || title.includes("mad") || title.includes("sad") || title.includes("glad")) return { kind: "mood", label: column.title.toLowerCase(), color: savedColor ?? spillColors.mood };
-  if (title.includes("well") || title.includes("liked") || title.includes("learned") || title.includes("wind") || title.includes("continue") || title.includes("glad")) return { kind: "well", label: column.title.toLowerCase(), color: savedColor ?? spillColors.well };
-  if (title.includes("wrong") || title.includes("lacked") || title.includes("improve") || title.includes("anchor") || title.includes("rocks") || title.includes("stop") || title.includes("mad") || title.includes("sad")) return { kind: "wrong", label: column.title.toLowerCase(), color: savedColor ?? spillColors.wrong };
-  // Only columns that match isActionsColumn / an "action" title get the action
-  // treatment. The fallback must never promote an arbitrary 4th column (e.g.
-  // "Love notes") to action, which previously happened via index % 4.
-  const fallback = [
-    { kind: "mood" as const, color: spillColors.mood },
-    { kind: "well" as const, color: spillColors.well },
-    { kind: "wrong" as const, color: spillColors.wrong },
-  ][index % 3];
-  return { ...fallback, color: savedColor ?? fallback.color, label: column.title.toLowerCase() };
+  const label = column.title.toLowerCase();
+  if (isActionsColumn(column) || title.includes("action")) return { kind: "action", label, color: spillColors.action };
+  if (title.includes("feeling")) return { kind: "mood", label, color: columnColor(column, "#0f5f72") };
+  if (title.includes("mood") || title.includes("mad") || title.includes("sad") || title.includes("glad")) return { kind: "mood", label, color: columnColor(column, spillColors.mood) };
+  if (title.includes("well") || title.includes("liked") || title.includes("learned") || title.includes("wind") || title.includes("continue") || title.includes("glad")) return { kind: "well", label, color: columnColor(column, spillColors.well) };
+  if (title.includes("wrong") || title.includes("lacked") || title.includes("improve") || title.includes("anchor") || title.includes("rocks") || title.includes("stop") || title.includes("mad") || title.includes("sad")) return { kind: "improve", label, color: columnColor(column, spillColors.wrong) };
+  return { kind: "neutral", label, color: columnColor(column, spillColors.muted) };
 }
 
 export function isActionsColumn(column: RetroBoard["columns"][number]) {
   return column.column_key === "actions" || column.title.toLowerCase().includes("action");
+}
+
+function columnColor(column: RetroBoard["columns"][number], fallback: string) {
+  const savedColor = column.accent_color || undefined;
+  if (!savedColor || savedColor === spillColors.action) return fallback;
+  return savedColor;
 }
 
 export function cardLabel(card: RetroCard) {

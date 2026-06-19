@@ -14,7 +14,7 @@ export const spillColors = {
   line: "#d9c89e",
 } as const;
 
-export type ColumnAccent = "mood" | "well" | "wrong" | "action";
+export type ColumnAccent = "mood" | "well" | "improve" | "action" | "neutral";
 
 export function AppChrome({
   title,

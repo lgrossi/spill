@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { CardComposer, type ColumnAccent } from "@/components/spill-ui";
+import { CardComposer } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/api";
 import { createDraftCardAction, updateDraftCardAction } from "@/lib/actions";
 import { ComposerSubmit } from "./composer-submit";
 import { GifDraftProvider, GifSelectedPreview } from "./gif-draft";
 import { GifSearchPicker } from "./gif-search-picker";
 
-export function DraftCardEditor({ board, card, color, semantic }: { board: RetroBoard; card: RetroCard; color: string; semantic: ColumnAccent }) {
+export function DraftCardEditor({ board, card, color, semanticLabel }: { board: RetroBoard; card: RetroCard; color: string; semanticLabel: string }) {
   return (
     <form action={updateDraftCardAction} className="grid min-w-0 gap-2">
       <input name="card_id" type="hidden" value={card.id} />
@@ -18,7 +18,7 @@ export function DraftCardEditor({ board, card, color, semantic }: { board: Retro
           before={<GifSelectedPreview />}
           actions={
             <>
-              <GifSearchPicker columnTitle={semantic} />
+              <GifSearchPicker columnTitle={semanticLabel} />
               <Link aria-label="Cancel edit" className={composerButtonClass("ghost")} href={`/retros/${board.retro.id}?addColumn=${card.column_id}`}>×</Link>
               <ComposerSubmit className={composerButtonClass("solid")} existingGif={Boolean(card.gif_url)} />
             </>
