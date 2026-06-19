@@ -13,13 +13,17 @@ export function columnSemantic(column: RetroBoard["columns"][number]): { kind: C
 }
 
 export function isActionsColumn(column: RetroBoard["columns"][number]) {
-  return column.column_key === "actions" || /\bactions?\b/.test(column.title.toLowerCase());
+  return column.column_key === "actions" || hasActionWord(column.title);
 }
 
 function columnColor(column: RetroBoard["columns"][number], fallback: string) {
   const savedColor = column.accent_color || undefined;
   if (!savedColor || savedColor === spillColors.action) return fallback;
   return savedColor;
+}
+
+function hasActionWord(title: string) {
+  return title.toLowerCase().split(/[^a-z0-9]+/).some((word) => word === "action" || word === "actions");
 }
 
 export function cardLabel(card: RetroCard) {

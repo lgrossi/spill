@@ -253,9 +253,7 @@ impl RetroWorkflow {
                 .fetch_columns(retro_id)
                 .await
                 .map_err(|error| ApiError::internal(format!("failed to fetch columns: {error}")))?;
-            let has_action_column = columns
-                .iter()
-                .any(|column| column.title.to_lowercase().contains("action"));
+            let has_action_column = columns.iter().any(|column| is_action_column(&column.title));
             if !has_action_column {
                 return Err(ApiError::bad_request(
                     "this board has no actions column, so top voted cards cannot move to actions",
@@ -1359,6 +1357,14 @@ fn is_mood_column(title: &str, column_key: &str) -> bool {
         || title.contains("mood")
 }
 
+fn is_action_column(title: &str) -> bool {
+    title
+        .trim()
+        .to_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|word| word == "action" || word == "actions")
+}
+
 fn auto_cluster_groups_from_response(
     response: &str,
 ) -> Result<Vec<AutoClusterGroupInput>, &'static str> {
@@ -1613,6 +1619,15 @@ mod tests {
         assert!(prompt.contains("Column is context only"));
         assert!(prompt.contains("every card in a group must come from the same column"));
         assert!(prompt.contains("must not be copied from a column name"));
+    }
+
+    #[test]
+    fn action_column_matching_requires_action_word() {
+        assert!(is_action_column("Actions"));
+        assert!(is_action_column("Action items"));
+        assert!(is_action_column("team-actions"));
+        assert!(!is_action_column("Satisfaction"));
+        assert!(!is_action_column("Transaction risks"));
     }
 
     #[test]
