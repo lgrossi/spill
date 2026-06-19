@@ -9,12 +9,14 @@ export function columnSemantic(column: RetroBoard["columns"][number], index: num
   if (title.includes("mood") || title.includes("mad") || title.includes("sad") || title.includes("glad")) return { kind: "mood", label: column.title.toLowerCase(), color: savedColor ?? spillColors.mood };
   if (title.includes("well") || title.includes("liked") || title.includes("learned") || title.includes("wind") || title.includes("continue") || title.includes("glad")) return { kind: "well", label: column.title.toLowerCase(), color: savedColor ?? spillColors.well };
   if (title.includes("wrong") || title.includes("lacked") || title.includes("improve") || title.includes("anchor") || title.includes("rocks") || title.includes("stop") || title.includes("mad") || title.includes("sad")) return { kind: "wrong", label: column.title.toLowerCase(), color: savedColor ?? spillColors.wrong };
+  // Only columns that match isActionsColumn / an "action" title get the action
+  // treatment. The fallback must never promote an arbitrary 4th column (e.g.
+  // "Love notes") to action, which previously happened via index % 4.
   const fallback = [
     { kind: "mood" as const, color: spillColors.mood },
     { kind: "well" as const, color: spillColors.well },
     { kind: "wrong" as const, color: spillColors.wrong },
-    { kind: "action" as const, color: spillColors.action },
-  ][index % 4];
+  ][index % 3];
   return { ...fallback, color: savedColor ?? fallback.color, label: column.title.toLowerCase() };
 }
 
