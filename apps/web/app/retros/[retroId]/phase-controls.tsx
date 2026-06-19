@@ -1,6 +1,7 @@
 import type { RetroBoard } from "@/lib/contracts";
 import { BoardInviteButton } from "@/components/board-invite-button";
 import { DeleteBoardButton } from "@/components/delete-board-button";
+import { isActionsColumn } from "./board-presentation";
 import { BoardSettingsButton } from "./board-settings-button";
 
 // Right-side topbar: people button and host delete affordance.
@@ -34,7 +35,7 @@ export function PhaseControls({
         voteLimit={board.retro.vote_limit}
         actionDiscussionLimit={board.retro.action_discussion_limit}
         clusteringMode={board.retro.clustering_mode}
-        hasActionColumn={board.columns.some((column) => column.title.toLowerCase().includes("action"))}
+        hasActionColumn={board.columns.some(isActionsColumn)}
       />
     ) : null;
 
