@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { spillColors } from '../app/components/spill-ui';
+import { clampAccent, spillColors } from '../app/components/spill-ui';
 import type { RetroBoard } from '../app/lib/contracts';
 import { columnSemantic } from '../app/retros/[retroId]/board-presentation';
 
@@ -49,6 +49,12 @@ describe('columnSemantic', () => {
       kind: 'neutral',
       color: '#0f5f72',
     });
+  });
+
+  it('darkens a too-light saved color so white card text stays readable', () => {
+    const result = columnSemantic(column({ title: 'Love notes', accent_color: '#ffd9e6' }));
+    expect(result.color).toBe(clampAccent('#ffd9e6'));
+    expect(result.color).not.toBe('#ffd9e6');
   });
 
   it('labels improvement columns as improve instead of wrong', () => {

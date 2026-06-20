@@ -373,10 +373,11 @@ export function SpillCard({
 }) {
   return (
     <div
-      className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-white shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
+      className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-[var(--card-fg)] shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
       style={{
         background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 60%, ${shade(accent, -6)} 100%)`,
         "--card-button-fg": accent,
+        "--card-fg": readableTextColor(accent),
         ...style,
       } as CSSProperties}
     >
@@ -534,12 +535,12 @@ export function CardComposer({
   actions?: ReactNode;
 }) {
   return (
-    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-white shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--composer-glow": `${accent}33` } as CSSProperties}>
+    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-[var(--card-fg)] shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--card-fg": readableTextColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="column_id" type="hidden" value={columnId} />
       {before}
       <IntentCardText
-        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/35 bg-black/15 px-3 py-2 text-[13.5px] font-medium leading-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:font-bold placeholder:text-white/95 focus:border-white/60 focus:shadow-none"
+        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/35 bg-black/15 px-3 py-2 text-[13.5px] font-medium leading-5 text-[var(--card-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:font-bold placeholder:text-[var(--card-fg)] placeholder:opacity-90 focus:border-white/60 focus:shadow-none"
         defaultValue={draftText}
         name="body_text"
         placeholder={placeholder}
@@ -590,4 +591,41 @@ export function shade(hex: string, percent: number) {
   g = Math.max(0, Math.min(255, g));
   b = Math.max(0, Math.min(255, b));
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+function normalizeHex(hex: string): string {
+  let c = hex.replace("#", "").trim();
+  if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
+  return c.length === 6 ? c : "000000";
+}
+
+// WCAG relative luminance (0 = black, 1 = white).
+function relativeLuminance(hex: string): number {
+  const num = Number.parseInt(normalizeHex(hex), 16);
+  const channel = (value: number) => {
+    const s = value / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const r = channel((num >> 16) & 0xff);
+  const g = channel((num >> 8) & 0xff);
+  const b = channel(num & 0xff);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// Cards render white text on the accent. Custom column colors can be arbitrarily
+// light, which makes that text unreadable, so darken a too-light accent until
+// white stays legible. Applied at render only; the stored color is untouched.
+export function clampAccent(hex: string): string {
+  let color = `#${normalizeHex(hex)}`;
+  let guard = 0;
+  while (relativeLuminance(color) > 0.5 && guard < 16) {
+    color = shade(color, -6);
+    guard += 1;
+  }
+  return color;
+}
+
+// Safety net: if an accent still resolves light, pick a readable text color.
+export function readableTextColor(hex: string): string {
+  return relativeLuminance(hex) > 0.6 ? "#241a12" : "#ffffff";
 }
