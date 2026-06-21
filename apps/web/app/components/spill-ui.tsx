@@ -625,7 +625,18 @@ export function clampAccent(hex: string): string {
   return color;
 }
 
-// Safety net: if an accent still resolves light, pick a readable text color.
+function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Safety net: pick whichever foreground has the stronger actual contrast.
 export function readableTextColor(hex: string): string {
-  return relativeLuminance(hex) > 0.18 ? "#241a12" : "#ffffff";
+  const color = `#${normalizeHex(hex)}`;
+  const whiteContrast = contrastRatio("#ffffff", color);
+  const inkContrast = contrastRatio("#241a12", color);
+  return whiteContrast >= inkContrast ? "#ffffff" : "#241a12";
 }

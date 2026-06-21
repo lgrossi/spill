@@ -25,8 +25,10 @@ describe('clampAccent', () => {
 });
 
 describe('readableTextColor', () => {
-  it('uses white on dark accents and dark ink on light accents', () => {
+  it('chooses the higher-contrast foreground for each accent', () => {
     expect(readableTextColor('#0f5f72')).toBe('#ffffff');
+    expect(readableTextColor('#cf4f4f')).toBe('#ffffff');
+    expect(readableTextColor('#2f9469')).toBe('#241a12');
     expect(readableTextColor('#ffffff')).toBe('#241a12');
   });
 });
