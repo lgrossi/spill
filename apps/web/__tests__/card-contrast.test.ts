@@ -4,19 +4,23 @@ import { clampAccent, readableTextColor } from '../app/components/spill-ui';
 describe('clampAccent', () => {
   it('leaves dark accents untouched', () => {
     expect(clampAccent('#0f5f72')).toBe('#0f5f72');
-    expect(clampAccent('#2f9469')).toBe('#2f9469');
+    expect(clampAccent('#8757b6')).toBe('#8757b6');
   });
 
   it('darkens a too-light accent until white text is readable', () => {
     const clamped = clampAccent('#ffd9e6');
-    expect(clamped).not.toBe('#ffd9e6');
-    // A clamped accent must yield white as the readable text color.
+    expect(clamped).toBe('#87616e');
     expect(readableTextColor(clamped)).toBe('#ffffff');
   });
 
   it('tolerates shorthand and missing-hash input', () => {
     expect(clampAccent('fff')).not.toBe('#ffffff');
     expect(readableTextColor(clampAccent('fff'))).toBe('#ffffff');
+  });
+
+  it('falls back for malformed hex input', () => {
+    expect(clampAccent('#zzzzzz')).toBe('#000000');
+    expect(clampAccent('nope')).toBe('#000000');
   });
 });
 

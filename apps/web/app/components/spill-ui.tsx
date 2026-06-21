@@ -596,7 +596,7 @@ export function shade(hex: string, percent: number) {
 function normalizeHex(hex: string): string {
   let c = hex.replace("#", "").trim();
   if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
-  return c.length === 6 ? c : "000000";
+  return /^[0-9a-f]{6}$/i.test(c) ? c : "000000";
 }
 
 // WCAG relative luminance (0 = black, 1 = white).
@@ -618,7 +618,7 @@ function relativeLuminance(hex: string): number {
 export function clampAccent(hex: string): string {
   let color = `#${normalizeHex(hex)}`;
   let guard = 0;
-  while (relativeLuminance(color) > 0.5 && guard < 16) {
+  while (relativeLuminance(color) > 0.18 && guard < 32) {
     color = shade(color, -6);
     guard += 1;
   }
@@ -627,5 +627,5 @@ export function clampAccent(hex: string): string {
 
 // Safety net: if an accent still resolves light, pick a readable text color.
 export function readableTextColor(hex: string): string {
-  return relativeLuminance(hex) > 0.6 ? "#241a12" : "#ffffff";
+  return relativeLuminance(hex) > 0.18 ? "#241a12" : "#ffffff";
 }
