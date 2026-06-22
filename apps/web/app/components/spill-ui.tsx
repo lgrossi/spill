@@ -376,7 +376,7 @@ export function SpillCard({
       className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-[var(--card-fg)] shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
       style={{
         background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 60%, ${shade(accent, -6)} 100%)`,
-        "--card-button-fg": accent,
+        "--card-button-fg": readableCardControlColor(accent),
         "--card-fg": readableCardTextColor(accent),
         ...style,
       } as CSSProperties}
@@ -535,7 +535,7 @@ export function CardComposer({
   actions?: ReactNode;
 }) {
   return (
-    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-white shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--composer-glow": `${accent}33` } as CSSProperties}>
+    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-white shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": readableCardControlColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="column_id" type="hidden" value={columnId} />
       {before}
@@ -619,4 +619,9 @@ function contrastRatio(foreground: string, background: string): number {
 export function readableCardTextColor(hex: string): string {
   const normalized = `#${normalizeHex(hex)}`;
   return contrastRatio("#ffffff", normalized) >= contrastRatio("#241a12", normalized) ? "#ffffff" : "#241a12";
+}
+
+export function readableCardControlColor(hex: string): string {
+  const normalized = `#${normalizeHex(hex)}`;
+  return contrastRatio(normalized, "#ffffff") >= 4.5 ? normalized : "#241a12";
 }
