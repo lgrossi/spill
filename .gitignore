@@ -9,3 +9,6 @@ coverage/
 *.tsbuildinfo
 .noether/
 tmp/
+
+# understand-anything analysis cache (local tool output)
+.understand-anything/
