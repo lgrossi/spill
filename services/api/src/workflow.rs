@@ -1160,35 +1160,6 @@ async fn ensure_retro_host(
     }
 }
 
-// Non-erroring variant of ensure_retro_host. Used where the host status is a
-// data point (e.g. card-edit-policy enforcement) rather than a hard gate.
-// Returns false rather than Forbidden when the caller isn't the host.
-async fn is_retro_host(
-    repository: &RetroRepository,
-    retro_id: Uuid,
-    email: &str,
-) -> Result<bool, ApiError> {
-    if email.is_empty() {
-        return Ok(false);
-    }
-    let email_lc = email.trim().to_lowercase();
-    let retro = repository
-        .fetch_retro(retro_id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
-        .ok_or_else(|| ApiError::not_found("retro not found"))?;
-    if !retro.creator_email.is_empty() && retro.creator_email == email_lc {
-        return Ok(true);
-    }
-    let grants = repository
-        .list_board_grants(retro_id)
-        .await
-        .map_err(|error| ApiError::internal(format!("failed to check host: {error}")))?;
-    Ok(grants
-        .iter()
-        .any(|grant| grant.principal_email.eq_ignore_ascii_case(email) && grant.role == "host"))
-}
-
 // Fetch the inputs the cards.rs SQL gate needs: the board's edit policy and
 // whether the caller is the host. Single-purpose helper so update_draft_card
 // and delete_draft_card share one source of truth.
@@ -1202,7 +1173,20 @@ async fn card_edit_gate(
         .await
         .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
         .ok_or_else(|| ApiError::not_found("retro not found"))?;
-    let is_host = is_retro_host(repository, retro_id, email).await?;
+    if email.is_empty() {
+        return Ok((retro.card_edit_policy, false));
+    }
+    let email_lc = email.trim().to_lowercase();
+    if !retro.creator_email.is_empty() && retro.creator_email == email_lc {
+        return Ok((retro.card_edit_policy, true));
+    }
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host: {error}")))?;
+    let is_host = grants
+        .iter()
+        .any(|grant| grant.principal_email.eq_ignore_ascii_case(email) && grant.role == "host");
     Ok((retro.card_edit_policy, is_host))
 }
 
