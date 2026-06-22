@@ -222,11 +222,10 @@ impl RetroWorkflow {
             Some(value) => Some(validate_card_edit_policy(value)?),
             None => None,
         };
-        let updates_board_config =
-            vote_limit.is_some()
-                || action_discussion_limit.is_some()
-                || clustering_mode.is_some()
-                || card_edit_policy.is_some();
+        let updates_board_config = vote_limit.is_some()
+            || action_discussion_limit.is_some()
+            || clustering_mode.is_some()
+            || card_edit_policy.is_some();
         let mut trigger_voting_auto_cluster = false;
         if updates_board_config {
             let retro = self
