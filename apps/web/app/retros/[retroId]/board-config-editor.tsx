@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 import { Btn, Tile, spillColors } from "@/components/spill-ui";
 import { updateRetroDetailsAction } from "@/lib/actions";
+import type { RetroBoard } from "@/lib/contracts";
+
+type CardEditPolicy = RetroBoard["retro"]["card_edit_policy"];
 
 const numberInputStyle = {
   borderWidth: "0 0 1px",
@@ -31,7 +34,7 @@ export function BoardConfigForm({
   actionDiscussionLimit: number;
   clusteringMode: string;
   hasActionColumn: boolean;
-  cardEditPolicy: string;
+  cardEditPolicy: CardEditPolicy;
   onCancel?: () => void;
   className?: string;
 }) {

@@ -1848,7 +1848,16 @@ mod tests {
         );
 
         let removed = repo
-            .update_draft_card(card.id, "ava", Some("text only now"), None, None, None, "collaborative", false)
+            .update_draft_card(
+                card.id,
+                "ava",
+                Some("text only now"),
+                None,
+                None,
+                None,
+                "collaborative",
+                false,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -3289,7 +3298,9 @@ mod tests {
         assert_eq!(repo.fetch_actions(created.retro.id).await.unwrap().len(), 1);
 
         // Deleting the card removes its action.
-        repo.delete_draft_card(card.id, "ava", "collaborative", false).await.unwrap();
+        repo.delete_draft_card(card.id, "ava", "collaborative", false)
+            .await
+            .unwrap();
         assert!(
             repo.fetch_actions(created.retro.id)
                 .await
@@ -4454,7 +4465,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(collab.is_some(), "collaborative policy must allow non-author updates");
+        assert!(
+            collab.is_some(),
+            "collaborative policy must allow non-author updates"
+        );
 
         // author_only + non-author non-host => no update, no rows changed.
         let blocked = repo
@@ -4470,7 +4484,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(blocked.is_none(), "author_only must block non-author non-host updates");
+        assert!(
+            blocked.is_none(),
+            "author_only must block non-author non-host updates"
+        );
 
         // author_only + author => allowed.
         let by_author = repo
@@ -4487,7 +4504,10 @@ mod tests {
             .await
             .unwrap();
         assert!(by_author.is_some(), "author_only must allow the author");
-        assert_eq!(by_author.unwrap().body_text.as_deref(), Some("Ava edits her own card"));
+        assert_eq!(
+            by_author.unwrap().body_text.as_deref(),
+            Some("Ava edits her own card")
+        );
 
         // author_only + host (is_host = true) => allowed even when not author.
         let by_host = repo
@@ -4503,14 +4523,20 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(by_host.is_some(), "author_only must allow the host override");
+        assert!(
+            by_host.is_some(),
+            "author_only must allow the host override"
+        );
 
         // DELETE: author_only + non-author non-host => not deleted.
         let lee_delete = repo
             .delete_draft_card(card.id, "lee", "author_only", false)
             .await
             .unwrap();
-        assert!(!lee_delete, "author_only must block non-author non-host delete");
+        assert!(
+            !lee_delete,
+            "author_only must block non-author non-host delete"
+        );
         // Card still present.
         assert!(
             repo.fetch_board_for_user(created.retro.id, "ava", "Ava")

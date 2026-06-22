@@ -1,7 +1,10 @@
 "use client";
 
 import { useRef } from "react";
+import type { RetroBoard } from "@/lib/contracts";
 import { BoardConfigForm } from "./board-config-editor";
+
+type CardEditPolicy = RetroBoard["retro"]["card_edit_policy"];
 
 export function BoardSettingsButton({
   retroId,
@@ -20,7 +23,7 @@ export function BoardSettingsButton({
   actionDiscussionLimit: number;
   clusteringMode: string;
   hasActionColumn: boolean;
-  cardEditPolicy: string;
+  cardEditPolicy: CardEditPolicy;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 

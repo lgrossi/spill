@@ -130,7 +130,7 @@ impl RetroRepository {
                 $6, $7, $8
              )
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status,
+                clustering_mode, clustering_status, card_edit_policy,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -242,6 +242,7 @@ impl RetroRepository {
              WHERE previous_retro_id = $1
                AND ($3::text IS NULL OR title = $3)
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                card_edit_policy,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
