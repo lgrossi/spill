@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { clampAccent, readableTextColor } from '../app/components/spill-ui';
+import { clampAccent, readableCardTextColor, readableComposerFieldTextColor, readableTextColor } from '../app/components/spill-ui';
 
 describe('clampAccent', () => {
   it('leaves dark accents untouched', () => {
     expect(clampAccent('#0f5f72')).toBe('#0f5f72');
-    expect(clampAccent('#8757b6')).toBe('#8757b6');
+    expect(clampAccent('#4d2f72')).toBe('#4d2f72');
   });
 
   it('darkens a too-light accent until white text is readable', () => {
@@ -30,5 +30,15 @@ describe('readableTextColor', () => {
     expect(readableTextColor('#cf4f4f')).toBe('#ffffff');
     expect(readableTextColor('#2f9469')).toBe('#241a12');
     expect(readableTextColor('#ffffff')).toBe('#241a12');
+  });
+
+  it('chooses card text against the whole rendered gradient', () => {
+    expect(readableCardTextColor('#cf4f4f')).toBe('#ffffff');
+    expect(readableCardTextColor('#2f9469')).toBe('#241a12');
+  });
+
+  it('chooses composer field text against the textarea overlay', () => {
+    expect(readableComposerFieldTextColor('#2f9469')).toBe('#ffffff');
+    expect(readableComposerFieldTextColor('#ffffff')).toBe('#241a12');
   });
 });
