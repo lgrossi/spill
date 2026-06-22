@@ -21,6 +21,7 @@ describe('clampAccent', () => {
   it('falls back for malformed hex input', () => {
     expect(clampAccent('#zzzzzz')).toBe('#000000');
     expect(clampAccent('nope')).toBe('#000000');
+    expect(readableCardTextColor('#zzzzzz')).toBe('#ffffff');
   });
 });
 
