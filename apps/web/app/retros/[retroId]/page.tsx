@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { BoardAccessDenied, IdentityGate, IdentityUnavailable } from "@/components/identity-gate";
 import { AppChrome, Btn, Stack, Tile, avatarColorForSeed, avatarInitials, spillColors } from "@/components/spill-ui";
-import { ApiError, getRetro, type RetroBoard } from "@/lib/api";
+import { type RetroBoard } from "@/lib/api";
 import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
 import { listGrantsAction, markReadyAction, startScheduledRetroAction, unmarkReadyAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
+import { loadBoard } from "./board-loader";
 import { BoardSync } from "./board-sync";
 import { presenceForPhase } from "./board-presentation";
 import { PhaseControls } from "./phase-controls";
@@ -232,13 +233,4 @@ function ScheduledBoard({ board, isHost, query }: { board: RetroBoard; isHost: b
       </div>
     </div>
   );
-}
-
-async function loadBoard(retroId: string): Promise<RetroBoard | "forbidden" | null> {
-  try {
-    return await getRetro(retroId);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 403) return "forbidden";
-    return null;
-  }
 }
