@@ -6,6 +6,10 @@ describe('readableCardTextColor', () => {
     expect(readableCardTextColor(spillColors.well)).toBe('#241a12');
     expect(readableCardTextColor(spillColors.action)).toBe('#ffffff');
   });
+
+  it('chooses the safest foreground across rendered gradient stops', () => {
+    expect(readableCardTextColor('#0078fc')).toBe('#ffffff');
+  });
 });
 
 describe('readableCardControlColor', () => {

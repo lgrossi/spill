@@ -618,7 +618,10 @@ function contrastRatio(foreground: string, background: string): number {
 
 export function readableCardTextColor(hex: string): string {
   const normalized = `#${normalizeHex(hex)}`;
-  return contrastRatio("#ffffff", normalized) >= contrastRatio("#241a12", normalized) ? "#ffffff" : "#241a12";
+  const gradientStops = [shade(normalized, 4), normalized, shade(normalized, -6)];
+  const minimumWhiteContrast = Math.min(...gradientStops.map((stop) => contrastRatio("#ffffff", stop)));
+  const minimumDarkContrast = Math.min(...gradientStops.map((stop) => contrastRatio("#241a12", stop)));
+  return minimumWhiteContrast >= minimumDarkContrast ? "#ffffff" : "#241a12";
 }
 
 export function readableCardControlColor(hex: string): string {
