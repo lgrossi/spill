@@ -12,6 +12,8 @@ struct NextSource {
     vote_limit: i32,
     action_discussion_limit: i32,
     clustering_mode: String,
+    card_edit_policy: String,
+    anonymous_authors: bool,
     planned_for: String,
     creator_email: String,
     group_id: Option<Uuid>,
@@ -83,6 +85,8 @@ impl RetroRepository {
                 vote_limit,
                 action_discussion_limit,
                 clustering_mode,
+                card_edit_policy,
+                anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 creator_email,
                 group_id
@@ -122,12 +126,14 @@ impl RetroRepository {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "INSERT INTO retros (
                 title, phase, planned_for, vote_limit, action_discussion_limit,
-                clustering_mode, creator_email, group_id, previous_retro_id
+                clustering_mode, card_edit_policy, anonymous_authors, creator_email, group_id, previous_retro_id
              )
              VALUES (
                 $1, 'scheduled', $2::date, $3, $4,
                 CASE WHEN $5 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
-                $6, $7, $8
+                CASE WHEN $6 = 'author_only' THEN 'author_only' ELSE 'collaborative' END,
+                $7,
+                $8, $9, $10
              )
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
                 clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
@@ -139,6 +145,8 @@ impl RetroRepository {
         .bind(source.vote_limit)
         .bind(source.action_discussion_limit)
         .bind(&source.clustering_mode)
+        .bind(&source.card_edit_policy)
+        .bind(source.anonymous_authors)
         .bind(&new_creator_email)
         .bind(group_id)
         .bind(source_retro_id)
