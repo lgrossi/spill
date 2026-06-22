@@ -24,6 +24,7 @@ export function BoardConfigForm({
   clusteringMode,
   hasActionColumn,
   cardEditPolicy,
+  anonymousAuthors,
   onCancel,
   className,
 }: {
@@ -35,6 +36,7 @@ export function BoardConfigForm({
   clusteringMode: string;
   hasActionColumn: boolean;
   cardEditPolicy: CardEditPolicy;
+  anonymousAuthors: boolean;
   onCancel?: () => void;
   className?: string;
 }) {
@@ -42,6 +44,7 @@ export function BoardConfigForm({
   const [topVotedToActions, setTopVotedToActions] = useState(actionDiscussionLimit > 0);
   const [autoOrganize, setAutoOrganize] = useState(clusteringMode === "auto_on_vote_start");
   const [authorOnly, setAuthorOnly] = useState(cardEditPolicy === "author_only");
+  const [hideAuthors, setHideAuthors] = useState(anonymousAuthors);
   const [isPending, startTransition] = useTransition();
   const canToggleVoting = phase !== "voting";
 
@@ -134,6 +137,20 @@ export function BoardConfigForm({
             <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card editing</span>
             <span className={`mt-1 block text-[11px] font-semibold transition ${authorOnly ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
               {authorOnly ? "only the author (or host) can edit / delete a card" : "anyone on the board can edit / delete any card"}
+            </span>
+          </span>
+          <Check />
+        </label>
+      </Tile>
+      <Tile className="flex items-center gap-3">
+        <RuleMark>◐</RuleMark>
+        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+          <input name="anonymous_authors" type="hidden" value="0" />
+          <input className="sr-only" name="anonymous_authors" type="checkbox" value="1" checked={hideAuthors} onChange={(event) => setHideAuthors(event.currentTarget.checked)} />
+          <span className="min-w-0">
+            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card authors</span>
+            <span className={`mt-1 block text-[11px] font-semibold transition ${hideAuthors ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+              {hideAuthors ? "anonymous — only you see your own cards as yours" : "everyone sees who wrote each card"}
             </span>
           </span>
           <Check />

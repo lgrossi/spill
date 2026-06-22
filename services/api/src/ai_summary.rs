@@ -542,6 +542,7 @@ mod tests {
                 clustering_mode: "disabled".to_owned(),
                 clustering_status: "not_run".to_owned(),
                 card_edit_policy: "collaborative".to_owned(),
+                anonymous_authors: false,
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
@@ -707,6 +708,7 @@ mod tests {
             clustering_mode: "disabled".to_owned(),
             clustering_status: "not_run".to_owned(),
             card_edit_policy: "collaborative".to_owned(),
+            anonymous_authors: false,
             planned_for: "2026-05-15".to_owned(),
             happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
         }
@@ -723,7 +725,7 @@ mod tests {
             id: uuid(5),
             retro_id,
             column_id,
-            author_participant_id,
+            author_participant_id: Some(author_participant_id),
             body_text: Some(body_text.to_owned()),
             gif_url: None,
             gif_alt_text: None,
@@ -750,7 +752,7 @@ mod tests {
     ) -> ClusterMemberRecord {
         ClusterMemberRecord {
             id: uuid(id),
-            author_participant_id,
+            author_participant_id: Some(author_participant_id),
             body_text: Some(body_text.to_owned()),
             gif_url: None,
             gif_alt_text: None,

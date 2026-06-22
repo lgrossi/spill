@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
-use board_read_model::attach_cards_to_columns;
+use board_read_model::{attach_cards_to_columns, redact_card_authors};
 mod actions;
 
 mod artifacts;
@@ -39,7 +39,7 @@ impl RetroRepository {
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
              FROM retros
@@ -68,7 +68,7 @@ impl RetroRepository {
              SET planned_for = $2::date
              WHERE id = $1 AND phase = 'scheduled'
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -153,7 +153,10 @@ impl RetroRepository {
         let participants = self.fetch_participants(id).await?;
         let mut columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
-        let cards = self.fetch_cards_for_user(id, subject).await?;
+        let mut cards = self.fetch_cards_for_user(id, subject).await?;
+        if retro.anonymous_authors {
+            redact_card_authors(&mut cards, participant_id);
+        }
         let actions = self.fetch_actions(id).await?;
         let deck = self.fetch_deck(id, subject).await?;
         let ai_artifacts = self.fetch_ai_artifacts(id).await?;
@@ -832,6 +835,11 @@ pub struct RetroRecord {
     // paths don't read the field.
     #[sqlx(default)]
     pub card_edit_policy: String,
+    // Board-level "hide author identity from peers" toggle. The redaction
+    // itself runs in `fetch_board_for_user_with_email`; this field is the
+    // source of truth that the API also echoes to the web client.
+    #[sqlx(default)]
+    pub anonymous_authors: bool,
     pub planned_for: String,
     pub happened_at: Option<String>,
 }
@@ -920,7 +928,10 @@ pub struct CardRecord {
     pub id: Uuid,
     pub retro_id: Uuid,
     pub column_id: Uuid,
-    pub author_participant_id: Uuid,
+    // Nullable on the wire only — the underlying DB column is non-null.
+    // `fetch_board_for_user_with_email` zeroes this out for everyone but
+    // the caller when the board has `anonymous_authors = true`.
+    pub author_participant_id: Option<Uuid>,
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
@@ -942,7 +953,7 @@ pub struct CardRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct ClusterMemberRecord {
     pub id: Uuid,
-    pub author_participant_id: Uuid,
+    pub author_participant_id: Option<Uuid>,
     pub body_text: Option<String>,
     pub gif_url: Option<String>,
     pub gif_alt_text: Option<String>,
@@ -1312,6 +1323,7 @@ pub struct UpdateRetroDetailsInput {
     pub action_discussion_limit: Option<i32>,
     pub clustering_mode: Option<String>,
     pub card_edit_policy: Option<String>,
+    pub anonymous_authors: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -4247,6 +4259,7 @@ mod tests {
             action_discussion_limit: None,
             clustering_mode: None,
             card_edit_policy: None,
+            anonymous_authors: None,
         })
         .await
         .unwrap()
@@ -4293,6 +4306,7 @@ mod tests {
             action_discussion_limit: Some(0),
             clustering_mode: Some("auto_on_vote_start".to_owned()),
             card_edit_policy: None,
+            anonymous_authors: None,
         })
         .await
         .unwrap()
@@ -4362,8 +4376,11 @@ mod tests {
         let block_sequence = |cards: &[CardRecord]| -> Vec<Uuid> {
             let mut seq: Vec<Uuid> = Vec::new();
             for card in cards {
-                if seq.last() != Some(&card.author_participant_id) {
-                    seq.push(card.author_participant_id);
+                let author = card
+                    .author_participant_id
+                    .expect("author_participant_id present pre-redaction");
+                if seq.last() != Some(&author) {
+                    seq.push(author);
                 }
             }
             seq
@@ -4556,5 +4573,123 @@ mod tests {
             .await
             .unwrap();
         assert!(author_delete, "author_only must allow the author to delete");
+    }
+
+    // anonymous_authors = true redacts every card's author_participant_id
+    // EXCEPT the caller's own (so the caller can still recognise their cards
+    // and edit them). Cluster members inherit the redaction because they're
+    // derived from the same CardRecord pre-attach.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn anonymous_authors_redacts_other_participants_on_revealed_board(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Anon retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let column_id = created.columns[0].id;
+
+        let ava_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Ava's card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let lee_card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Lee's card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        // Default (anonymous_authors=false): both authors visible to everyone.
+        let baseline = repo
+            .fetch_board_for_user(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap()
+            .unwrap();
+        for card in baseline.columns.iter().flat_map(|column| column.cards.iter()) {
+            assert!(
+                card.author_participant_id.is_some(),
+                "baseline must keep authors visible: card {} has no author",
+                card.id
+            );
+        }
+
+        // Flip the toggle on.
+        repo.update_retro_details(UpdateRetroDetailsInput {
+            retro_id: created.retro.id,
+            title: None,
+            group_name: None,
+            cover_gif_url: None,
+            cover_gif_alt_text: None,
+            remove_cover_gif: false,
+            vote_limit: None,
+            action_discussion_limit: None,
+            clustering_mode: None,
+            card_edit_policy: None,
+            anonymous_authors: Some(true),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Lee fetches the board: her own card keeps its author; Ava's is redacted.
+        let lee_view = repo
+            .fetch_board_for_user(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(lee_view.retro.anonymous_authors);
+        let lee_cards: Vec<&CardRecord> = lee_view
+            .columns
+            .iter()
+            .flat_map(|column| column.cards.iter())
+            .collect();
+        let lee_own = lee_cards.iter().find(|c| c.id == lee_card.id).expect("lee's card present");
+        let ava_seen_by_lee = lee_cards.iter().find(|c| c.id == ava_card.id).expect("ava's card present");
+        assert!(lee_own.author_participant_id.is_some(), "caller's own card keeps its author");
+        assert!(ava_seen_by_lee.author_participant_id.is_none(), "peer card is redacted");
+
+        // Ava fetches: her own card keeps its author; Lee's is redacted.
+        let ava_view = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let ava_cards: Vec<&CardRecord> = ava_view
+            .columns
+            .iter()
+            .flat_map(|column| column.cards.iter())
+            .collect();
+        let ava_own = ava_cards.iter().find(|c| c.id == ava_card.id).expect("ava's card present");
+        let lee_seen_by_ava = ava_cards.iter().find(|c| c.id == lee_card.id).expect("lee's card present");
+        assert!(ava_own.author_participant_id.is_some(), "caller's own card keeps its author");
+        assert!(lee_seen_by_ava.author_participant_id.is_none(), "peer card is redacted");
     }
 }

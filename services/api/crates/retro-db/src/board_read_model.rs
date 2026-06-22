@@ -29,3 +29,14 @@ pub(crate) fn attach_cards_to_columns(columns: &mut [RetroColumnRecord], cards: 
             .collect();
     }
 }
+
+/// When a board has `anonymous_authors = true`, hide every author identity
+/// except the caller's own. Run this BEFORE `attach_cards_to_columns` so
+/// derived `ClusterMemberRecord`s inherit the redaction.
+pub(crate) fn redact_card_authors(cards: &mut [CardRecord], caller_participant_id: Uuid) {
+    for card in cards {
+        if card.author_participant_id != Some(caller_participant_id) {
+            card.author_participant_id = None;
+        }
+    }
+}

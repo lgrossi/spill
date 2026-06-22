@@ -130,7 +130,7 @@ impl RetroRepository {
                 $6, $7, $8
              )
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -242,7 +242,7 @@ impl RetroRepository {
              WHERE previous_retro_id = $1
                AND ($3::text IS NULL OR title = $3)
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                card_edit_policy,
+                card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -422,6 +422,14 @@ impl RetroRepository {
             sqlx::query("UPDATE retros SET card_edit_policy = $2 WHERE id = $1")
                 .bind(input.retro_id)
                 .bind(card_edit_policy)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        if let Some(anonymous_authors) = input.anonymous_authors {
+            sqlx::query("UPDATE retros SET anonymous_authors = $2 WHERE id = $1")
+                .bind(input.retro_id)
+                .bind(anonymous_authors)
                 .execute(&mut *tx)
                 .await?;
         }
