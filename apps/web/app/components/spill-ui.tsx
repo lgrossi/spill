@@ -582,7 +582,7 @@ export function phaseLabel(phase: string) {
 }
 
 export function shade(hex: string, percent: number) {
-  const c = hex.replace("#", "");
+  const c = normalizeHex(hex);
   const num = Number.parseInt(c, 16);
   let r = (num >> 16) + Math.round((255 * percent) / 100);
   let g = ((num >> 8) & 0xff) + Math.round((255 * percent) / 100);
