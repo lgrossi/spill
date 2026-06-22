@@ -94,4 +94,16 @@ describe("loadBoard", () => {
     expect(result).toBeNull();
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("respects a 403 surfaced on the retry attempt", async () => {
+    const spy = vi
+      .spyOn(api, "getRetro")
+      .mockRejectedValueOnce(new Error("network blip"))
+      .mockRejectedValueOnce(new ApiError("denied", 403));
+
+    const result = await loadBoard("retro-1");
+
+    expect(result).toBe("forbidden");
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 });
