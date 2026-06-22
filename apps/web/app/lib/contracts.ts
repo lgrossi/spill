@@ -117,6 +117,10 @@ export type RetroBoard = {
       | "applied";
     planned_for: string;
     happened_at: string | null;
+    // Board-wide policy for who can edit/delete a revealed card.
+    // 'collaborative' (default): any participant. 'author_only': only the
+    // card author or the board host.
+    card_edit_policy: "collaborative" | "author_only";
   };
   series: {
     id: string;
@@ -252,6 +256,7 @@ export type UpdateRetroDetailsPayload = {
   vote_limit?: number;
   action_discussion_limit?: number;
   clustering_mode?: "disabled" | "auto_on_vote_start";
+  card_edit_policy?: "collaborative" | "author_only";
 };
 
 export type Grant = {

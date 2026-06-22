@@ -415,6 +415,16 @@ impl RetroRepository {
             .await?;
         }
 
+        if let Some(card_edit_policy) = input.card_edit_policy.as_deref().map(str::trim) {
+            // Workflow validates the value before reaching here; the SQL CHECK
+            // on retros.card_edit_policy is the final guard.
+            sqlx::query("UPDATE retros SET card_edit_policy = $2 WHERE id = $1")
+                .bind(input.retro_id)
+                .bind(card_edit_policy)
+                .execute(&mut *tx)
+                .await?;
+        }
+
         tx.commit().await?;
         self.fetch_retro(retro.id).await
     }

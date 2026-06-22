@@ -57,6 +57,12 @@ export default async function RetroBoardPage({
     // treat as non-host if grant check fails
   }
 
+  // Used by per-card UI gates (card-edit policy). Server-side enforcement
+  // lives in cards.rs SQL; this only hides affordances client-side.
+  const currentUserParticipantId =
+    board.participants.find((participant) => participant.external_subject === identity.subject)?.id
+    ?? null;
+
   return (
     <AppChrome
       actions={
@@ -77,7 +83,7 @@ export default async function RetroBoardPage({
       ) : board.retro.phase === "scheduled" ? (
         <ScheduledBoard board={board} isHost={isHost} query={query} />
       ) : (
-        <BoardColumns board={board} query={query} />
+        <BoardColumns board={board} query={query} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />
       )}
     </AppChrome>
   );

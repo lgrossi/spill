@@ -36,6 +36,7 @@ export function PhaseControls({
         actionDiscussionLimit={board.retro.action_discussion_limit}
         clusteringMode={board.retro.clustering_mode}
         hasActionColumn={board.columns.some(isActionsColumn)}
+        cardEditPolicy={board.retro.card_edit_policy}
       />
     ) : null;
 

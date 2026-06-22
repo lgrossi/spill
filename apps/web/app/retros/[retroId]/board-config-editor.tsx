@@ -20,6 +20,7 @@ export function BoardConfigForm({
   actionDiscussionLimit,
   clusteringMode,
   hasActionColumn,
+  cardEditPolicy,
   onCancel,
   className,
 }: {
@@ -30,12 +31,14 @@ export function BoardConfigForm({
   actionDiscussionLimit: number;
   clusteringMode: string;
   hasActionColumn: boolean;
+  cardEditPolicy: string;
   onCancel?: () => void;
   className?: string;
 }) {
   const [votingEnabled, setVotingEnabled] = useState(voteLimit > 0);
   const [topVotedToActions, setTopVotedToActions] = useState(actionDiscussionLimit > 0);
   const [autoOrganize, setAutoOrganize] = useState(clusteringMode === "auto_on_vote_start");
+  const [authorOnly, setAuthorOnly] = useState(cardEditPolicy === "author_only");
   const [isPending, startTransition] = useTransition();
   const canToggleVoting = phase !== "voting";
 
@@ -114,6 +117,20 @@ export function BoardConfigForm({
             <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">AI clustering</span>
             <span className={`mt-1 block text-[11px] font-semibold transition ${autoOrganize ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
               {autoOrganize ? "AI groups and tags cards before voting" : "manual grouping"}
+            </span>
+          </span>
+          <Check />
+        </label>
+      </Tile>
+      <Tile className="flex items-center gap-3">
+        <RuleMark>✎</RuleMark>
+        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+          <input name="card_edit_policy" type="hidden" value="collaborative" />
+          <input className="sr-only" name="card_edit_policy" type="checkbox" value="author_only" checked={authorOnly} onChange={(event) => setAuthorOnly(event.currentTarget.checked)} />
+          <span className="min-w-0">
+            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card editing</span>
+            <span className={`mt-1 block text-[11px] font-semibold transition ${authorOnly ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+              {authorOnly ? "only the author (or host) can edit / delete a card" : "anyone on the board can edit / delete any card"}
             </span>
           </span>
           <Check />

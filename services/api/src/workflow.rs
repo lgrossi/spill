@@ -215,8 +215,18 @@ impl RetroWorkflow {
         let clustering_mode = request
             .clustering_mode
             .map(|value| clustering_mode(Some(value)));
+        // 'collaborative' or 'author_only'; SQL CHECK rejects anything else,
+        // but reject early here for a clearer error than the DB constraint
+        // violation.
+        let card_edit_policy = match request.card_edit_policy.as_deref() {
+            Some(value) => Some(validate_card_edit_policy(value)?),
+            None => None,
+        };
         let updates_board_config =
-            vote_limit.is_some() || action_discussion_limit.is_some() || clustering_mode.is_some();
+            vote_limit.is_some()
+                || action_discussion_limit.is_some()
+                || clustering_mode.is_some()
+                || card_edit_policy.is_some();
         let mut trigger_voting_auto_cluster = false;
         if updates_board_config {
             let retro = self
@@ -267,9 +277,10 @@ impl RetroWorkflow {
             && vote_limit.is_none()
             && action_discussion_limit.is_none()
             && clustering_mode.is_none()
+            && card_edit_policy.is_none()
         {
             return Err(ApiError::bad_request(
-                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, or clustering_mode is required",
+                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, clustering_mode, or card_edit_policy is required",
             ));
         }
 
@@ -284,6 +295,7 @@ impl RetroWorkflow {
                 vote_limit,
                 action_discussion_limit,
                 clustering_mode,
+                card_edit_policy,
             })
             .await
             .map_err(|error| {
@@ -361,6 +373,10 @@ impl RetroWorkflow {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card_body =
             card_body_payload(request.body_text, request.gif_url, request.gif_alt_text)?;
+        // Revealed cards are gated by the board's card_edit_policy. The author
+        // can always edit their own card; the host overrides the policy.
+        let (card_edit_policy, is_host) =
+            card_edit_gate(&self.repository, retro_id, &user.email).await?;
         let card = self
             .repository
             .update_draft_card(
@@ -370,6 +386,8 @@ impl RetroWorkflow {
                 card_body.gif_url.as_deref(),
                 card_body.gif_alt_text.as_deref(),
                 request.cluster_details.as_deref(),
+                &card_edit_policy,
+                is_host,
             )
             .await
             .map_err(|error| ApiError::internal(format!("failed to update draft card: {error}")))?
@@ -432,9 +450,11 @@ impl RetroWorkflow {
         card_id: Uuid,
     ) -> Result<StatusCode, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let (card_edit_policy, is_host) =
+            card_edit_gate(&self.repository, retro_id, &user.email).await?;
         if self
             .repository
-            .delete_draft_card(card_id, &user.subject)
+            .delete_draft_card(card_id, &user.subject, &card_edit_policy, is_host)
             .await
             .map_err(|error| ApiError::internal(format!("failed to delete draft card: {error}")))?
         {
@@ -1141,6 +1161,52 @@ async fn ensure_retro_host(
     }
 }
 
+// Non-erroring variant of ensure_retro_host. Used where the host status is a
+// data point (e.g. card-edit-policy enforcement) rather than a hard gate.
+// Returns false rather than Forbidden when the caller isn't the host.
+async fn is_retro_host(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<bool, ApiError> {
+    if email.is_empty() {
+        return Ok(false);
+    }
+    let email_lc = email.trim().to_lowercase();
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    if !retro.creator_email.is_empty() && retro.creator_email == email_lc {
+        return Ok(true);
+    }
+    let grants = repository
+        .list_board_grants(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check host: {error}")))?;
+    Ok(grants
+        .iter()
+        .any(|grant| grant.principal_email.eq_ignore_ascii_case(email) && grant.role == "host"))
+}
+
+// Fetch the inputs the cards.rs SQL gate needs: the board's edit policy and
+// whether the caller is the host. Single-purpose helper so update_draft_card
+// and delete_draft_card share one source of truth.
+async fn card_edit_gate(
+    repository: &RetroRepository,
+    retro_id: Uuid,
+    email: &str,
+) -> Result<(String, bool), ApiError> {
+    let retro = repository
+        .fetch_retro(retro_id)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+        .ok_or_else(|| ApiError::not_found("retro not found"))?;
+    let is_host = is_retro_host(repository, retro_id, email).await?;
+    Ok((retro.card_edit_policy, is_host))
+}
+
 async fn require_completion_host(
     repository: &RetroRepository,
     user: &CurrentUser,
@@ -1278,6 +1344,18 @@ fn clustering_mode(value: Option<String>) -> String {
     match value.as_deref().map(str::trim) {
         Some("auto_on_vote_start") => "auto_on_vote_start".to_owned(),
         _ => "disabled".to_owned(),
+    }
+}
+
+// Reject unknown card_edit_policy values up front so the caller sees a
+// `bad_request`, not the raw SQL CHECK violation from migration 0023.
+fn validate_card_edit_policy(value: &str) -> Result<String, ApiError> {
+    match value.trim() {
+        "collaborative" => Ok("collaborative".to_owned()),
+        "author_only" => Ok("author_only".to_owned()),
+        other => Err(ApiError::bad_request(format!(
+            "card_edit_policy must be 'collaborative' or 'author_only', got '{other}'"
+        ))),
     }
 }
 
@@ -1578,6 +1656,7 @@ mod tests {
                 happened_at: None,
                 clustering_mode: "auto_on_vote_start".to_owned(),
                 clustering_status: "running".to_owned(),
+                card_edit_policy: "collaborative".to_owned(),
             },
             series: None,
             next_retro: None,
