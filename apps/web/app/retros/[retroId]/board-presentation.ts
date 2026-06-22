@@ -1,4 +1,4 @@
-import { clampAccent, spillColors, type ColumnAccent } from "@/components/spill-ui";
+import { spillColors, type ColumnAccent } from "@/components/spill-ui";
 import type { RetroBoard, RetroCard } from "@/lib/contracts";
 
 export function columnSemantic(column: RetroBoard["columns"][number]): { kind: ColumnAccent; label: string; color: string } {
@@ -19,13 +19,7 @@ export function isActionsColumn(column: RetroBoard["columns"][number]) {
 function columnColor(column: RetroBoard["columns"][number], fallback: string) {
   const savedColor = column.accent_color || undefined;
   if (!savedColor || savedColor === spillColors.action) return fallback;
-  if (isGeneratedPaletteColor(savedColor)) return savedColor;
-  // Card text is white; keep a custom accent dark enough to stay readable.
-  return clampAccent(savedColor);
-}
-
-function isGeneratedPaletteColor(color: string) {
-  return new Set([spillColors.mood, spillColors.well, spillColors.wrong, spillColors.muted, "#0f5f72"]).has(color.toLowerCase());
+  return savedColor;
 }
 
 function hasActionWord(title: string) {
