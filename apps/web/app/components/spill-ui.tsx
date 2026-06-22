@@ -373,10 +373,11 @@ export function SpillCard({
 }) {
   return (
     <div
-      className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-white shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
+      className={`sp-card-grain rounded-[8px] p-3 text-[13.5px] font-medium leading-[1.38] text-[var(--card-fg)] shadow-[var(--shadow-2),var(--card-inset-hi),var(--card-inset-lo)] ${className}`}
       style={{
         background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 60%, ${shade(accent, -6)} 100%)`,
         "--card-button-fg": accent,
+        "--card-fg": readableCardTextColor(accent),
         ...style,
       } as CSSProperties}
     >
@@ -596,4 +597,26 @@ function normalizeHex(hex: string): string {
   let c = hex.replace("#", "").trim();
   if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
   return /^[0-9a-f]{6}$/i.test(c) ? c : "000000";
+}
+
+function relativeLuminance(hex: string): number {
+  const num = Number.parseInt(normalizeHex(hex), 16);
+  const channel = (value: number) => {
+    const s = value / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel((num >> 16) & 0xff) + 0.7152 * channel((num >> 8) & 0xff) + 0.0722 * channel(num & 0xff);
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function readableCardTextColor(hex: string): string {
+  const normalized = `#${normalizeHex(hex)}`;
+  return contrastRatio("#ffffff", normalized) >= contrastRatio("#241a12", normalized) ? "#ffffff" : "#241a12";
 }
