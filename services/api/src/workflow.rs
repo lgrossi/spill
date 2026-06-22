@@ -222,10 +222,12 @@ impl RetroWorkflow {
             Some(value) => Some(validate_card_edit_policy(value)?),
             None => None,
         };
+        let anonymous_authors = request.anonymous_authors;
         let updates_board_config = vote_limit.is_some()
             || action_discussion_limit.is_some()
             || clustering_mode.is_some()
-            || card_edit_policy.is_some();
+            || card_edit_policy.is_some()
+            || anonymous_authors.is_some();
         let mut trigger_voting_auto_cluster = false;
         if updates_board_config {
             let retro = self
@@ -277,9 +279,10 @@ impl RetroWorkflow {
             && action_discussion_limit.is_none()
             && clustering_mode.is_none()
             && card_edit_policy.is_none()
+            && anonymous_authors.is_none()
         {
             return Err(ApiError::bad_request(
-                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, clustering_mode, or card_edit_policy is required",
+                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, clustering_mode, card_edit_policy, or anonymous_authors is required",
             ));
         }
 
@@ -295,6 +298,7 @@ impl RetroWorkflow {
                 action_discussion_limit,
                 clustering_mode,
                 card_edit_policy,
+                anonymous_authors,
             })
             .await
             .map_err(|error| {
@@ -1640,6 +1644,7 @@ mod tests {
                 clustering_mode: "auto_on_vote_start".to_owned(),
                 clustering_status: "running".to_owned(),
                 card_edit_policy: "collaborative".to_owned(),
+                anonymous_authors: false,
             },
             series: None,
             next_retro: None,
@@ -1745,7 +1750,7 @@ mod tests {
                 id: card_id,
                 retro_id: uuid::Uuid::from_u128(10),
                 column_id: id,
-                author_participant_id: uuid::Uuid::from_u128(20),
+                author_participant_id: Some(uuid::Uuid::from_u128(20)),
                 body_text: Some(body_text.to_owned()),
                 gif_url: None,
                 gif_alt_text: None,

@@ -48,7 +48,9 @@ export type RetroCard = {
   id: string;
   retro_id: string;
   column_id: string;
-  author_participant_id: string;
+  // Nullable when the board has anonymous_authors=true and the caller is
+  // not the author. The Rust API redacts this on read.
+  author_participant_id: string | null;
   body_text: string | null;
   gif_url: string | null;
   gif_alt_text: string | null;
@@ -64,7 +66,7 @@ export type RetroCard = {
   cluster_category: string | null;
   cluster_members: {
     id: string;
-    author_participant_id: string;
+    author_participant_id: string | null;
     body_text: string | null;
     gif_url: string | null;
     gif_alt_text: string | null;
@@ -115,6 +117,9 @@ export type RetroBoard = {
       | "computing"
       | "ready"
       | "applied";
+    // When true the server redacts every card's author_participant_id
+    // for non-self cards (UI shows "anonymous").
+    anonymous_authors: boolean;
     planned_for: string;
     happened_at: string | null;
     // Board-wide policy for who can edit/delete a revealed card.
@@ -257,6 +262,7 @@ export type UpdateRetroDetailsPayload = {
   action_discussion_limit?: number;
   clustering_mode?: "disabled" | "auto_on_vote_start";
   card_edit_policy?: "collaborative" | "author_only";
+  anonymous_authors?: boolean;
 };
 
 export type Grant = {

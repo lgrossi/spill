@@ -37,6 +37,7 @@ export function PhaseControls({
         clusteringMode={board.retro.clustering_mode}
         hasActionColumn={board.columns.some(isActionsColumn)}
         cardEditPolicy={board.retro.card_edit_policy}
+        anonymousAuthors={board.retro.anonymous_authors}
       />
     ) : null;
 

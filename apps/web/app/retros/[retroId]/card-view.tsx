@@ -138,7 +138,8 @@ function ClusterMembers({ board, card }: { board: RetroBoard; card: RetroCard })
   );
 }
 
-function participantById(board: RetroBoard, participantId: string) {
+function participantById(board: RetroBoard, participantId: string | null) {
+  if (participantId === null) return undefined;
   return board.participants.find((participant) => participant.id === participantId);
 }
 

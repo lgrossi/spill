@@ -15,6 +15,7 @@ export function BoardSettingsButton({
   clusteringMode,
   hasActionColumn,
   cardEditPolicy,
+  anonymousAuthors,
 }: {
   retroId: string;
   phase: string;
@@ -24,6 +25,7 @@ export function BoardSettingsButton({
   clusteringMode: string;
   hasActionColumn: boolean;
   cardEditPolicy: CardEditPolicy;
+  anonymousAuthors: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -89,6 +91,7 @@ export function BoardSettingsButton({
             clusteringMode={clusteringMode}
             hasActionColumn={hasActionColumn}
             cardEditPolicy={cardEditPolicy}
+            anonymousAuthors={anonymousAuthors}
             onCancel={close}
           />
         </div>

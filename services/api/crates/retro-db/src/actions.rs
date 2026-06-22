@@ -11,7 +11,7 @@ impl RetroRepository {
              SET phase = 'action_discussion'
              WHERE id = $1 AND phase IN ('discussion', 'voting')
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                card_edit_policy,
+                card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -131,7 +131,7 @@ impl RetroRepository {
              SET phase = 'completed', completed_at = NOW(), happened_at = NOW()
              WHERE id = $1 AND phase = 'action_discussion'
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                card_edit_policy,
+                card_edit_policy, anonymous_authors,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )

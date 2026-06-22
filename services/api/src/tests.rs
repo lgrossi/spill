@@ -1973,6 +1973,7 @@ async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
         action_discussion_limit: None,
         clustering_mode: None,
         card_edit_policy: None,
+        anonymous_authors: None,
     })
     .await
     .unwrap();
