@@ -337,7 +337,7 @@ function WrappedBoardCard({
       {card.cluster_members.length > 0 ? (
         <div className="mt-2 space-y-1.5 border-t border-white/20 pt-2">
           {card.cluster_members.map((member) => (
-            <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-white/90" key={member.id}>
+            <div className="rounded-[6px] bg-white/15 px-2 py-1.5 text-[11.5px] leading-4 text-[var(--card-fg)]" key={member.id}>
               {member.gif_url ? <BoardMedia alt={member.gif_alt_text ?? "Grouped media"} src={member.gif_url} /> : null}
               <p className="mt-1 first:mt-0">{member.body_text || member.gif_alt_text || "media card"}</p>
             </div>
@@ -347,7 +347,7 @@ function WrappedBoardCard({
       {clusterChips.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1">
           {clusterChips.map((tag) => (
-            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold text-white/85" key={tag}>
+            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold text-[var(--card-fg)]" key={tag}>
               #{tag}
             </span>
           ))}

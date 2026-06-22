@@ -403,7 +403,7 @@ export function CardFooter({
     <div className="mt-2 flex items-center gap-1.5 border-t border-white/20 pt-1.5 text-[11px]">
       <Avatar k={author} color={color} ring="rgba(255,255,255,0.55)" size={18} />
       {authorName ? (
-        <span className="truncate text-[11px] font-semibold text-white/85" title={authorName}>
+        <span className="truncate text-[11px] font-semibold text-[var(--card-fg)]" title={authorName}>
           {authorName}
         </span>
       ) : null}
@@ -535,7 +535,7 @@ export function CardComposer({
   actions?: ReactNode;
 }) {
   return (
-    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-white shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": readableCardControlColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
+    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-[var(--card-fg)] shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": readableCardControlColor(accent), "--card-fg": readableCardTextColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="column_id" type="hidden" value={columnId} />
       {before}
