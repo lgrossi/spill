@@ -377,7 +377,7 @@ export function SpillCard({
       style={{
         background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 60%, ${shade(accent, -6)} 100%)`,
         "--card-button-fg": accent,
-        "--card-fg": readableTextColor(accent),
+        "--card-fg": readableCardTextColor(accent),
         ...style,
       } as CSSProperties}
     >
@@ -535,12 +535,12 @@ export function CardComposer({
   actions?: ReactNode;
 }) {
   return (
-    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-[var(--card-fg)] shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--card-fg": readableTextColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
+    <div className="sp-card-grain w-full min-w-0 overflow-visible rounded-[8px] p-3 text-[var(--card-fg)] shadow-[0_0_0_3px_var(--composer-glow),var(--shadow-2)]" style={{ background: `linear-gradient(180deg, ${shade(accent, 4)} 0%, ${accent} 100%)`, "--card-button-fg": accent, "--card-fg": readableComposerTextColor(accent), "--card-field-fg": readableComposerFieldTextColor(accent), "--composer-glow": `${accent}33` } as CSSProperties}>
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="column_id" type="hidden" value={columnId} />
       {before}
       <IntentCardText
-        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/35 bg-black/15 px-3 py-2 text-[13.5px] font-medium leading-5 text-[var(--card-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:font-bold placeholder:text-[var(--card-fg)] placeholder:opacity-90 focus:border-white/60 focus:shadow-none"
+        className="block min-h-[76px] w-full resize-none rounded-[6px] border border-white/35 bg-black/15 px-3 py-2 text-[13.5px] font-medium leading-5 text-[var(--card-field-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] placeholder:font-hand placeholder:text-2xl placeholder:font-bold placeholder:text-[var(--card-field-fg)] placeholder:opacity-90 focus:border-white/60 focus:shadow-none"
         defaultValue={draftText}
         name="body_text"
         placeholder={placeholder}
@@ -618,7 +618,7 @@ function relativeLuminance(hex: string): number {
 export function clampAccent(hex: string): string {
   let color = `#${normalizeHex(hex)}`;
   let guard = 0;
-  while (relativeLuminance(color) > 0.18 && guard < 32) {
+  while (minimumContrast("#ffffff", cardGradientStops(color)) < 4.5 && guard < 32) {
     color = shade(color, -6);
     guard += 1;
   }
@@ -633,10 +633,47 @@ function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+function minimumContrast(foreground: string, backgrounds: string[]): number {
+  return Math.min(...backgrounds.map((background) => contrastRatio(foreground, background)));
+}
+
+function readableTextColorForBackgrounds(backgrounds: string[]): string {
+  const whiteContrast = minimumContrast("#ffffff", backgrounds);
+  const inkContrast = minimumContrast("#241a12", backgrounds);
+  return whiteContrast >= inkContrast ? "#ffffff" : "#241a12";
+}
+
+function cardGradientStops(accent: string): string[] {
+  return [shade(accent, 4), accent, shade(accent, -6)];
+}
+
+function composerGradientStops(accent: string): string[] {
+  return [shade(accent, 4), accent];
+}
+
+function blackOverlay(hex: string, opacity: number): string {
+  const num = Number.parseInt(normalizeHex(hex), 16);
+  const mix = (value: number) => Math.round(value * (1 - opacity));
+  const r = mix((num >> 16) & 0xff);
+  const g = mix((num >> 8) & 0xff);
+  const b = mix(num & 0xff);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
 // Safety net: pick whichever foreground has the stronger actual contrast.
 export function readableTextColor(hex: string): string {
   const color = `#${normalizeHex(hex)}`;
-  const whiteContrast = contrastRatio("#ffffff", color);
-  const inkContrast = contrastRatio("#241a12", color);
-  return whiteContrast >= inkContrast ? "#ffffff" : "#241a12";
+  return readableTextColorForBackgrounds([color]);
+}
+
+export function readableCardTextColor(hex: string): string {
+  return readableTextColorForBackgrounds(cardGradientStops(hex));
+}
+
+export function readableComposerTextColor(hex: string): string {
+  return readableTextColorForBackgrounds(composerGradientStops(hex));
+}
+
+export function readableComposerFieldTextColor(hex: string): string {
+  return readableTextColorForBackgrounds(composerGradientStops(hex).map((background) => blackOverlay(background, 0.15)));
 }

@@ -51,6 +51,13 @@ describe('columnSemantic', () => {
     });
   });
 
+  it('does not clamp generated palette colors saved by board templates', () => {
+    expect(columnSemantic(column({ title: 'Went well', accent_color: spillColors.well }))).toMatchObject({
+      kind: 'well',
+      color: spillColors.well,
+    });
+  });
+
   it('darkens a too-light saved color so white card text stays readable', () => {
     const result = columnSemantic(column({ title: 'Love notes', accent_color: '#ffd9e6' }));
     expect(result.color).toBe(clampAccent('#ffd9e6'));
