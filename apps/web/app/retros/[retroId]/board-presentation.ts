@@ -19,7 +19,14 @@ export function isActionsColumn(column: RetroBoard["columns"][number]) {
 function columnColor(column: RetroBoard["columns"][number], fallback: string) {
   const savedColor = column.accent_color || undefined;
   if (!savedColor || savedColor === spillColors.action) return fallback;
-  return savedColor;
+  // Preserve the user's chosen color, but only if it is a real hex — the stored
+  // value reaches inline `linear-gradient(...)` / CSS custom properties
+  // unescaped, so a malformed value would corrupt the rendered style.
+  return isHexColor(savedColor) ? savedColor : fallback;
+}
+
+function isHexColor(value: string) {
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
 }
 
 function hasActionWord(title: string) {

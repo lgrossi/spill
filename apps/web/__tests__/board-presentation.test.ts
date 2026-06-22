@@ -63,6 +63,11 @@ describe('columnSemantic', () => {
     expect(result.color).toBe('#ffd9e6');
   });
 
+  it('falls back to the semantic default when a saved color is not valid hex', () => {
+    const result = columnSemantic(column({ title: 'Love notes', accent_color: 'red); }' }));
+    expect(result.color).toBe(spillColors.muted);
+  });
+
   it('labels improvement columns as improve instead of wrong', () => {
     expect(columnSemantic(column({ title: 'To improve' }))).toMatchObject({
       kind: 'improve',
