@@ -96,6 +96,12 @@ export async function updateRetroDetailsCommand(formData: FormData) {
         ? "auto_on_vote_start"
         : "disabled";
   }
+  if (formData.has("card_edit_policy")) {
+    payload.card_edit_policy =
+      String(formData.getAll("card_edit_policy").at(-1) ?? "collaborative") === "author_only"
+        ? "author_only"
+        : "collaborative";
+  }
 
   await updateRetroDetails(retroId, payload);
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);

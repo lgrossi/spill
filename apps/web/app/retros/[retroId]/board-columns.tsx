@@ -11,7 +11,20 @@ type BoardSearchParams = {
   editCard?: string;
 };
 
-export function BoardColumns({ board, query }: { board: RetroBoard; query: BoardSearchParams }) {
+export function BoardColumns({
+  board,
+  query,
+  isHost = false,
+  currentUserParticipantId = null,
+}: {
+  board: RetroBoard;
+  query: BoardSearchParams;
+  // Drive per-card edit/delete affordances when card_edit_policy is
+  // 'author_only'. Optional + safe defaults so the ScheduledBoard overlay
+  // call site (no real cards visible) doesn't need to thread these through.
+  isHost?: boolean;
+  currentUserParticipantId?: string | null;
+}) {
   const columns = board.columns;
   const activeColumnId = query.editCard ? undefined : query.addColumn;
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
@@ -50,7 +63,7 @@ export function BoardColumns({ board, query }: { board: RetroBoard; query: Board
                   {canAddCards ? <ColumnComposer board={board} columnId={column.id} columnLabel={semantic.label} color={semantic.color} isActive={isActiveColumn} /> : null}
 
                   <div className="sp-scroll min-h-0 flex-1 space-y-2.5 overflow-auto pr-1">
-                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} />)}
+                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />)}
                     <DropEndMarker accent={semantic.color} columnId={column.id} enabled={canDrag} />
                   </div>
                 </DropColumn>

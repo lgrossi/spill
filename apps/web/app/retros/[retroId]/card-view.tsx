@@ -16,6 +16,8 @@ export function CardView({
   moving,
   clustering,
   semanticLabel,
+  isHost,
+  currentUserParticipantId,
 }: {
   board: RetroBoard;
   card: RetroCard;
@@ -25,6 +27,8 @@ export function CardView({
   moving: boolean;
   clustering: boolean;
   semanticLabel: string;
+  isHost: boolean;
+  currentUserParticipantId: string | null;
 }) {
   if (card.hidden) {
     return <HiddenDraft accent={color} />;
@@ -33,12 +37,26 @@ export function CardView({
   const isEditingGroup = editing && board.retro.phase !== "completed" && card.parent_card_id === null && card.cluster_id !== null;
   const author = participantById(board, card.author_participant_id);
 
-  if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null) {
+  // See `canModifyCard` below for the policy.
+  const canModifyCard =
+    board.retro.card_edit_policy === "collaborative"
+    || isHost
+    || (currentUserParticipantId !== null && card.author_participant_id === currentUserParticipantId);
+
+  if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null && canModifyCard) {
     return <DraftCardEditor board={board} card={card} color={color} semanticLabel={semanticLabel} />;
   }
 
   const hasMedia = !card.cluster_id && Boolean(card.gif_url);
-  const hasActions = board.retro.phase !== "completed" && card.parent_card_id === null && !isEditingGroup;
+  // Mirror the SQL gate in cards.rs: anyone may edit/delete under
+  // 'collaborative'; under 'author_only' only the card author or the board
+  // host may. The server enforces this for real; this just hides the
+  // affordance so users don't see actions they'd be rejected on.
+  const hasActions =
+    board.retro.phase !== "completed"
+    && card.parent_card_id === null
+    && !isEditingGroup
+    && canModifyCard;
 
   return (
     <DraggableCard accent={color} cardId={card.id} columnId={card.column_id} enabled={draggable} clusteringEnabled={clustering} movingEnabled={moving} retroId={board.retro.id}>

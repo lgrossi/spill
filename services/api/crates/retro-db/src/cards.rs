@@ -53,6 +53,8 @@ impl RetroRepository {
         gif_url: Option<&str>,
         gif_alt_text: Option<&str>,
         cluster_details: Option<&str>,
+        card_edit_policy: &str,
+        is_host: bool,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let previous_title = sqlx::query_scalar::<_, String>(
@@ -79,7 +81,13 @@ impl RetroRepository {
                AND r.id = c.retro_id
                AND r.phase <> 'completed'
                AND c.parent_card_id IS NULL
-               AND ((c.state = 'draft' AND p.external_subject = $2) OR c.state = 'revealed')
+               AND (
+                 (c.state = 'draft' AND p.external_subject = $2)
+                 OR (
+                   c.state = 'revealed'
+                   AND ($7::TEXT = 'collaborative' OR p.external_subject = $2 OR $8::BOOLEAN = TRUE)
+                 )
+               )
              RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
@@ -88,6 +96,8 @@ impl RetroRepository {
         .bind(gif_url.map(str::trim).filter(|value| !value.is_empty()))
         .bind(gif_alt_text.map(str::trim).filter(|value| !value.is_empty()))
         .bind(cluster_details.map(str::trim).filter(|value| !value.is_empty()))
+        .bind(card_edit_policy)
+        .bind(is_host)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -210,6 +220,8 @@ impl RetroRepository {
         &self,
         card_id: Uuid,
         subject: &str,
+        card_edit_policy: &str,
+        is_host: bool,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         // Capture linked actions before the delete: the FK only nulls
@@ -237,11 +249,17 @@ impl RetroRepository {
                AND r.phase <> 'completed'
                AND (
                  (c.state = 'draft' AND p.external_subject = $2)
-                 OR (c.state = 'revealed' AND c.parent_card_id IS NULL)
+                 OR (
+                   c.state = 'revealed'
+                   AND c.parent_card_id IS NULL
+                   AND ($3::TEXT = 'collaborative' OR p.external_subject = $2 OR $4::BOOLEAN = TRUE)
+                 )
                )",
         )
         .bind(card_id)
         .bind(subject)
+        .bind(card_edit_policy)
+        .bind(is_host)
         .execute(&mut *tx)
         .await?;
 

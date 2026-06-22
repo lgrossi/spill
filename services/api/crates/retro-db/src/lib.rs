@@ -39,7 +39,7 @@ impl RetroRepository {
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status,
+                clustering_mode, clustering_status, card_edit_policy,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
              FROM retros
@@ -68,6 +68,7 @@ impl RetroRepository {
              SET planned_for = $2::date
              WHERE id = $1 AND phase = 'scheduled'
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                clustering_mode, clustering_status, card_edit_policy,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -824,6 +825,13 @@ pub struct RetroRecord {
     pub clustering_mode: String,
     #[sqlx(default)]
     pub clustering_status: String,
+    // Board-wide policy for who can mutate revealed cards. 'collaborative'
+    // (default at the SQL level) means any participant; 'author_only' means
+    // only the card author or the board host. sqlx(default) keeps SELECTs
+    // that don't include this column (background jobs) compiling — those
+    // paths don't read the field.
+    #[sqlx(default)]
+    pub card_edit_policy: String,
     pub planned_for: String,
     pub happened_at: Option<String>,
 }
@@ -1303,6 +1311,7 @@ pub struct UpdateRetroDetailsInput {
     pub vote_limit: Option<i32>,
     pub action_discussion_limit: Option<i32>,
     pub clustering_mode: Option<String>,
+    pub card_edit_policy: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1826,6 +1835,8 @@ mod tests {
                 Some("https://media.example/thumbs-up.gif"),
                 Some("thumbs up"),
                 None,
+                "collaborative",
+                false,
             )
             .await
             .unwrap()
@@ -1837,7 +1848,7 @@ mod tests {
         );
 
         let removed = repo
-            .update_draft_card(card.id, "ava", Some("text only now"), None, None, None)
+            .update_draft_card(card.id, "ava", Some("text only now"), None, None, None, "collaborative", false)
             .await
             .unwrap()
             .unwrap();
@@ -2796,6 +2807,8 @@ mod tests {
             None,
             None,
             Some("Action: keep the release checklist updated"),
+            "collaborative",
+            false,
         )
         .await
         .unwrap()
@@ -3221,6 +3234,8 @@ mod tests {
             None,
             None,
             None,
+            "collaborative",
+            false,
         )
         .await
         .unwrap();
@@ -3243,6 +3258,8 @@ mod tests {
             None,
             None,
             None,
+            "collaborative",
+            false,
         )
         .await
         .unwrap();
@@ -3272,7 +3289,7 @@ mod tests {
         assert_eq!(repo.fetch_actions(created.retro.id).await.unwrap().len(), 1);
 
         // Deleting the card removes its action.
-        repo.delete_draft_card(card.id, "ava").await.unwrap();
+        repo.delete_draft_card(card.id, "ava", "collaborative", false).await.unwrap();
         assert!(
             repo.fetch_actions(created.retro.id)
                 .await
@@ -3330,7 +3347,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        repo.delete_draft_card(done_deleted_card.id, "ava")
+        repo.delete_draft_card(done_deleted_card.id, "ava", "collaborative", false)
             .await
             .unwrap();
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
@@ -3622,7 +3639,7 @@ mod tests {
             })
             .unwrap()
             .id;
-        repo.delete_draft_card(delete_parent_id, "ava")
+        repo.delete_draft_card(delete_parent_id, "ava", "collaborative", false)
             .await
             .unwrap();
         let actions = repo.fetch_actions(created.retro.id).await.unwrap();
@@ -4218,6 +4235,7 @@ mod tests {
             vote_limit: None,
             action_discussion_limit: None,
             clustering_mode: None,
+            card_edit_policy: None,
         })
         .await
         .unwrap()
@@ -4263,6 +4281,7 @@ mod tests {
             vote_limit: Some(7),
             action_discussion_limit: Some(0),
             clustering_mode: Some("auto_on_vote_start".to_owned()),
+            card_edit_policy: None,
         })
         .await
         .unwrap()
@@ -4366,5 +4385,150 @@ mod tests {
             body_index(col0_cards, "ava first col0") < body_index(col0_cards, "ava second col0"),
             "author block must keep chronological order"
         );
+    }
+
+    // card_edit_policy = 'author_only' restricts UPDATE/DELETE on revealed
+    // cards. The author (matched via p.external_subject = caller subject) and
+    // the host (is_host caller flag) can still mutate; non-author non-host
+    // attempts must return None (update) / false (delete) without mutating
+    // the row.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn card_edit_policy_author_only_gates_revealed_updates_and_deletes(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Permissions retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let column_id = created.columns[0].id;
+        let card = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Ava's card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        // Lee must exist as a participant so 'lee' is a valid caller subject.
+        repo.create_draft_card(DraftCardInput {
+            retro_id: created.retro.id,
+            column_id,
+            author_subject: "lee".to_owned(),
+            author_display_name: "Lee".to_owned(),
+            body_text: Some("Lee's card".to_owned()),
+            gif_url: None,
+            gif_alt_text: None,
+        })
+        .await
+        .unwrap();
+        repo.reveal_board(created.retro.id).await.unwrap();
+
+        // Collaborative (default): a non-author non-host CAN edit a revealed
+        // card. Sanity-check the baseline before flipping the policy.
+        let collab = repo
+            .update_draft_card(
+                card.id,
+                "lee",
+                Some("Lee changed Ava's card".to_owned()).as_deref(),
+                None,
+                None,
+                None,
+                "collaborative",
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(collab.is_some(), "collaborative policy must allow non-author updates");
+
+        // author_only + non-author non-host => no update, no rows changed.
+        let blocked = repo
+            .update_draft_card(
+                card.id,
+                "lee",
+                Some("Lee tries again under author_only").as_deref(),
+                None,
+                None,
+                None,
+                "author_only",
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(blocked.is_none(), "author_only must block non-author non-host updates");
+
+        // author_only + author => allowed.
+        let by_author = repo
+            .update_draft_card(
+                card.id,
+                "ava",
+                Some("Ava edits her own card").as_deref(),
+                None,
+                None,
+                None,
+                "author_only",
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(by_author.is_some(), "author_only must allow the author");
+        assert_eq!(by_author.unwrap().body_text.as_deref(), Some("Ava edits her own card"));
+
+        // author_only + host (is_host = true) => allowed even when not author.
+        let by_host = repo
+            .update_draft_card(
+                card.id,
+                "lee",
+                Some("Host overrides under author_only").as_deref(),
+                None,
+                None,
+                None,
+                "author_only",
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(by_host.is_some(), "author_only must allow the host override");
+
+        // DELETE: author_only + non-author non-host => not deleted.
+        let lee_delete = repo
+            .delete_draft_card(card.id, "lee", "author_only", false)
+            .await
+            .unwrap();
+        assert!(!lee_delete, "author_only must block non-author non-host delete");
+        // Card still present.
+        assert!(
+            repo.fetch_board_for_user(created.retro.id, "ava", "Ava")
+                .await
+                .unwrap()
+                .unwrap()
+                .columns
+                .iter()
+                .flat_map(|column| column.cards.iter())
+                .any(|c| c.id == card.id),
+            "blocked delete must leave the card intact"
+        );
+
+        // DELETE by author under author_only => succeeds.
+        let author_delete = repo
+            .delete_draft_card(card.id, "ava", "author_only", false)
+            .await
+            .unwrap();
+        assert!(author_delete, "author_only must allow the author to delete");
     }
 }

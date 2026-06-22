@@ -541,6 +541,7 @@ mod tests {
                 cover_gif_alt_text: None,
                 clustering_mode: "disabled".to_owned(),
                 clustering_status: "not_run".to_owned(),
+                card_edit_policy: "collaborative".to_owned(),
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
@@ -705,6 +706,7 @@ mod tests {
             cover_gif_alt_text: None,
             clustering_mode: "disabled".to_owned(),
             clustering_status: "not_run".to_owned(),
+            card_edit_policy: "collaborative".to_owned(),
             planned_for: "2026-05-15".to_owned(),
             happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
         }

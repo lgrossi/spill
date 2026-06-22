@@ -11,6 +11,7 @@ export function BoardSettingsButton({
   actionDiscussionLimit,
   clusteringMode,
   hasActionColumn,
+  cardEditPolicy,
 }: {
   retroId: string;
   phase: string;
@@ -19,6 +20,7 @@ export function BoardSettingsButton({
   actionDiscussionLimit: number;
   clusteringMode: string;
   hasActionColumn: boolean;
+  cardEditPolicy: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -83,6 +85,7 @@ export function BoardSettingsButton({
             actionDiscussionLimit={actionDiscussionLimit}
             clusteringMode={clusteringMode}
             hasActionColumn={hasActionColumn}
+            cardEditPolicy={cardEditPolicy}
             onCancel={close}
           />
         </div>

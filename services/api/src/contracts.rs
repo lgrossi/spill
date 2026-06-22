@@ -56,6 +56,7 @@ pub struct UpdateRetroDetailsRequest {
     pub vote_limit: Option<i32>,
     pub action_discussion_limit: Option<i32>,
     pub clustering_mode: Option<String>,
+    pub card_edit_policy: Option<String>,
 }
 
 #[derive(Deserialize)]
