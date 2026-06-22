@@ -88,7 +88,9 @@ impl RetroRepository {
                    AND ($7::TEXT = 'collaborative' OR p.external_subject = $2 OR $8::BOOLEAN = TRUE)
                  )
                )
-             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+             RETURNING c.id, c.retro_id, c.column_id,
+                CASE WHEN r.anonymous_authors AND p.external_subject <> $2 THEN NULL ELSE c.author_participant_id END AS author_participant_id,
+                c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
         .bind(subject)
@@ -142,7 +144,9 @@ impl RetroRepository {
                AND rc.retro_id = $4
                AND r.phase <> 'completed'
                AND (c.state = 'revealed' OR (c.state = 'draft' AND p.external_subject = $2))
-             RETURNING c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+             RETURNING c.id, c.retro_id, c.column_id,
+                CASE WHEN r.anonymous_authors AND p.external_subject <> $2 THEN NULL ELSE c.author_participant_id END AS author_participant_id,
+                c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(card_id)
         .bind(subject)

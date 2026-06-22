@@ -150,11 +150,16 @@ impl RetroRepository {
         };
         let participant_id = self.ensure_participant(id, subject, display_name).await?;
         self.record_retro_access(id, participant_id).await?;
-        let participants = self.fetch_participants(id).await?;
+        let mut participants = self.fetch_participants(id).await?;
         let mut columns = self.fetch_columns(id).await?;
         let clusters = self.fetch_clusters(id).await?;
         let mut cards = self.fetch_cards_for_user(id, subject).await?;
         if retro.anonymous_authors {
+            for participant in &mut participants {
+                if participant.id != participant_id {
+                    participant.card_count = 0;
+                }
+            }
             redact_card_authors(&mut cards, participant_id);
         }
         let actions = self.fetch_actions(id).await?;
@@ -4056,6 +4061,22 @@ mod tests {
         repo.set_clustering_mode(created.retro.id, "auto_on_vote_start")
             .await
             .unwrap();
+        repo.update_retro_details(UpdateRetroDetailsInput {
+            retro_id: created.retro.id,
+            title: None,
+            group_name: None,
+            cover_gif_url: None,
+            cover_gif_alt_text: None,
+            remove_cover_gif: false,
+            vote_limit: None,
+            action_discussion_limit: None,
+            clustering_mode: None,
+            card_edit_policy: Some("author_only".to_owned()),
+            anonymous_authors: Some(true),
+        })
+        .await
+        .unwrap()
+        .unwrap();
         repo.start_scheduled_retro(created.retro.id).await.unwrap();
         repo.reveal_board(created.retro.id).await.unwrap();
         repo.start_action_discussion(created.retro.id)
@@ -4089,6 +4110,8 @@ mod tests {
         assert_eq!(next.retro.vote_limit, 4);
         assert_eq!(next.retro.action_discussion_limit, 2);
         assert_eq!(next.retro.clustering_mode, "auto_on_vote_start");
+        assert_eq!(next.retro.card_edit_policy, "author_only");
+        assert!(next.retro.anonymous_authors);
         assert_eq!(next.retro.creator_email, "ava@example.com");
         assert_eq!(next.participants[0].role, "host");
         assert_eq!(next.series.unwrap().name, "Platform");
@@ -4633,7 +4656,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        for card in baseline.columns.iter().flat_map(|column| column.cards.iter()) {
+        for card in baseline
+            .columns
+            .iter()
+            .flat_map(|column| column.cards.iter())
+        {
             assert!(
                 card.author_participant_id.is_some(),
                 "baseline must keep authors visible: card {} has no author",
@@ -4666,15 +4693,53 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(lee_view.retro.anonymous_authors);
+        for participant in &lee_view.participants {
+            if participant.id != lee_card.author_participant_id.unwrap() {
+                assert_eq!(
+                    participant.card_count, 0,
+                    "anonymous boards must hide peer participant card counts"
+                );
+            }
+        }
         let lee_cards: Vec<&CardRecord> = lee_view
             .columns
             .iter()
             .flat_map(|column| column.cards.iter())
             .collect();
-        let lee_own = lee_cards.iter().find(|c| c.id == lee_card.id).expect("lee's card present");
-        let ava_seen_by_lee = lee_cards.iter().find(|c| c.id == ava_card.id).expect("ava's card present");
-        assert!(lee_own.author_participant_id.is_some(), "caller's own card keeps its author");
-        assert!(ava_seen_by_lee.author_participant_id.is_none(), "peer card is redacted");
+        let lee_own = lee_cards
+            .iter()
+            .find(|c| c.id == lee_card.id)
+            .expect("lee's card present");
+        let ava_seen_by_lee = lee_cards
+            .iter()
+            .find(|c| c.id == ava_card.id)
+            .expect("ava's card present");
+        assert!(
+            lee_own.author_participant_id.is_some(),
+            "caller's own card keeps its author"
+        );
+        assert!(
+            ava_seen_by_lee.author_participant_id.is_none(),
+            "peer card is redacted"
+        );
+        let peer_update_response = repo
+            .update_draft_card(
+                ava_card.id,
+                "lee",
+                Some("Lee edits while authors are hidden"),
+                None,
+                None,
+                None,
+                "collaborative",
+                false,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            peer_update_response.author_participant_id.is_none(),
+            "direct mutation responses must also redact peer authors"
+        );
 
         // Ava fetches: her own card keeps its author; Lee's is redacted.
         let ava_view = repo
@@ -4687,9 +4752,21 @@ mod tests {
             .iter()
             .flat_map(|column| column.cards.iter())
             .collect();
-        let ava_own = ava_cards.iter().find(|c| c.id == ava_card.id).expect("ava's card present");
-        let lee_seen_by_ava = ava_cards.iter().find(|c| c.id == lee_card.id).expect("lee's card present");
-        assert!(ava_own.author_participant_id.is_some(), "caller's own card keeps its author");
-        assert!(lee_seen_by_ava.author_participant_id.is_none(), "peer card is redacted");
+        let ava_own = ava_cards
+            .iter()
+            .find(|c| c.id == ava_card.id)
+            .expect("ava's card present");
+        let lee_seen_by_ava = ava_cards
+            .iter()
+            .find(|c| c.id == lee_card.id)
+            .expect("lee's card present");
+        assert!(
+            ava_own.author_participant_id.is_some(),
+            "caller's own card keeps its author"
+        );
+        assert!(
+            lee_seen_by_ava.author_participant_id.is_none(),
+            "peer card is redacted"
+        );
     }
 }
