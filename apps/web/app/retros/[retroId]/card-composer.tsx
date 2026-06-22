@@ -74,5 +74,5 @@ function composerButtonClass(kind: "ghost" | "solid") {
   if (kind === "solid") {
     return `${base} border-white bg-white text-[var(--card-button-fg)] hover:bg-white/90`;
   }
-  return `${base} border-white/35 bg-white/15 text-white/90 hover:bg-white/25`;
+  return `${base} border-white/35 bg-white/15 text-[var(--card-fg)] hover:bg-white/25`;
 }

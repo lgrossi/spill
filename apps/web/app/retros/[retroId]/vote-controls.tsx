@@ -12,7 +12,7 @@ export function VoteControls({ board, card, color }: { board: RetroBoard; card: 
         <input name="card_id" type="hidden" value={card.id} />
         <button className={cardButtonClass} disabled={card.current_user_vote_count <= 0} style={{ "--card-button-fg": controlColor } as CSSProperties} type="submit">-</button>
       </form>
-      <span className="grid h-6 min-w-6 place-items-center rounded-full border border-white/35 bg-white/15 px-2 text-[11px] font-extrabold text-white" aria-label={`${card.current_user_vote_count} of your votes on this card`}>
+      <span className="grid h-6 min-w-6 place-items-center rounded-full border border-white/35 bg-white/15 px-2 text-[11px] font-extrabold text-[var(--card-fg)]" aria-label={`${card.current_user_vote_count} of your votes on this card`}>
         {card.current_user_vote_count}
       </span>
       <form action={castVoteAction}>
