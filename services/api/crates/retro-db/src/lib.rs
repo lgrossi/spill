@@ -606,6 +606,13 @@ impl RetroRepository {
         is_participating: bool,
         caller_subject: Option<&str>,
     ) -> Result<SetParticipationResult, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        if !is_participating {
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM retros WHERE id = $1 FOR UPDATE")
+                .bind(retro_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        }
         let updated = sqlx::query_scalar::<_, Uuid>(
             "UPDATE participants
              SET is_participating = $3
@@ -628,9 +635,10 @@ impl RetroRepository {
         .bind(participant_id)
         .bind(is_participating)
         .bind(caller_subject)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
         if updated.is_some() {
+            tx.commit().await?;
             return Ok(SetParticipationResult::Updated);
         }
         if !is_participating {
@@ -646,12 +654,14 @@ impl RetroRepository {
             .bind(retro_id)
             .bind(participant_id)
             .bind(caller_subject)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
             if matched_participant {
+                tx.commit().await?;
                 return Ok(SetParticipationResult::LastActive);
             }
         }
+        tx.commit().await?;
         Ok(SetParticipationResult::NotFound)
     }
 
