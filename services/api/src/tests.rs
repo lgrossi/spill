@@ -2216,6 +2216,7 @@ async fn ai_next_title_does_not_overwrite_manual_edit(pool: sqlx::PgPool) {
         clustering_mode: None,
         card_edit_policy: None,
         anonymous_authors: None,
+        reveal_mode: None,
     })
     .await
     .unwrap();
@@ -3189,6 +3190,142 @@ async fn retro_create_persists_privacy_toggles(pool: sqlx::PgPool) {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(board["retro"]["card_edit_policy"], "author_only");
     assert_eq!(board["retro"]["anonymous_authors"], true);
+}
+
+// Per-board reveal_mode flows from the create form -> POST /retros body ->
+// retros.reveal_mode column. The CLI/API can pick either mode; UI gates the
+// affordances per mode.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retro_create_persists_reveal_mode_when_explicit(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Big-bang retro","template":"standard","vote_limit":3,"action_discussion_limit":3,"reveal_mode":"big_bang"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(created["retro"]["reveal_mode"], "big_bang");
+}
+
+// Default when reveal_mode is omitted from the create body is 'per_column'
+// -- the API layer's default mirrors the create form's ship-checked default.
+// The SQL column DEFAULT ('big_bang') only applies to backfill / non-API
+// paths.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retro_create_defaults_reveal_mode_to_per_column(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Default reveal mode","template":"standard","vote_limit":3,"action_discussion_limit":3}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(created["retro"]["reveal_mode"], "per_column");
+}
+
+// Unknown reveal_mode values are rejected with a clear 4xx before the SQL
+// CHECK fires -- workflow::validate_reveal_mode mirrors the
+// validate_card_edit_policy pattern.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retro_create_rejects_unknown_reveal_mode(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Bad reveal mode","template":"standard","vote_limit":3,"action_discussion_limit":3,"reveal_mode":"telegram"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// PATCH /retros/{id} can toggle reveal_mode on an existing board, e.g. via
+// the board settings dialog if the host changes their mind mid-flight.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn update_retro_details_can_toggle_reveal_mode(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Toggle reveal","template":"standard","vote_limit":3,"action_discussion_limit":3,"reveal_mode":"per_column"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"reveal_mode":"big_bang"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board["retro"]["reveal_mode"], "big_bang");
 }
 
 // Per-column reveal route: host-gated, ready-gated (or force=true bypass),

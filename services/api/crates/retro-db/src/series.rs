@@ -14,6 +14,7 @@ struct NextSource {
     clustering_mode: String,
     card_edit_policy: String,
     anonymous_authors: bool,
+    reveal_mode: String,
     planned_for: String,
     creator_email: String,
     group_id: Option<Uuid>,
@@ -87,6 +88,7 @@ impl RetroRepository {
                 clustering_mode,
                 card_edit_policy,
                 anonymous_authors,
+                reveal_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 creator_email,
                 group_id
@@ -126,17 +128,18 @@ impl RetroRepository {
         let retro = sqlx::query_as::<_, RetroRecord>(
             "INSERT INTO retros (
                 title, phase, planned_for, vote_limit, action_discussion_limit,
-                clustering_mode, card_edit_policy, anonymous_authors, creator_email, group_id, previous_retro_id
+                clustering_mode, card_edit_policy, anonymous_authors, reveal_mode, creator_email, group_id, previous_retro_id
              )
              VALUES (
                 $1, 'scheduled', $2::date, $3, $4,
                 CASE WHEN $5 = 'auto_on_vote_start' THEN 'auto_on_vote_start' ELSE 'disabled' END,
                 CASE WHEN $6 = 'author_only' THEN 'author_only' ELSE 'collaborative' END,
                 $7,
-                $8, $9, $10
+                CASE WHEN $8 = 'per_column' THEN 'per_column' ELSE 'big_bang' END,
+                $9, $10, $11
              )
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors, reveal_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -147,6 +150,7 @@ impl RetroRepository {
         .bind(&source.clustering_mode)
         .bind(&source.card_edit_policy)
         .bind(source.anonymous_authors)
+        .bind(&source.reveal_mode)
         .bind(&new_creator_email)
         .bind(group_id)
         .bind(source_retro_id)
@@ -250,7 +254,7 @@ impl RetroRepository {
              WHERE previous_retro_id = $1
                AND ($3::text IS NULL OR title = $3)
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                card_edit_policy, anonymous_authors,
+                card_edit_policy, anonymous_authors, reveal_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -438,6 +442,17 @@ impl RetroRepository {
             sqlx::query("UPDATE retros SET anonymous_authors = $2 WHERE id = $1")
                 .bind(input.retro_id)
                 .bind(anonymous_authors)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        if let Some(reveal_mode) = input.reveal_mode.as_deref().map(str::trim) {
+            // Workflow validates against {'per_column', 'big_bang'} before
+            // reaching here; the SQL CHECK on retros.reveal_mode is the
+            // final guard.
+            sqlx::query("UPDATE retros SET reveal_mode = $2 WHERE id = $1")
+                .bind(input.retro_id)
+                .bind(reveal_mode)
                 .execute(&mut *tx)
                 .await?;
         }

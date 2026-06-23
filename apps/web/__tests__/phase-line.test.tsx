@@ -25,6 +25,7 @@ function renderDiscussion(status: string, isHost: boolean) {
       participantCount={3}
       readyCount={0}
       allReady={false}
+      revealMode="big_bang"
     />,
   );
 }

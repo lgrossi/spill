@@ -227,6 +227,7 @@ function CenterPhase({ board, isHost }: { board: RetroBoard; isHost: boolean }):
       participantCount={board.ready.participant_count}
       readyCount={board.ready.ready_count}
       allReady={allReady}
+      revealMode={board.retro.reveal_mode}
     />
   );
 }

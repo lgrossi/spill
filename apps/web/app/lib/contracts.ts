@@ -130,6 +130,11 @@ export type RetroBoard = {
     // 'collaborative' (default): any participant. 'author_only': only the
     // card author or the board host.
     card_edit_policy: "collaborative" | "author_only";
+    // Reveal flow: 'per_column' (host walks columns one at a time; last
+    // reveal auto-advances to discussion) or 'big_bang' (single-action
+    // reveal of every column at once). UI gates affordances; backend
+    // accepts both routes regardless of mode.
+    reveal_mode: "per_column" | "big_bang";
   };
   series: {
     id: string;
@@ -237,6 +242,7 @@ export type CreateRetroPayload =
       clustering_mode?: "disabled" | "auto_on_vote_start";
       card_edit_policy?: "collaborative" | "author_only";
       anonymous_authors?: boolean;
+      reveal_mode?: "per_column" | "big_bang";
       invitees?: InviteeRequest[];
     }
   | {
@@ -253,6 +259,7 @@ export type CreateRetroPayload =
       clustering_mode?: "disabled" | "auto_on_vote_start";
       card_edit_policy?: "collaborative" | "author_only";
       anonymous_authors?: boolean;
+      reveal_mode?: "per_column" | "big_bang";
       invitees?: InviteeRequest[];
     };
 
@@ -271,6 +278,7 @@ export type UpdateRetroDetailsPayload = {
   clustering_mode?: "disabled" | "auto_on_vote_start";
   card_edit_policy?: "collaborative" | "author_only";
   anonymous_authors?: boolean;
+  reveal_mode?: "per_column" | "big_bang";
 };
 
 export type Grant = {

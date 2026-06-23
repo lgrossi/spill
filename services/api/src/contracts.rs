@@ -37,6 +37,12 @@ pub struct CreateRetroRequest {
     pub card_edit_policy: Option<String>,
     #[serde(default)]
     pub anonymous_authors: bool,
+    /// 'per_column' (default for new boards; host walks one column at a time)
+    /// or 'big_bang' (legacy single-action reveal). Defaults to 'per_column'
+    /// at the API layer if absent -- mirrors the create form's checkbox
+    /// default. Existing boards backfill to 'big_bang' via the SQL DEFAULT
+    /// so they keep their pre-feature behavior.
+    pub reveal_mode: Option<String>,
     #[serde(default)]
     pub invitees: Vec<InviteeRequest>,
 }
@@ -61,6 +67,7 @@ pub struct UpdateRetroDetailsRequest {
     pub clustering_mode: Option<String>,
     pub card_edit_policy: Option<String>,
     pub anonymous_authors: Option<bool>,
+    pub reveal_mode: Option<String>,
 }
 
 #[derive(Deserialize)]

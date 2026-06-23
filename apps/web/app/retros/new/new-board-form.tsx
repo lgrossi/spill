@@ -33,6 +33,11 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [autoOrganize, setAutoOrganize] = useState(false);
   const [authorOnly, setAuthorOnly] = useState(false);
   const [hideAuthors, setHideAuthors] = useState(false);
+  // Reveal flow toggle. Default true == 'per_column' (the new recommended
+  // mode); uncheck to fall back to the legacy 'big_bang' single-action
+  // reveal. The hidden + checkbox pair below mirrors how anonymous_authors
+  // is wired so unchecked submits as 'big_bang'.
+  const [perColumnReveal, setPerColumnReveal] = useState(true);
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
   const today = localDateString(new Date());
 
@@ -216,12 +221,19 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             </Tile>
             <Tile className="flex items-center gap-3">
               <RuleMark>☉</RuleMark>
-              <CheckboxRule
-                label="reveal mode"
-                name="reveal_mode"
-                offValue="host"
-                onValue="ready"
-              />
+              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+                <input name="reveal_mode" type="hidden" value="big_bang" />
+                <input className="sr-only" name="reveal_mode" type="checkbox" value="per_column" checked={perColumnReveal} onChange={(event) => setPerColumnReveal(event.currentTarget.checked)} />
+                <span className="min-w-0">
+                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">reveal mode</span>
+                  <span className={`mt-1 block text-[11px] font-semibold transition ${perColumnReveal ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+                    {perColumnReveal ? "host reveals one column at a time" : "reveal everything at once when the room is ready"}
+                  </span>
+                </span>
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
+                  ✓
+                </span>
+              </label>
             </Tile>
           </div>
         </div>
