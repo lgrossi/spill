@@ -604,6 +604,11 @@ impl RetroWorkflow {
     ) -> Result<retro_db::RetroBoard, ApiError> {
         ensure_retro_host(&self.repository, retro_id, &user.email).await?;
         let board = self.fetch_board_for_user(retro_id, &user).await?;
+        if board.retro.reveal_mode != "per_column" {
+            return Err(ApiError::bad_request(
+                "column reveal is only available when reveal_mode is per_column",
+            ));
+        }
         if board.retro.phase != "writing" {
             return Err(ApiError::bad_request(
                 "column reveal is only available during the writing phase",
