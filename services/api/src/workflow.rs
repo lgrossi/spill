@@ -51,6 +51,10 @@ impl RetroWorkflow {
         user: CurrentUser,
         request: CreateRetroRequest,
     ) -> Result<(StatusCode, retro_db::RetroBoard), ApiError> {
+        let requested_card_edit_policy = match request.card_edit_policy.as_deref() {
+            Some(value) => Some(validate_card_edit_policy(value)?),
+            None => None,
+        };
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
         for invitee in &invitees {
@@ -96,8 +100,7 @@ impl RetroWorkflow {
                     ApiError::internal(format!("failed to set clustering mode: {error}"))
                 })?;
         }
-        if let Some(policy) = request.card_edit_policy.as_deref() {
-            validate_card_edit_policy(policy)?;
+        if let Some(policy) = requested_card_edit_policy.as_deref() {
             // Only persist when it diverges from the SQL default to keep
             // creation lean (the DB column defaults to 'collaborative').
             if policy != "collaborative" {
@@ -138,6 +141,7 @@ impl RetroWorkflow {
         request: CreateDraftCardRequest,
     ) -> Result<(StatusCode, retro_db::CardRecord), ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        ensure_active_participant(&self.repository, &user, retro_id).await?;
         let retro = self
             .repository
             .fetch_retro(retro_id)
@@ -692,6 +696,7 @@ impl RetroWorkflow {
         request: CastVoteRequest,
     ) -> Result<retro_db::VotingInfo, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        ensure_active_participant(&self.repository, &user, retro_id).await?;
         let info = self
             .repository
             .cast_vote(CastVoteInput {
@@ -1149,6 +1154,24 @@ pub(crate) async fn authorize_retro_participant(
         Ok(())
     } else {
         Err(ApiError::not_found("retro not found"))
+    }
+}
+
+async fn ensure_active_participant(
+    repository: &RetroRepository,
+    user: &CurrentUser,
+    retro_id: Uuid,
+) -> Result<(), ApiError> {
+    if repository
+        .participant_is_participating(retro_id, &user.subject)
+        .await
+        .map_err(|error| ApiError::internal(format!("failed to check participation: {error}")))?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "rejoin this retro before taking board actions",
+        ))
     }
 }
 

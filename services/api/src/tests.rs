@@ -215,6 +215,44 @@ async fn create_retro_rejects_invalid_invitee_role_before_persisting(pool: sqlx:
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn create_retro_rejects_invalid_card_edit_policy_before_persisting(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Bad privacy","template":"standard","card_edit_policy":"private"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let overview: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(overview["active"].as_array().unwrap().len(), 0);
+    assert_eq!(overview["completed"].as_array().unwrap().len(), 0);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn writing_endpoints_hide_other_drafts_until_reveal(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
@@ -1623,6 +1661,144 @@ async fn participant_removal_enforces_access_rules(pool: sqlx::PgPool) {
     let board: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(board["participants"].as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn sitting_out_participants_cannot_create_cards_or_vote(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
+                .header(HEADER_USER_NAME, "Alice")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Participation actions","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"bob@spill.test","role":"member"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bob_board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let bob_participant_id = bob_board["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|participant| participant["display_name"] == "Bob")
+        .and_then(|participant| participant["id"].as_str())
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!(
+                    "/api/retros/{retro_id}/participants/{bob_participant_id}/participation"
+                ))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"is_participating":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"should not land"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
+                .header(HEADER_USER_NAME, "Alice")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"vote target"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let card: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let card_id = card["id"].as_str().unwrap();
+
+    for path in ["ready", "reveal", "voting/start"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_ON_BEHALF_OF, ALICE_EMAIL)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/votes"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"card_id":"{card_id}","count":1}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 // Feature 3 — host can force-reveal even when not all participants are ready.

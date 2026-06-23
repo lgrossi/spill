@@ -61,10 +61,17 @@ pub(super) async fn list_retros(
                 JOIN participants ap ON ap.id = ra.participant_id
                 WHERE ra.retro_id = r.id AND ap.external_subject = $1
             ) AS last_opened_at,
-            COUNT(DISTINCT p.id)::BIGINT AS participant_count,
+            COUNT(DISTINCT p.id) FILTER (WHERE p.is_participating)::BIGINT AS participant_count,
             COUNT(DISTINCT c.id)::BIGINT AS column_count,
             COUNT(DISTINCT rm.participant_id) FILTER (
                 WHERE rm.phase = CASE WHEN r.phase = 'voting' THEN 'voting' ELSE 'writing' END
+                  AND EXISTS (
+                    SELECT 1
+                    FROM participants ready_participant
+                    WHERE ready_participant.id = rm.participant_id
+                      AND ready_participant.retro_id = r.id
+                      AND ready_participant.is_participating
+                  )
             )::BIGINT AS ready_count,
             COUNT(DISTINCT a.id) FILTER (WHERE a.status NOT IN ('rejected', 'done'))::BIGINT AS unresolved_action_count,
             COALESCE(jsonb_agg(DISTINCT tag.value) FILTER (WHERE tag.value IS NOT NULL), '[]'::jsonb) AS recurring_tags,
