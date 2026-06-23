@@ -31,10 +31,9 @@ export function BoardColumns({
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
   const isInteractive = board.retro.phase !== "completed" && board.retro.phase !== "scheduled";
   const isWriting = board.retro.phase === "writing";
-  // Per-column reveal pill shows only to the host, only during writing, and
-  // only once everyone-present is ready -- the same gate the global reveal
-  // button uses. The route accepts ?force=true so a stragglers-but-host case
-  // still works, but we don't surface the pill prematurely.
+  // Per-column reveal starts behind the same ready gate as global reveal. Once
+  // the host starts the column walk, keep the remaining reveal pills available
+  // even if a late participant changes the ready denominator.
   const everyoneReady =
     board.ready.participant_count > 0
     && board.ready.ready_count >= board.ready.participant_count;
@@ -42,7 +41,8 @@ export function BoardColumns({
   // through columns one by one (pills appear; big-bang button hidden via
   // phase-line.tsx); big_bang keeps the legacy single-action reveal.
   const isPerColumnReveal = board.retro.reveal_mode === "per_column";
-  const canRevealColumns = isWriting && isHost && everyoneReady && isPerColumnReveal;
+  const revealWalkStarted = columns.some((column) => Boolean(column.revealed_at));
+  const canRevealColumns = isWriting && isHost && isPerColumnReveal && (everyoneReady || revealWalkStarted);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col p-3 md:p-4" id="board">
