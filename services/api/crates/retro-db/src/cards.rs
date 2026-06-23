@@ -142,6 +142,13 @@ impl RetroRepository {
         subject: &str,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM retro_columns WHERE id = $1 AND retro_id = $2 FOR UPDATE",
+        )
+        .bind(column_id)
+        .bind(retro_id)
+        .fetch_optional(&mut *tx)
+        .await?;
 
         let moved = sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
