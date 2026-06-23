@@ -2,15 +2,20 @@
 
 import { useRef } from "react";
 import { InvitePanel } from "./invite-panel";
+import type { RetroParticipant } from "@/lib/contracts";
 
 export function BoardInviteButton({
   retroId,
   currentUserEmail,
   isHost,
+  participants,
+  currentUserParticipantId,
 }: {
   retroId: string;
   currentUserEmail: string;
   isHost: boolean;
+  participants: RetroParticipant[];
+  currentUserParticipantId: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -74,6 +79,8 @@ export function BoardInviteButton({
             retroId={retroId}
             currentUserEmail={currentUserEmail}
             isHost={isHost}
+            participants={participants}
+            currentUserParticipantId={currentUserParticipantId}
           />
         </div>
       </dialog>

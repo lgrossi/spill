@@ -14,6 +14,7 @@ import {
   startActionDiscussion,
   startVoting,
   unmarkReady,
+  setParticipation,
 } from "@/lib/api";
 import { applyClustering, retryClustering } from "@/lib/api";
 import { field } from "./form-utils";
@@ -29,6 +30,16 @@ export async function unmarkReadyCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await unmarkReady(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function setParticipationCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  const participantId = field(formData, "participant_id");
+  // Hidden marker controlled by the toggle: "1" means participating, "0" means sitting out.
+  const isParticipating = String(formData.get("is_participating") ?? "1") === "1";
+
+  await setParticipation(retroId, participantId, isParticipating);
   redirect(`/retros/${retroId}`);
 }
 

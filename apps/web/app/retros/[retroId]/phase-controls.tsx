@@ -11,16 +11,20 @@ export function PhaseControls({
   board,
   isHost = false,
   currentUserEmail = "",
+  currentUserParticipantId = null,
 }: {
   board: RetroBoard;
   isHost?: boolean;
   currentUserEmail?: string;
+  currentUserParticipantId?: string | null;
 }) {
   const peopleButton = currentUserEmail ? (
     <BoardInviteButton
       retroId={board.retro.id}
       currentUserEmail={currentUserEmail}
       isHost={isHost}
+      participants={board.participants}
+      currentUserParticipantId={currentUserParticipantId}
     />
   ) : null;
   const deleteButton = isHost ? (

@@ -26,6 +26,7 @@ import {
   startActionDiscussionCommand,
   startVotingCommand,
   unmarkReadyCommand,
+  setParticipationCommand,
 } from "./commands/board-phase-commands";
 import { autoAdvanceCommand, forceRevealRetroCommand } from "./commands/board-phase-commands";
 import { applyClusteringCommand, retryClusteringCommand } from "./commands/board-phase-commands";
@@ -90,6 +91,10 @@ export async function markReadyAction(formData: FormData) {
 
 export async function unmarkReadyAction(formData: FormData) {
   return unmarkReadyCommand(formData);
+}
+
+export async function setParticipationAction(formData: FormData) {
+  return setParticipationCommand(formData);
 }
 
 export async function revealRetroAction(formData: FormData) {
