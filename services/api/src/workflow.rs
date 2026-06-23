@@ -55,6 +55,14 @@ impl RetroWorkflow {
             Some(value) => Some(validate_card_edit_policy(value)?),
             None => None,
         };
+        // Default for omitted/absent reveal_mode mirrors the create form
+        // checkbox default: 'per_column' for new boards. The DB column's own
+        // DEFAULT ('big_bang') only applies to migration backfill paths --
+        // any API-driven create lands an explicit value.
+        let requested_reveal_mode = match request.reveal_mode.as_deref() {
+            Some(value) => validate_reveal_mode(value)?,
+            None => "per_column".to_owned(),
+        };
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
         for invitee in &invitees {
@@ -86,6 +94,7 @@ impl RetroWorkflow {
                     request.action_discussion_limit,
                 )?,
                 column_colors: request.column_colors,
+                reveal_mode: Some(requested_reveal_mode),
             })
             .await
             .map_err(|error| ApiError::internal(format!("failed to create retro: {error}")))?;
@@ -248,11 +257,16 @@ impl RetroWorkflow {
             None => None,
         };
         let anonymous_authors = request.anonymous_authors;
+        let reveal_mode = match request.reveal_mode.as_deref() {
+            Some(value) => Some(validate_reveal_mode(value)?),
+            None => None,
+        };
         let updates_board_config = vote_limit.is_some()
             || action_discussion_limit.is_some()
             || clustering_mode.is_some()
             || card_edit_policy.is_some()
-            || anonymous_authors.is_some();
+            || anonymous_authors.is_some()
+            || reveal_mode.is_some();
         let mut trigger_voting_auto_cluster = false;
         if updates_board_config {
             let retro = self
@@ -305,9 +319,10 @@ impl RetroWorkflow {
             && clustering_mode.is_none()
             && card_edit_policy.is_none()
             && anonymous_authors.is_none()
+            && reveal_mode.is_none()
         {
             return Err(ApiError::bad_request(
-                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, clustering_mode, card_edit_policy, or anonymous_authors is required",
+                "title, group_name, cover_gif_url, vote_limit, action_discussion_limit, clustering_mode, card_edit_policy, anonymous_authors, or reveal_mode is required",
             ));
         }
 
@@ -324,6 +339,7 @@ impl RetroWorkflow {
                 clustering_mode,
                 card_edit_policy,
                 anonymous_authors,
+                reveal_mode,
             })
             .await
             .map_err(|error| {
@@ -1439,6 +1455,18 @@ fn validate_card_edit_policy(value: &str) -> Result<String, ApiError> {
     }
 }
 
+// Mirror validate_card_edit_policy: reject unknown reveal_mode values
+// before they hit the SQL CHECK constraint (migration 0027).
+fn validate_reveal_mode(value: &str) -> Result<String, ApiError> {
+    match value.trim() {
+        "per_column" => Ok("per_column".to_owned()),
+        "big_bang" => Ok("big_bang".to_owned()),
+        other => Err(ApiError::bad_request(format!(
+            "reveal_mode must be 'per_column' or 'big_bang', got '{other}'"
+        ))),
+    }
+}
+
 fn build_auto_cluster_prompt(board: &retro_db::RetroBoard, existing_tags: &[String]) -> String {
     let mut prompt = String::from(
         "You are organizing retrospective cards after voting has started.\n\
@@ -1738,6 +1766,7 @@ mod tests {
                 clustering_status: "running".to_owned(),
                 card_edit_policy: "collaborative".to_owned(),
                 anonymous_authors: false,
+                reveal_mode: "big_bang".to_owned(),
             },
             series: None,
             next_retro: None,

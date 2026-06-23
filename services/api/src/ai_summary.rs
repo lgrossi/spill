@@ -543,6 +543,7 @@ mod tests {
                 clustering_status: "not_run".to_owned(),
                 card_edit_policy: "collaborative".to_owned(),
                 anonymous_authors: false,
+                reveal_mode: "big_bang".to_owned(),
                 planned_for: "2026-05-15".to_owned(),
                 happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
             },
@@ -712,6 +713,7 @@ mod tests {
             clustering_status: "not_run".to_owned(),
             card_edit_policy: "collaborative".to_owned(),
             anonymous_authors: false,
+            reveal_mode: "big_bang".to_owned(),
             planned_for: "2026-05-15".to_owned(),
             happened_at: Some("2026-05-15T12:00:00Z".to_owned()),
         }

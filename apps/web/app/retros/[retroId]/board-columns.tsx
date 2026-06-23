@@ -38,7 +38,11 @@ export function BoardColumns({
   const everyoneReady =
     board.ready.participant_count > 0
     && board.ready.ready_count >= board.ready.participant_count;
-  const canRevealColumns = isWriting && isHost && everyoneReady;
+  // Reveal mode gates which affordance is shown: per_column means walk
+  // through columns one by one (pills appear; big-bang button hidden via
+  // phase-line.tsx); big_bang keeps the legacy single-action reveal.
+  const isPerColumnReveal = board.retro.reveal_mode === "per_column";
+  const canRevealColumns = isWriting && isHost && everyoneReady && isPerColumnReveal;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col p-3 md:p-4" id="board">

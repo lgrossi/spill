@@ -58,7 +58,7 @@ impl RetroRepository {
     pub async fn fetch_retro(&self, id: Uuid) -> Result<Option<RetroRecord>, sqlx::Error> {
         sqlx::query_as::<_, RetroRecord>(
             "SELECT id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors, reveal_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at
              FROM retros
@@ -87,7 +87,7 @@ impl RetroRepository {
              SET planned_for = $2::date
              WHERE id = $1 AND phase = 'scheduled'
              RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                clustering_mode, clustering_status, card_edit_policy, anonymous_authors,
+                clustering_mode, clustering_status, card_edit_policy, anonymous_authors, reveal_mode,
                 to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
                 to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
         )
@@ -468,6 +468,22 @@ impl RetroRepository {
         sqlx::query("UPDATE retros SET anonymous_authors = $2 WHERE id = $1")
             .bind(retro_id)
             .bind(anonymous)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Persist the board-level reveal_mode flag. The workflow layer
+    /// validates the value against {'per_column', 'big_bang'} before this
+    /// call; the SQL CHECK on retros.reveal_mode is the final guard.
+    pub async fn set_reveal_mode(
+        &self,
+        retro_id: Uuid,
+        reveal_mode: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE retros SET reveal_mode = $2 WHERE id = $1")
+            .bind(retro_id)
+            .bind(reveal_mode)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -1003,6 +1019,12 @@ pub struct RetroRecord {
     // source of truth that the API also echoes to the web client.
     #[sqlx(default)]
     pub anonymous_authors: bool,
+    // Reveal flow for the board: 'per_column' (host walks one column at a
+    // time; last reveal auto-advances writing -> discussion) or 'big_bang'
+    // (legacy single-action reveal). Gates the web UI affordances; both
+    // backend routes stay reachable so tooling/CLI keeps working.
+    #[sqlx(default)]
+    pub reveal_mode: String,
     pub planned_for: String,
     pub happened_at: Option<String>,
 }
@@ -1479,6 +1501,11 @@ pub struct CreateRetroInput {
     pub vote_limit: i32,
     pub action_discussion_limit: i32,
     pub column_colors: Vec<String>,
+    // None lets the SQL DEFAULT ('big_bang') apply -- used by background
+    // / migration paths that don't care. The API layer always sets this
+    // explicitly ('per_column' for new boards, mirroring the create-form
+    // checkbox default).
+    pub reveal_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1494,6 +1521,7 @@ pub struct UpdateRetroDetailsInput {
     pub clustering_mode: Option<String>,
     pub card_edit_policy: Option<String>,
     pub anonymous_authors: Option<bool>,
+    pub reveal_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1710,6 +1738,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -1754,6 +1783,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -1778,6 +1808,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .expect("create future retro");
@@ -1812,6 +1843,7 @@ mod tests {
                 vote_limit: 0,
                 action_discussion_limit: 0,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .expect("create retro");
@@ -1856,6 +1888,7 @@ mod tests {
                 vote_limit: 5,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -1890,6 +1923,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -1986,6 +2020,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2084,6 +2119,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2144,6 +2180,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2185,6 +2222,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2261,6 +2299,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2332,6 +2371,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2412,6 +2452,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2576,6 +2617,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2710,6 +2752,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2822,6 +2865,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -2939,6 +2983,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3039,6 +3084,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3117,6 +3163,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3261,6 +3308,7 @@ mod tests {
                 vote_limit: 0,
                 action_discussion_limit: 1,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3389,6 +3437,7 @@ mod tests {
                 vote_limit: 0,
                 action_discussion_limit: 1,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3865,6 +3914,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 1,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -3939,6 +3989,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4034,6 +4085,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4109,6 +4161,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4166,6 +4219,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 1,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4217,6 +4271,7 @@ mod tests {
                 vote_limit: 4,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4238,6 +4293,7 @@ mod tests {
             clustering_mode: None,
             card_edit_policy: Some("author_only".to_owned()),
             anonymous_authors: Some(true),
+            reveal_mode: None,
         })
         .await
         .unwrap()
@@ -4329,6 +4385,7 @@ mod tests {
                 vote_limit: 4,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4346,6 +4403,7 @@ mod tests {
                 vote_limit: 4,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4385,6 +4443,7 @@ mod tests {
             vote_limit: 4,
             action_discussion_limit: 2,
             column_colors: Vec::new(),
+            reveal_mode: None,
         })
         .await
         .unwrap();
@@ -4402,6 +4461,7 @@ mod tests {
                 vote_limit: 4,
                 action_discussion_limit: 2,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4432,6 +4492,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4448,6 +4509,7 @@ mod tests {
             clustering_mode: None,
             card_edit_policy: None,
             anonymous_authors: None,
+            reveal_mode: None,
         })
         .await
         .unwrap()
@@ -4479,6 +4541,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4495,6 +4558,7 @@ mod tests {
             clustering_mode: Some("auto_on_vote_start".to_owned()),
             card_edit_policy: None,
             anonymous_authors: None,
+            reveal_mode: None,
         })
         .await
         .unwrap()
@@ -4524,6 +4588,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 1,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4625,6 +4690,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4784,6 +4850,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -4846,6 +4913,7 @@ mod tests {
             clustering_mode: None,
             card_edit_policy: None,
             anonymous_authors: Some(true),
+            reveal_mode: None,
         })
         .await
         .unwrap()
@@ -5013,6 +5081,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5112,6 +5181,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5192,6 +5262,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5281,6 +5352,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5327,6 +5399,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5365,6 +5438,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5421,6 +5495,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5470,6 +5545,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
+                reveal_mode: None,
             })
             .await
             .unwrap();
@@ -5486,5 +5562,119 @@ mod tests {
                 column.title,
             );
         }
+    }
+
+    // CreateRetroInput::reveal_mode = None falls through to the SQL DEFAULT
+    // ('big_bang'). Migration backfill paths rely on this; the API layer
+    // always sets an explicit mode.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn create_retro_with_no_reveal_mode_falls_back_to_sql_default(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "default reveal mode".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+                reveal_mode: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.retro.reveal_mode, "big_bang");
+    }
+
+    // CreateRetroInput::reveal_mode = Some("per_column") persists explicitly.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn create_retro_with_per_column_reveal_mode_persists(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "per-column reveal".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+                reveal_mode: Some("per_column".to_owned()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.retro.reveal_mode, "per_column");
+        let refetched = repo.fetch_retro(created.retro.id).await.unwrap().unwrap();
+        assert_eq!(refetched.reveal_mode, "per_column");
+    }
+
+    // set_reveal_mode flips the field independently of update_retro_details.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn set_reveal_mode_persists(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "flip reveal mode".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+                reveal_mode: Some("big_bang".to_owned()),
+            })
+            .await
+            .unwrap();
+        repo.set_reveal_mode(created.retro.id, "per_column")
+            .await
+            .unwrap();
+        let refetched = repo.fetch_retro(created.retro.id).await.unwrap().unwrap();
+        assert_eq!(refetched.reveal_mode, "per_column");
+    }
+
+    // ensure_next_retro inherits the source's reveal_mode, just like the
+    // other privacy/flow toggles (card_edit_policy, anonymous_authors).
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn ensure_next_retro_inherits_reveal_mode(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let source = repo
+            .create_retro(CreateRetroInput {
+                title: "Series retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "ava@example.com".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: Some("Series".to_owned()),
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: Some("2099-04-01".to_owned()),
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+                reveal_mode: Some("per_column".to_owned()),
+            })
+            .await
+            .unwrap();
+        let next = repo
+            .ensure_next_retro(source.retro.id, "ava", "ava@example.com", "Ava")
+            .await
+            .unwrap()
+            .expect("next retro is created");
+        assert_eq!(next.retro.reveal_mode, "per_column");
     }
 }

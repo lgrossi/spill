@@ -24,6 +24,12 @@ export async function createRetroCommand(formData: FormData) {
       ? "author_only"
       : "collaborative";
   const anonymousAuthors = formData.getAll("anonymous_authors").at(-1) === "1";
+  // Default to per_column when the form field isn't present (e.g. forms
+  // submitted before the toggle existed): matches the create form's
+  // ship-checked default for new boards. Explicit "big_bang" wins when
+  // sent.
+  const revealMode: "per_column" | "big_bang" =
+    formData.getAll("reveal_mode").at(-1) === "big_bang" ? "big_bang" : "per_column";
   const customColumns = formData
     .getAll("custom_column")
     .map((column) => String(column).trim())
@@ -56,6 +62,7 @@ export async function createRetroCommand(formData: FormData) {
     clusteringMode,
     cardEditPolicy,
     anonymousAuthors,
+    revealMode,
   });
 
   const board = await createRetro(payload);
@@ -141,6 +148,7 @@ function retroPayload({
   clusteringMode,
   cardEditPolicy,
   anonymousAuthors,
+  revealMode,
 }: {
   actionDiscussionEnabled: boolean;
   actionDiscussionLimit: number;
@@ -157,6 +165,7 @@ function retroPayload({
   clusteringMode: string;
   cardEditPolicy: "collaborative" | "author_only";
   anonymousAuthors: boolean;
+  revealMode: "per_column" | "big_bang";
 }): CreateRetroPayload {
   const standard = withActionColumn({
     actionDiscussionEnabled,
@@ -175,21 +184,21 @@ function retroPayload({
   });
 
   if (template === "sailboat") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Wind", "Anchor", "Rocks", "Island"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
   }
   if (template === "ssc") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Start", "Stop", "Continue"], undefined, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
   }
   if (template === "msg") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, ["Mad", "Sad", "Glad"], ["#cf4f4f", "#cf4f4f", "#2f9469"], voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
   }
   if (template === "4ls") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, fourLs.columns, fourLs.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
   }
   if (template === "custom") {
-    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+    return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, custom.columns, custom.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
   }
-  return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors);
+  return customPayload(title, groupName, coverGifUrl, coverGifAltText, plannedFor, standard.columns, standard.colors, voteLimit, actionDiscussionLimit, invitees, clusteringMode, cardEditPolicy, anonymousAuthors, revealMode);
 }
 
 function customPayload(
@@ -206,6 +215,7 @@ function customPayload(
   clusteringMode: string,
   cardEditPolicy: "collaborative" | "author_only",
   anonymousAuthors: boolean,
+  revealMode: "per_column" | "big_bang",
 ): CreateRetroPayload {
   return {
     title,
@@ -219,11 +229,13 @@ function customPayload(
     vote_limit: voteLimit,
     action_discussion_limit: actionDiscussionLimit,
     clustering_mode: clusteringMode === "auto_on_vote_start" ? "auto_on_vote_start" : "disabled",
-    // Only include the two new fields when they diverge from defaults so we
+    // Only include privacy/flow fields when they diverge from defaults so we
     // don't expand serialized payload size unnecessarily — the server treats
-    // missing values as the SQL default.
+    // missing values as the per-field default (collaborative card edits,
+    // visible authors, per_column reveal).
     ...(cardEditPolicy === "author_only" ? { card_edit_policy: "author_only" as const } : {}),
     ...(anonymousAuthors ? { anonymous_authors: true as const } : {}),
+    ...(revealMode === "big_bang" ? { reveal_mode: "big_bang" as const } : {}),
     invitees,
   };
 }

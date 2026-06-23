@@ -42,7 +42,7 @@ pub(super) async fn create_retro(
         "WITH requested AS (
             SELECT COALESCE(NULLIF($6, '')::date, CURRENT_DATE) AS planned_for
          )
-         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email, group_id, cover_gif_url, cover_gif_alt_text)
+         INSERT INTO retros (title, phase, planned_for, vote_limit, action_discussion_limit, clustering_mode, creator_email, group_id, cover_gif_url, cover_gif_alt_text, reveal_mode)
          SELECT
             $1,
             CASE WHEN requested.planned_for > CURRENT_DATE THEN 'scheduled' ELSE 'writing' END,
@@ -53,10 +53,14 @@ pub(super) async fn create_retro(
             $4,
             $5,
             NULLIF($7, ''),
-            NULLIF($8, '')
+            NULLIF($8, ''),
+            -- Caller may pass NULL to fall through to the SQL DEFAULT
+            -- ('big_bang'); the API layer always sets an explicit mode so
+            -- the form-driven default ('per_column') flows through.
+            COALESCE(NULLIF($9, ''), 'big_bang')
          FROM requested
          RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-            card_edit_policy, anonymous_authors,
+            card_edit_policy, anonymous_authors, reveal_mode,
             to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
             to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
     )
@@ -68,6 +72,7 @@ pub(super) async fn create_retro(
     .bind(input.planned_for.as_deref().map(str::trim).unwrap_or(""))
     .bind(input.cover_gif_url.as_deref().map(str::trim).unwrap_or(""))
     .bind(input.cover_gif_alt_text.as_deref().map(str::trim).unwrap_or(""))
+    .bind(input.reveal_mode.as_deref().unwrap_or(""))
     .fetch_one(&mut *tx)
     .await?;
 
