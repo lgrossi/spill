@@ -10,6 +10,7 @@ import {
   markReady,
   removeVote,
   revealRetro,
+  revealColumn,
   startScheduledRetro,
   startActionDiscussion,
   startVoting,
@@ -54,6 +55,17 @@ export async function forceRevealRetroCommand(formData: FormData) {
   const retroId = field(formData, "retro_id");
 
   await forceRevealRetro(retroId);
+  redirect(`/retros/${retroId}`);
+}
+
+export async function revealColumnCommand(formData: FormData) {
+  const retroId = field(formData, "retro_id");
+  const columnId = field(formData, "column_id");
+  // The host-side ready check has already passed by the time this affordance
+  // renders; force=true so a late-joiner showing as 'not ready' doesn't block
+  // the host (matches the existing force-reveal escape hatch on the global
+  // reveal button).
+  await revealColumn(retroId, columnId, { force: true });
   redirect(`/retros/${retroId}`);
 }
 

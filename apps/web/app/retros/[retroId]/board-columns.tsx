@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ColumnHeader, Pill } from "@/components/spill-ui";
 import type { RetroBoard } from "@/lib/api";
+import { revealColumnCommand } from "@/lib/commands/board-phase-commands";
 import { DropColumn, DropEndMarker } from "./board-dnd";
 import { CardView } from "./card-view";
 import { InlineComposer } from "./card-composer";
@@ -29,7 +30,15 @@ export function BoardColumns({
   const activeColumnId = query.editCard ? undefined : query.addColumn;
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
   const isInteractive = board.retro.phase !== "completed" && board.retro.phase !== "scheduled";
-  const canAddCards = isInteractive;
+  const isWriting = board.retro.phase === "writing";
+  // Per-column reveal pill shows only to the host, only during writing, and
+  // only once everyone-present is ready -- the same gate the global reveal
+  // button uses. The route accepts ?force=true so a stragglers-but-host case
+  // still works, but we don't surface the pill prematurely.
+  const everyoneReady =
+    board.ready.participant_count > 0
+    && board.ready.ready_count >= board.ready.participant_count;
+  const canRevealColumns = isWriting && isHost && everyoneReady;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col p-3 md:p-4" id="board">
@@ -50,6 +59,11 @@ export function BoardColumns({
               const visibleCards = column.cards;
               const isActiveColumn = activeColumnId === column.id;
               const canDrag = isInteractive;
+              const isColumnRevealed = column.revealed_at != null;
+              // Lock the composer once a column is revealed mid-writing: the
+              // backend rejects new drafts there anyway (see cards.rs guard),
+              // and surfacing the affordance would invite a confusing 4xx.
+              const canComposeHere = isInteractive && !(isWriting && isColumnRevealed);
 
               return (
                 <DropColumn columnId={column.id} enabled={canDrag} key={column.id}>
@@ -60,7 +74,16 @@ export function BoardColumns({
                     sub={semantic.kind === "mood" ? ". one per person" : semantic.kind === "action" ? ". action items" : undefined}
                   />
 
-                  {canAddCards ? <ColumnComposer board={board} columnId={column.id} columnLabel={semantic.label} color={semantic.color} isActive={isActiveColumn} /> : null}
+                  {isWriting && isColumnRevealed ? (
+                    <div className="mb-2 flex items-center gap-1.5 px-0.5 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: semantic.color }}>
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: semantic.color }} />
+                      revealed
+                    </div>
+                  ) : canRevealColumns ? (
+                    <ColumnRevealPill board={board} columnId={column.id} color={semantic.color} />
+                  ) : null}
+
+                  {canComposeHere ? <ColumnComposer board={board} columnId={column.id} columnLabel={semantic.label} color={semantic.color} isActive={isActiveColumn} /> : null}
 
                   <div className="sp-scroll min-h-0 flex-1 space-y-2.5 overflow-auto pr-1">
                     {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />)}
@@ -105,6 +128,27 @@ function ColumnComposer({
         </Link>
       )}
     </div>
+  );
+}
+
+// Host-only affordance during writing: reveals just this column's drafts
+// (vs reveal_board which dumps the entire board at once). Submits a form
+// with retro_id + column_id to revealColumnCommand, which calls the
+// `/columns/{id}/reveal` route. force=true so a stragglers-but-host case
+// still works; the gate is the surrounding `canRevealColumns` calculation.
+function ColumnRevealPill({ board, columnId, color }: { board: RetroBoard; columnId: string; color: string }) {
+  return (
+    <form action={revealColumnCommand} className="mb-2.5">
+      <input name="retro_id" type="hidden" value={board.retro.id} />
+      <input name="column_id" type="hidden" value={columnId} />
+      <button
+        className="flex h-10 w-full items-center justify-center gap-2 rounded-[8px] border text-[11.5px] font-extrabold uppercase leading-none tracking-[0.04em] transition hover:bg-[var(--panel-hi)]"
+        style={{ borderColor: color, color, backgroundColor: `${color}10` }}
+        type="submit"
+      >
+        reveal this column
+      </button>
+    </form>
   );
 }
 

@@ -41,6 +41,7 @@ export type RetroColumn = {
   title: string;
   position: number;
   accent_color?: string | null;
+  revealed_at?: string | null;
   cards: RetroCard[];
 };
 

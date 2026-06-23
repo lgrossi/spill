@@ -3190,3 +3190,195 @@ async fn retro_create_persists_privacy_toggles(pool: sqlx::PgPool) {
     assert_eq!(board["retro"]["card_edit_policy"], "author_only");
     assert_eq!(board["retro"]["anonymous_authors"], true);
 }
+
+// Per-column reveal route: host-gated, ready-gated (or force=true bypass),
+// flips that column's drafts visible to other participants. Mirrors the
+// existing `/reveal` integration test patterns but exercises the new
+// `/columns/{column_id}/reveal` endpoint and the row-level visibility flip.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header(HEADER_USER_NAME, "Ava")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Per-column reveal","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"lee@example.com","role":"member"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+    let column_id = created["columns"][0]["id"].as_str().unwrap();
+
+    // Lee joins by fetching the board (ensure-participant on read).
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
+                .header(HEADER_USER_NAME, "Lee")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Drop one draft per author so masking has work to do.
+    for (subject, body) in [
+        ("ava@example.com", "Ava draft"),
+        ("lee@example.com", "Lee draft"),
+    ] {
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/cards"))
+                    .header(HEADER_ON_BEHALF_OF, subject)
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"column_id":"{column_id}","body_text":"{body}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CREATED);
+    }
+
+    // Non-host (Lee) cannot trigger per-column reveal.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Host without everyone-ready -> rejected.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Host with force=true bypasses the ready gate.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let revealed: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    // Phase still 'writing' -- other columns haven't been revealed yet.
+    assert_eq!(revealed["retro"]["phase"], "writing");
+    let revealed_column = revealed["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == column_id)
+        .expect("revealed column");
+    assert!(revealed_column["revealed_at"].is_string());
+
+    // Lee can now see Ava's previously-hidden draft.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let lee_board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let lee_view = lee_board["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == column_id)
+        .unwrap();
+    let bodies: Vec<&str> = lee_view["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["body_text"].as_str())
+        .collect();
+    assert!(bodies.contains(&"Ava draft"));
+    assert!(bodies.contains(&"Lee draft"));
+
+    // Re-revealing the same column is a 4xx (no events, no double-fire).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // New drafts can no longer land in the revealed column.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{column_id}","body_text":"too late"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !response.status().is_success(),
+        "creating a draft in a revealed column must fail; got {}",
+        response.status(),
+    );
+}
