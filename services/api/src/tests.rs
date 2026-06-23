@@ -3514,8 +3514,8 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
         .await
         .unwrap();
     assert!(
-        !response.status().is_success(),
-        "creating a draft in a revealed column must fail; got {}",
+        response.status().is_client_error(),
+        "creating a draft in a revealed column must return 4xx; got {}",
         response.status(),
     );
 }

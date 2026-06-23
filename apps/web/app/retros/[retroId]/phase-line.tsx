@@ -131,7 +131,9 @@ function PhaseHint({
         );
       }
     }
-    if (allReady) return <Countdown retroId={retroId} />;
+    if (allReady && !(phase === "writing" && revealMode === "per_column")) {
+      return <Countdown retroId={retroId} />;
+    }
     // In per_column reveal mode the writing-phase 'start discussing' link is
     // hidden: the host walks one column at a time via the per-column pills,
     // and the last reveal auto-advances the retro. Voting-phase 'wrap up'

@@ -176,7 +176,12 @@ impl RetroWorkflow {
                 gif_alt_text: card_body.gif_alt_text,
             })
             .await
-            .map_err(|error| ApiError::internal(format!("failed to create draft card: {error}")))?;
+            .map_err(|error| match error {
+                sqlx::Error::RowNotFound => {
+                    ApiError::bad_request("cards cannot be added to a revealed column")
+                }
+                error => ApiError::internal(format!("failed to create draft card: {error}")),
+            })?;
 
         self.event_hub.publish(BoardEvent::CardChanged { retro_id });
         Ok((StatusCode::CREATED, card))
@@ -621,8 +626,7 @@ impl RetroWorkflow {
                 ));
             }
             retro_db::RevealColumnOutcome::Revealed => {
-                self.event_hub
-                    .publish(BoardEvent::CardChanged { retro_id });
+                self.event_hub.publish(BoardEvent::CardChanged { retro_id });
             }
             retro_db::RevealColumnOutcome::RevealedAndCompleted(_) => {
                 self.event_hub
