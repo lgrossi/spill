@@ -719,6 +719,7 @@ impl RetroWorkflow {
         card_id: Uuid,
     ) -> Result<retro_db::VotingInfo, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        ensure_active_participant(&self.repository, &user, retro_id).await?;
         let info = self
             .repository
             .remove_vote(retro_id, card_id, &user.subject, &user.display_name)

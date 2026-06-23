@@ -1784,6 +1784,7 @@ async fn sitting_out_participants_cannot_create_cards_or_vote(pool: sqlx::PgPool
     }
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1794,6 +1795,71 @@ async fn sitting_out_participants_cannot_create_cards_or_vote(pool: sqlx::PgPool
                 .body(Body::from(format!(
                     r#"{{"card_id":"{card_id}","count":1}}"#
                 )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!(
+                    "/api/retros/{retro_id}/participants/{bob_participant_id}/participation"
+                ))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"is_participating":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/votes"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"card_id":"{card_id}","count":1}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!(
+                    "/api/retros/{retro_id}/participants/{bob_participant_id}/participation"
+                ))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"is_participating":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/retros/{retro_id}/votes/{card_id}"))
+                .header(HEADER_ON_BEHALF_OF, BOB_EMAIL)
+                .header(HEADER_USER_NAME, "Bob")
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
