@@ -2901,3 +2901,50 @@ async fn retry_clustering_during_voting_auto_applies(pool: sqlx::PgPool) {
     assert_eq!(response.status(), StatusCode::OK);
     wait_for_clustering_status(&app, &retro_id, "applied").await;
 }
+
+// Create-time toggles for the two privacy fields. The fields default to the
+// SQL defaults (collaborative / false) when omitted; explicit values land on
+// the freshly-created retro without needing a follow-up PATCH.
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn retro_create_persists_privacy_toggles(pool: sqlx::PgPool) {
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header(HEADER_USER_NAME, "Host")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Privacy retro","template":"standard","vote_limit":3,"action_discussion_limit":3,"card_edit_policy":"author_only","anonymous_authors":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap();
+
+    // Refetch — the create response is built before the post-create updates
+    // apply (matches the existing clustering pattern), so the source of truth
+    // is the fresh fetch the client redirects to.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(board["retro"]["card_edit_policy"], "author_only");
+    assert_eq!(board["retro"]["anonymous_authors"], true);
+}

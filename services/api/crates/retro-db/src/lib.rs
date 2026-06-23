@@ -419,6 +419,34 @@ impl RetroRepository {
         Ok(())
     }
 
+    /// Persist the board-level card edit policy. Mirrors the pattern of
+    /// `set_clustering_mode`: the workflow validates the input value first,
+    /// so this method can trust it.
+    pub async fn set_card_edit_policy(&self, retro_id: Uuid, policy: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE retros
+             SET card_edit_policy = CASE WHEN $2 = 'author_only' THEN 'author_only' ELSE 'collaborative' END
+             WHERE id = $1",
+        )
+        .bind(retro_id)
+        .bind(policy.trim())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Persist the board-level anonymous-authors flag.
+    pub async fn set_anonymous_authors(&self, retro_id: Uuid, anonymous: bool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE retros SET anonymous_authors = $2 WHERE id = $1",
+        )
+        .bind(retro_id)
+        .bind(anonymous)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn existing_cluster_tag_context(
         &self,
         retro_id: Uuid,

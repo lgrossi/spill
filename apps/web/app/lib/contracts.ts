@@ -234,6 +234,8 @@ export type CreateRetroPayload =
       vote_limit: number;
       action_discussion_limit: number;
       clustering_mode?: "disabled" | "auto_on_vote_start";
+      card_edit_policy?: "collaborative" | "author_only";
+      anonymous_authors?: boolean;
       invitees?: InviteeRequest[];
     }
   | {
@@ -248,6 +250,8 @@ export type CreateRetroPayload =
       vote_limit: number;
       action_discussion_limit: number;
       clustering_mode?: "disabled" | "auto_on_vote_start";
+      card_edit_policy?: "collaborative" | "author_only";
+      anonymous_authors?: boolean;
       invitees?: InviteeRequest[];
     };
 
