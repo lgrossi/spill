@@ -96,6 +96,27 @@ impl RetroWorkflow {
                     ApiError::internal(format!("failed to set clustering mode: {error}"))
                 })?;
         }
+        if let Some(policy) = request.card_edit_policy.as_deref() {
+            validate_card_edit_policy(policy)?;
+            // Only persist when it diverges from the SQL default to keep
+            // creation lean (the DB column defaults to 'collaborative').
+            if policy != "collaborative" {
+                self.repository
+                    .set_card_edit_policy(retro_id, policy)
+                    .await
+                    .map_err(|error| {
+                        ApiError::internal(format!("failed to set card edit policy: {error}"))
+                    })?;
+            }
+        }
+        if request.anonymous_authors {
+            self.repository
+                .set_anonymous_authors(retro_id, true)
+                .await
+                .map_err(|error| {
+                    ApiError::internal(format!("failed to set anonymous authors: {error}"))
+                })?;
+        }
         for invitee in invitees {
             let email = invitee.email.trim().to_lowercase();
             if email.is_empty() || !email.contains('@') || email == creator_email_lc {

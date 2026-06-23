@@ -31,6 +31,8 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [votingEnabled, setVotingEnabled] = useState(true);
   const [topVotedToActions, setTopVotedToActions] = useState(true);
   const [autoOrganize, setAutoOrganize] = useState(false);
+  const [authorOnly, setAuthorOnly] = useState(false);
+  const [hideAuthors, setHideAuthors] = useState(false);
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
   const today = localDateString(new Date());
 
@@ -173,6 +175,38 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
                   <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">organize before voting</span>
                   <span className={`mt-1 block text-[11px] font-semibold transition ${autoOrganize ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
                     {autoOrganize ? "AI groups and tags cards first" : "manual grouping"}
+                  </span>
+                </span>
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
+                  ✓
+                </span>
+              </label>
+            </Tile>
+            <Tile className="flex items-center gap-3">
+              <RuleMark>✎</RuleMark>
+              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+                <input name="card_edit_policy" type="hidden" value="collaborative" />
+                <input className="sr-only" name="card_edit_policy" type="checkbox" value="author_only" checked={authorOnly} onChange={(event) => setAuthorOnly(event.currentTarget.checked)} />
+                <span className="min-w-0">
+                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card editing</span>
+                  <span className={`mt-1 block text-[11px] font-semibold transition ${authorOnly ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+                    {authorOnly ? "only the author (or host) can edit / delete a card" : "anyone on the board can edit / delete any card"}
+                  </span>
+                </span>
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
+                  ✓
+                </span>
+              </label>
+            </Tile>
+            <Tile className="flex items-center gap-3">
+              <RuleMark>◐</RuleMark>
+              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+                <input name="anonymous_authors" type="hidden" value="0" />
+                <input className="sr-only" name="anonymous_authors" type="checkbox" value="1" checked={hideAuthors} onChange={(event) => setHideAuthors(event.currentTarget.checked)} />
+                <span className="min-w-0">
+                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card authors</span>
+                  <span className={`mt-1 block text-[11px] font-semibold transition ${hideAuthors ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
+                    {hideAuthors ? "anonymous — only you see your own cards as yours" : "everyone sees who wrote each card"}
                   </span>
                 </span>
                 <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
