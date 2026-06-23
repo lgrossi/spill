@@ -31,6 +31,13 @@ pub struct RetroRepository {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetParticipationResult {
+    Updated,
+    NotFound,
+    LastActive,
+}
+
 impl RetroRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -422,7 +429,11 @@ impl RetroRepository {
     /// Persist the board-level card edit policy. Mirrors the pattern of
     /// `set_clustering_mode`: the workflow validates the input value first,
     /// so this method can trust it.
-    pub async fn set_card_edit_policy(&self, retro_id: Uuid, policy: &str) -> Result<(), sqlx::Error> {
+    pub async fn set_card_edit_policy(
+        &self,
+        retro_id: Uuid,
+        policy: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE retros
              SET card_edit_policy = CASE WHEN $2 = 'author_only' THEN 'author_only' ELSE 'collaborative' END
@@ -436,14 +447,16 @@ impl RetroRepository {
     }
 
     /// Persist the board-level anonymous-authors flag.
-    pub async fn set_anonymous_authors(&self, retro_id: Uuid, anonymous: bool) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE retros SET anonymous_authors = $2 WHERE id = $1",
-        )
-        .bind(retro_id)
-        .bind(anonymous)
-        .execute(&self.pool)
-        .await?;
+    pub async fn set_anonymous_authors(
+        &self,
+        retro_id: Uuid,
+        anonymous: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE retros SET anonymous_authors = $2 WHERE id = $1")
+            .bind(retro_id)
+            .bind(anonymous)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -558,33 +571,88 @@ impl RetroRepository {
         Ok(record.id)
     }
 
-    /// Set the participation flag on a single participant. Returns Ok(true)
-    /// if a row was updated, Ok(false) if no row matched.
+    /// Returns whether an existing participant is currently in this round.
+    pub async fn participant_is_participating(
+        &self,
+        retro_id: Uuid,
+        subject: &str,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(
+                (
+                    SELECT p.is_participating
+                    FROM participants p
+                    WHERE p.retro_id = $1
+                      AND p.external_subject = $2
+                ),
+                false
+             )",
+        )
+        .bind(retro_id)
+        .bind(subject)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Set the participation flag on a single participant.
     ///
     /// When `caller_subject` is `Some`, the WHERE also requires the row's
-    /// `external_subject` to match — this is the "self-only" guard for
-    /// non-host callers. Pass `None` for host-authorized writes.
+    /// `external_subject` to match - this is the self-only guard for non-host
+    /// callers. Pass `None` for host-authorized writes.
     pub async fn set_participant_participation(
         &self,
         retro_id: Uuid,
         participant_id: Uuid,
         is_participating: bool,
         caller_subject: Option<&str>,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+    ) -> Result<SetParticipationResult, sqlx::Error> {
+        let updated = sqlx::query_scalar::<_, Uuid>(
             "UPDATE participants
              SET is_participating = $3
              WHERE retro_id = $1
                AND id = $2
-               AND ($4::TEXT IS NULL OR external_subject = $4)",
+               AND ($4::TEXT IS NULL OR external_subject = $4)
+               AND (
+                    $3
+                    OR EXISTS (
+                        SELECT 1
+                        FROM participants other
+                        WHERE other.retro_id = $1
+                          AND other.id <> $2
+                          AND other.is_participating
+                    )
+               )
+             RETURNING id",
         )
         .bind(retro_id)
         .bind(participant_id)
         .bind(is_participating)
         .bind(caller_subject)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(result.rows_affected() > 0)
+        if updated.is_some() {
+            return Ok(SetParticipationResult::Updated);
+        }
+        if !is_participating {
+            let matched_participant = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (
+                    SELECT 1
+                    FROM participants
+                    WHERE retro_id = $1
+                      AND id = $2
+                      AND ($3::TEXT IS NULL OR external_subject = $3)
+                )",
+            )
+            .bind(retro_id)
+            .bind(participant_id)
+            .bind(caller_subject)
+            .fetch_one(&self.pool)
+            .await?;
+            if matched_participant {
+                return Ok(SetParticipationResult::LastActive);
+            }
+        }
+        Ok(SetParticipationResult::NotFound)
     }
 
     async fn record_retro_access(
@@ -4951,18 +5019,37 @@ mod tests {
             .set_participant_participation(created.retro.id, mia_id, false, None)
             .await
             .unwrap();
-        assert!(updated);
+        assert_eq!(updated, SetParticipationResult::Updated);
 
         // Ava marks ready. With Mia out, 2 of 2 participating are ready.
-        repo.mark_ready(created.retro.id, "ava", "Ava").await.unwrap();
-        repo.mark_ready(created.retro.id, "lee", "Lee").await.unwrap();
+        repo.mark_ready(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap();
+        repo.mark_ready(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap();
         let after = repo
             .fetch_board_for_user(created.retro.id, "ava", "Ava")
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(after.ready.participant_count, 2, "non-participating excluded from denominator");
-        assert_eq!(after.ready.ready_count, 2, "non-participating excluded from numerator");
+        assert_eq!(
+            after.ready.participant_count, 2,
+            "non-participating excluded from denominator"
+        );
+        assert_eq!(
+            after.ready.ready_count, 2,
+            "non-participating excluded from numerator"
+        );
+        let overview = repo.list_retros_for_user("ava", "").await.unwrap();
+        assert_eq!(
+            overview.active[0].participant_count, 2,
+            "overview excludes non-participating people"
+        );
+        assert_eq!(
+            overview.active[0].ready_count, 2,
+            "overview excludes non-participating ready marks"
+        );
 
         // Mia (sitting out) is treated as ready so the UI doesn't show her
         // an 'i'm ready' affordance she doesn't need.
@@ -4971,7 +5058,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(mia_view.ready.current_user_ready, "non-participating callers count as ready for themselves");
+        assert!(
+            mia_view.ready.current_user_ready,
+            "non-participating callers count as ready for themselves"
+        );
         assert_eq!(mia_view.ready.participant_count, 2);
         assert_eq!(mia_view.ready.ready_count, 2);
     }
@@ -5025,20 +5115,34 @@ mod tests {
             .set_participant_participation(created.retro.id, ava_id, false, Some("lee"))
             .await
             .unwrap();
-        assert!(!rejected, "self filter must reject cross-participant writes");
+        assert_eq!(
+            rejected,
+            SetParticipationResult::NotFound,
+            "self filter must reject cross-participant writes"
+        );
 
         // Lee flips themselves: allowed.
         let allowed = repo
             .set_participant_participation(created.retro.id, lee_id, false, Some("lee"))
             .await
             .unwrap();
-        assert!(allowed, "self filter must allow same-subject writes");
+        assert_eq!(
+            allowed,
+            SetParticipationResult::Updated,
+            "self filter must allow same-subject writes"
+        );
 
-        // Host-mode (caller_subject = None) can flip anyone.
+        // Host-mode (caller_subject = None) can flip anyone, but not the
+        // final active participant; otherwise the host phase controls vanish
+        // because the ready gate has a zero denominator.
         let host_path = repo
             .set_participant_participation(created.retro.id, ava_id, false, None)
             .await
             .unwrap();
-        assert!(host_path, "host-mode (no caller filter) must allow any write");
+        assert_eq!(
+            host_path,
+            SetParticipationResult::LastActive,
+            "host-mode must not disable the final active participant"
+        );
     }
 }

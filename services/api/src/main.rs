@@ -666,13 +666,30 @@ async fn set_participation(
     // Host: no extra WHERE filter. Non-host: the row's external_subject must
     // match the caller — embedded in the UPDATE so a wrong participant_id is
     // just a 404 with no info leak.
-    let caller_filter = if is_host { None } else { Some(user.subject.as_str()) };
+    let caller_filter = if is_host {
+        None
+    } else {
+        Some(user.subject.as_str())
+    };
     let updated = repository
-        .set_participant_participation(retro_id, participant_id, request.is_participating, caller_filter)
+        .set_participant_participation(
+            retro_id,
+            participant_id,
+            request.is_participating,
+            caller_filter,
+        )
         .await
         .map_err(|e| ApiError::internal(format!("failed to update participation: {e}")))?;
-    if !updated {
-        return Err(ApiError::not_found("participant not found"));
+    match updated {
+        retro_db::SetParticipationResult::Updated => {}
+        retro_db::SetParticipationResult::NotFound => {
+            return Err(ApiError::not_found("participant not found"));
+        }
+        retro_db::SetParticipationResult::LastActive => {
+            return Err(ApiError::bad_request(
+                "at least one participant must stay in this round",
+            ));
+        }
     }
     // Ready / reveal gates depend on participant_count, so a participation
     // flip moves the same goalposts as a ready mark — re-use the channel.
