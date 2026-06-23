@@ -5,7 +5,7 @@ import { AppChrome, Btn, Stack, Tile, avatarColorForSeed, avatarInitials, spillC
 import { type RetroBoard } from "@/lib/api";
 import { displayRetroDate, isPlannedForDue } from "@/lib/retro-dates";
 import { currentIdentity, localIdentityEnabled } from "@/lib/identity";
-import { listGrantsAction, markReadyAction, startScheduledRetroAction, unmarkReadyAction } from "@/lib/actions";
+import { listGrantsAction, markReadyAction, setParticipationAction, startScheduledRetroAction, unmarkReadyAction } from "@/lib/actions";
 import { BoardColumns } from "./board-columns";
 import { loadBoard } from "./board-loader";
 import { BoardSync } from "./board-sync";
@@ -59,9 +59,10 @@ export default async function RetroBoardPage({
 
   // Used by per-card UI gates (card-edit policy). Server-side enforcement
   // lives in cards.rs SQL; this only hides affordances client-side.
-  const currentUserParticipantId =
-    board.participants.find((participant) => participant.external_subject === identity.subject)?.id
+  const currentUserParticipant =
+    board.participants.find((participant) => participant.external_subject === identity.subject)
     ?? null;
+  const currentUserParticipantId = currentUserParticipant?.id ?? null;
 
   return (
     <AppChrome
@@ -70,11 +71,12 @@ export default async function RetroBoardPage({
           board={board}
           isHost={isHost}
           currentUserEmail={currentUserEmail}
+          currentUserParticipantId={currentUserParticipantId}
         />
       }
       presence={<ParticipantStack board={board} />}
       center={<CenterPhase board={board} isHost={isHost} />}
-      subtitle={<TitleSubtitle board={board} />}
+      subtitle={<TitleSubtitle board={board} currentUserParticipant={currentUserParticipant} />}
       title={board.retro.title}
     >
       <BoardSync retroId={board.retro.id} apiBaseUrl={browserApiBaseUrl()} />
@@ -102,7 +104,12 @@ function ParticipantStack({ board }: { board: RetroBoard }) {
       people={board.participants.map((participant) => ({
         color: avatarColorForSeed(participant.id),
         k: avatarInitials(participant.display_name),
-        status: presenceForPhase(board.retro.phase),
+        // Non-participating people render in the existing "away" style so
+        // they're visually distinct from active peers without needing a new
+        // avatar variant.
+        status: participant.is_participating
+          ? presenceForPhase(board.retro.phase)
+          : ("away" as const),
       }))}
       size={26}
     />
@@ -146,10 +153,48 @@ function ReadyCheckbox({ retroId, checked }: { retroId: string; checked: boolean
   );
 }
 
-function TitleSubtitle({ board }: { board: RetroBoard }): ReactNode {
+// Pill button that toggles the caller's own participation flag. Shown when
+// the caller is currently sitting out so they can rejoin in one click.
+function RejoinButton({ retroId, participantId }: { retroId: string; participantId: string }) {
+  return (
+    <form action={setParticipationAction} className="contents">
+      <input name="retro_id" type="hidden" value={retroId} />
+      <input name="participant_id" type="hidden" value={participantId} />
+      <input name="is_participating" type="hidden" value="1" />
+      <button
+        type="submit"
+        className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-spill-line px-2 py-[2px] text-[10.5px] font-semibold leading-none text-spill-muted transition hover:border-spill-fg/30 hover:text-spill-fg"
+        title="rejoin this round"
+      >
+        <span aria-hidden className="text-[9px]">↩</span>
+        sitting out — rejoin
+      </button>
+    </form>
+  );
+}
+
+function TitleSubtitle({
+  board,
+  currentUserParticipant,
+}: {
+  board: RetroBoard;
+  currentUserParticipant: RetroBoard["participants"][number] | null;
+}): ReactNode {
   const phase = board.retro.phase;
   if (phase === "scheduled") return <span>{displayRetroDate(board.retro)}</span>;
   if (phase === "writing") {
+    // Three states for the caller:
+    //   - sitting out: rejoin pill
+    //   - participating + not yet ready: "i'm ready" pill (unchecked)
+    //   - participating + ready: "i'm ready" pill (checked, click to unmark)
+    if (currentUserParticipant && !currentUserParticipant.is_participating) {
+      return (
+        <RejoinButton
+          retroId={board.retro.id}
+          participantId={currentUserParticipant.id}
+        />
+      );
+    }
     return <ReadyCheckbox retroId={board.retro.id} checked={board.ready.current_user_ready} />;
   }
   if (phase === "voting") {

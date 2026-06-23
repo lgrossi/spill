@@ -81,6 +81,9 @@ export type RetroParticipant = {
   external_subject: string | null;
   display_name: string;
   role: "host" | "member";
+  // FALSE = the participant has flagged themselves out of this round.
+  // Server-side gating ignores them for ready / reveal counts.
+  is_participating: boolean;
   card_count: number;
   vote_count: number;
 };

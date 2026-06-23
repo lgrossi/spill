@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addGrantAction, listGrantsAction, removeGrantAction } from "@/lib/actions";
+import { addGrantAction, listGrantsAction, removeGrantAction, setParticipationAction } from "@/lib/actions";
 import { type Grant } from "@/lib/api";
+import type { RetroParticipant } from "@/lib/contracts";
 import { Avatar, avatarColorForSeed, avatarInitials } from "./spill-ui";
 import { UserAutocomplete, type Picked } from "./user-autocomplete";
 
 export type InvitePanelProps =
   | { mode: "create"; onInviteesChange: (invitees: { email: string; role: "host" | "member" }[]) => void }
-  | { mode: "board"; retroId: string; currentUserEmail: string; isHost: boolean };
+  | {
+      mode: "board";
+      retroId: string;
+      currentUserEmail: string;
+      isHost: boolean;
+      participants: RetroParticipant[];
+      currentUserParticipantId: string | null;
+    };
 
 export function InvitePanel(props: InvitePanelProps) {
   if (props.mode === "create") {
@@ -19,6 +27,8 @@ export function InvitePanel(props: InvitePanelProps) {
       retroId={props.retroId}
       currentUserEmail={props.currentUserEmail}
       isHost={props.isHost}
+      participants={props.participants}
+      currentUserParticipantId={props.currentUserParticipantId}
     />
   );
 }
@@ -78,10 +88,14 @@ function BoardInvitePanel({
   retroId,
   currentUserEmail,
   isHost,
+  participants,
+  currentUserParticipantId,
 }: {
   retroId: string;
   currentUserEmail: string;
   isHost: boolean;
+  participants: RetroParticipant[];
+  currentUserParticipantId: string | null;
 }) {
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +184,84 @@ function BoardInvitePanel({
           ))}
         </div>
       )}
+      <ParticipationSection
+        retroId={retroId}
+        participants={participants}
+        currentUserParticipantId={currentUserParticipantId}
+        isHost={isHost}
+      />
+    </div>
+  );
+}
+
+/// Per-participant "in this round" toggle.
+/// Self can always flip; host can flip anyone (server enforces both).
+function ParticipationSection({
+  retroId,
+  participants,
+  currentUserParticipantId,
+  isHost,
+}: {
+  retroId: string;
+  participants: RetroParticipant[];
+  currentUserParticipantId: string | null;
+  isHost: boolean;
+}) {
+  if (participants.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t border-spill-line pt-3">
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">
+        in this round
+      </p>
+      <ul className="space-y-1">
+        {participants.map((participant) => {
+          const isSelf = currentUserParticipantId === participant.id;
+          const canToggle = isSelf || isHost;
+          const next = participant.is_participating ? "0" : "1";
+          const labelSelf = participant.is_participating ? "sit out" : "rejoin";
+          const labelOther = participant.is_participating ? "remove from round" : "add to round";
+          return (
+            <li
+              key={participant.id}
+              className="flex items-center justify-between gap-3 rounded-md border border-spill-line bg-[var(--panel-hi)] px-2 py-1.5"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Avatar
+                  color={avatarColorForSeed(participant.id)}
+                  k={avatarInitials(participant.display_name)}
+                  size={18}
+                  status={participant.is_participating ? undefined : "away"}
+                />
+                <span
+                  className={`truncate text-[11.5px] font-semibold ${
+                    participant.is_participating ? "text-[var(--fg-2)]" : "text-spill-muted line-through"
+                  }`}
+                >
+                  {participant.display_name}
+                  {isSelf ? " (you)" : ""}
+                </span>
+              </span>
+              {canToggle ? (
+                <form action={setParticipationAction} className="contents">
+                  <input name="retro_id" type="hidden" value={retroId} />
+                  <input name="participant_id" type="hidden" value={participant.id} />
+                  <input name="is_participating" type="hidden" value={next} />
+                  <button
+                    type="submit"
+                    className="text-[10.5px] font-extrabold uppercase tracking-[0.1em] text-spill-muted transition hover:text-spill-fg"
+                  >
+                    {isSelf ? labelSelf : labelOther}
+                  </button>
+                </form>
+              ) : (
+                <span className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-spill-muted">
+                  {participant.is_participating ? "in" : "out"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

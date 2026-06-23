@@ -139,6 +139,22 @@ export async function removeParticipant(retroId: string, subject: string): Promi
   );
 }
 
+export async function setParticipation(
+  retroId: string,
+  participantId: string,
+  isParticipating: boolean,
+): Promise<void> {
+  await apiFetchNoJson(
+    `/api/retros/${retroId}/participants/${encodeURIComponent(participantId)}/participation`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_participating: isParticipating }),
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+    },
+  );
+}
+
 export async function deleteRetro(retroId: string): Promise<void> {
   await apiFetchNoJson(`/api/retros/${retroId}`, {
     method: "DELETE",

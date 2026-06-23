@@ -530,6 +530,35 @@ impl RetroRepository {
         Ok(record.id)
     }
 
+    /// Set the participation flag on a single participant. Returns Ok(true)
+    /// if a row was updated, Ok(false) if no row matched.
+    ///
+    /// When `caller_subject` is `Some`, the WHERE also requires the row's
+    /// `external_subject` to match — this is the "self-only" guard for
+    /// non-host callers. Pass `None` for host-authorized writes.
+    pub async fn set_participant_participation(
+        &self,
+        retro_id: Uuid,
+        participant_id: Uuid,
+        is_participating: bool,
+        caller_subject: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE participants
+             SET is_participating = $3
+             WHERE retro_id = $1
+               AND id = $2
+               AND ($4::TEXT IS NULL OR external_subject = $4)",
+        )
+        .bind(retro_id)
+        .bind(participant_id)
+        .bind(is_participating)
+        .bind(caller_subject)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn record_retro_access(
         &self,
         retro_id: Uuid,
@@ -560,6 +589,7 @@ impl RetroRepository {
                 p.external_subject,
                 p.display_name,
                 p.role,
+                p.is_participating,
                 (
                     SELECT COUNT(*)::BIGINT
                     FROM cards c
@@ -634,9 +664,18 @@ impl RetroRepository {
     async fn ready_info(&self, retro_id: Uuid, subject: &str) -> Result<ReadyInfo, sqlx::Error> {
         sqlx::query_as::<_, ReadyInfo>(
             "SELECT
-                COUNT(DISTINCT p.id)::BIGINT AS participant_count,
-                COUNT(DISTINCT m.participant_id)::BIGINT AS ready_count,
-                COALESCE(BOOL_OR(p.external_subject = $2 AND m.participant_id IS NOT NULL), false) AS current_user_ready
+                -- Non-participating people are excluded from both numerator
+                -- and denominator so the 'everyone ready' gate doesn't block
+                -- on someone who's sitting this round out.
+                COUNT(DISTINCT p.id) FILTER (WHERE p.is_participating)::BIGINT AS participant_count,
+                COUNT(DISTINCT m.participant_id) FILTER (WHERE p.is_participating)::BIGINT AS ready_count,
+                -- The caller is shown as 'ready' if they marked ready OR if
+                -- they've opted out of this round: the UI uses this to decide
+                -- whether to render the 'i'm ready' affordance.
+                COALESCE(BOOL_OR(
+                    p.external_subject = $2
+                    AND (m.participant_id IS NOT NULL OR NOT p.is_participating)
+                ), false) AS current_user_ready
              FROM participants p
              JOIN retros r ON r.id = p.retro_id
              LEFT JOIN participant_ready_marks m
@@ -888,6 +927,10 @@ pub struct ParticipantRecord {
     pub external_subject: Option<String>,
     pub display_name: String,
     pub role: String,
+    // FALSE marks the participant as "sitting this round out". They stay
+    // on the board (and any prior cards/votes remain) but ready/reveal
+    // gating ignores them.
+    pub is_participating: bool,
     pub card_count: i64,
     pub vote_count: i64,
 }
@@ -4825,5 +4868,149 @@ mod tests {
             lee_seen_by_ava.author_participant_id.is_none(),
             "peer card is redacted"
         );
+    }
+
+    // Non-participating people are excluded from both numerator and
+    // denominator of `ready_info` so the host's reveal gate doesn't block
+    // on someone who's sitting the round out. Their existing cards and any
+    // pre-existing ready mark stay in place untouched.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn ready_info_ignores_non_participating(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Participation retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        // Two members join: Lee and Mia. fetch_board_for_user is the
+        // ensure-participant path, so loading the board as each of them
+        // creates their participant row.
+        for (subject, display) in [("lee", "Lee"), ("mia", "Mia")] {
+            repo.fetch_board_for_user(created.retro.id, subject, display)
+                .await
+                .unwrap();
+        }
+        // Baseline: 3 participants, 0 ready.
+        let baseline = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(baseline.ready.participant_count, 3);
+        assert_eq!(baseline.ready.ready_count, 0);
+        assert!(!baseline.ready.current_user_ready);
+
+        // Find Mia's participant id and flip her to non-participating.
+        let mia_id = baseline
+            .participants
+            .iter()
+            .find(|p| p.display_name == "Mia")
+            .expect("mia present")
+            .id;
+        let updated = repo
+            .set_participant_participation(created.retro.id, mia_id, false, None)
+            .await
+            .unwrap();
+        assert!(updated);
+
+        // Ava marks ready. With Mia out, 2 of 2 participating are ready.
+        repo.mark_ready(created.retro.id, "ava", "Ava").await.unwrap();
+        repo.mark_ready(created.retro.id, "lee", "Lee").await.unwrap();
+        let after = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.ready.participant_count, 2, "non-participating excluded from denominator");
+        assert_eq!(after.ready.ready_count, 2, "non-participating excluded from numerator");
+
+        // Mia (sitting out) is treated as ready so the UI doesn't show her
+        // an 'i'm ready' affordance she doesn't need.
+        let mia_view = repo
+            .fetch_board_for_user(created.retro.id, "mia", "Mia")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(mia_view.ready.current_user_ready, "non-participating callers count as ready for themselves");
+        assert_eq!(mia_view.ready.participant_count, 2);
+        assert_eq!(mia_view.ready.ready_count, 2);
+    }
+
+    // The self-only filter on `set_participant_participation` rejects writes
+    // that point at a participant the caller doesn't own (anything other
+    // than their own row). Hosts use the same method with caller_subject=None.
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn participation_self_filter_blocks_writes_for_other_participants(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Self-only retro".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+            })
+            .await
+            .unwrap();
+        repo.fetch_board_for_user(created.retro.id, "lee", "Lee")
+            .await
+            .unwrap();
+        let board = repo
+            .fetch_board_for_user(created.retro.id, "ava", "Ava")
+            .await
+            .unwrap()
+            .unwrap();
+        let lee_id = board
+            .participants
+            .iter()
+            .find(|p| p.display_name == "Lee")
+            .expect("lee present")
+            .id;
+
+        // Lee tries to flip Ava: self-filter rejects, no row updated.
+        let ava_id = board
+            .participants
+            .iter()
+            .find(|p| p.display_name == "Ava")
+            .expect("ava present")
+            .id;
+        let rejected = repo
+            .set_participant_participation(created.retro.id, ava_id, false, Some("lee"))
+            .await
+            .unwrap();
+        assert!(!rejected, "self filter must reject cross-participant writes");
+
+        // Lee flips themselves: allowed.
+        let allowed = repo
+            .set_participant_participation(created.retro.id, lee_id, false, Some("lee"))
+            .await
+            .unwrap();
+        assert!(allowed, "self filter must allow same-subject writes");
+
+        // Host-mode (caller_subject = None) can flip anyone.
+        let host_path = repo
+            .set_participant_participation(created.retro.id, ava_id, false, None)
+            .await
+            .unwrap();
+        assert!(host_path, "host-mode (no caller filter) must allow any write");
     }
 }

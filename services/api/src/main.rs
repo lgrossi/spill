@@ -246,6 +246,10 @@ fn api_router() -> Router<AppState> {
             "/retros/{retro_id}/participants/{subject}",
             delete(remove_participant_from_session),
         )
+        .route(
+            "/retros/{retro_id}/participants/{participant_id}/participation",
+            patch(set_participation),
+        )
         .fallback(api_not_found)
 }
 
@@ -636,6 +640,42 @@ async fn remove_participant_from_session(
     if !removed {
         return Err(ApiError::not_found("participant not found"));
     }
+    event_hub.publish(BoardEvent::ReadyChanged { retro_id });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+struct SetParticipationRequest {
+    is_participating: bool,
+}
+
+/// Toggle a participant's "I'm in this round" flag. The host can flip any
+/// participant; everyone else can only flip themselves.
+///
+/// Auth model mirrors `remove_participant_from_session`: a single host check
+/// gates host-or-self, falling back to a self-only DB filter for non-hosts.
+async fn set_participation(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    user: CurrentUser,
+    Path((retro_id, participant_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<SetParticipationRequest>,
+) -> Result<StatusCode, ApiError> {
+    let repository = configured_repository(repository)?;
+    let is_host = check_is_host(&repository, retro_id, &user.email).await?;
+    // Host: no extra WHERE filter. Non-host: the row's external_subject must
+    // match the caller — embedded in the UPDATE so a wrong participant_id is
+    // just a 404 with no info leak.
+    let caller_filter = if is_host { None } else { Some(user.subject.as_str()) };
+    let updated = repository
+        .set_participant_participation(retro_id, participant_id, request.is_participating, caller_filter)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to update participation: {e}")))?;
+    if !updated {
+        return Err(ApiError::not_found("participant not found"));
+    }
+    // Ready / reveal gates depend on participant_count, so a participation
+    // flip moves the same goalposts as a ready mark — re-use the channel.
     event_hub.publish(BoardEvent::ReadyChanged { retro_id });
     Ok(StatusCode::NO_CONTENT)
 }
