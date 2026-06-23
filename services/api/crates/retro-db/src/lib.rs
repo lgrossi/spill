@@ -5327,7 +5327,14 @@ mod tests {
         let ava_b_card = hidden_col
             .cards
             .iter()
-            .find(|c| c.author_participant_id != lee_board.participants.iter().find(|p| p.display_name == "Lee").map(|p| p.id))
+            .find(|c| {
+                c.author_participant_id
+                    != lee_board
+                        .participants
+                        .iter()
+                        .find(|p| p.display_name == "Lee")
+                        .map(|p| p.id)
+            })
             .expect("ava draft present");
         assert!(ava_b_card.hidden);
         assert!(ava_b_card.body_text.is_none());
@@ -5359,7 +5366,10 @@ mod tests {
         let column_ids: Vec<Uuid> = created.columns.iter().map(|c| c.id).collect();
         let last_index = column_ids.len() - 1;
         for (index, column_id) in column_ids.iter().enumerate() {
-            let outcome = repo.reveal_column(created.retro.id, *column_id).await.unwrap();
+            let outcome = repo
+                .reveal_column(created.retro.id, *column_id)
+                .await
+                .unwrap();
             if index < last_index {
                 assert!(
                     matches!(outcome, RevealColumnOutcome::Revealed),
@@ -5404,8 +5414,13 @@ mod tests {
             .await
             .unwrap();
         let column_a = created.columns[0].id;
-        repo.reveal_column(created.retro.id, column_a).await.unwrap();
-        let second = repo.reveal_column(created.retro.id, column_a).await.unwrap();
+        repo.reveal_column(created.retro.id, column_a)
+            .await
+            .unwrap();
+        let second = repo
+            .reveal_column(created.retro.id, column_a)
+            .await
+            .unwrap();
         assert!(
             matches!(second, RevealColumnOutcome::NotFound),
             "already-revealed column reports NotFound (collapsed with wrong-id)",
@@ -5444,7 +5459,9 @@ mod tests {
             .unwrap();
         let column_a = created.columns[0].id;
         let column_b = created.columns[1].id;
-        repo.reveal_column(created.retro.id, column_a).await.unwrap();
+        repo.reveal_column(created.retro.id, column_a)
+            .await
+            .unwrap();
 
         let attempt = repo
             .create_draft_card(DraftCardInput {
@@ -5514,7 +5531,9 @@ mod tests {
             })
             .await
             .unwrap();
-        repo.reveal_column(created.retro.id, column_a).await.unwrap();
+        repo.reveal_column(created.retro.id, column_a)
+            .await
+            .unwrap();
 
         let attempt = repo
             .move_draft_card(created.retro.id, draft.id, column_a, None, "ava")

@@ -16,6 +16,13 @@ impl RetroRepository {
             .await?;
 
         let mut tx = self.pool.begin().await?;
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM retro_columns WHERE id = $1 AND retro_id = $2 FOR UPDATE",
+        )
+        .bind(input.column_id)
+        .bind(input.retro_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let card = sqlx::query_as::<_, CardRecord>(
             "INSERT INTO cards (retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position)
              SELECT

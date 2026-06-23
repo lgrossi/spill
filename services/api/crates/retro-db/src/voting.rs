@@ -78,7 +78,7 @@ impl RetroRepository {
         .execute(&mut *tx)
         .await?;
 
-        order_cards_by_author(&mut tx, retro_id).await?;
+        order_cards_by_author(&mut tx, retro_id, None).await?;
 
         tx.commit().await?;
         Ok(retro)
@@ -102,6 +102,10 @@ impl RetroRepository {
         column_id: Uuid,
     ) -> Result<RevealColumnOutcome, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM retros WHERE id = $1 FOR UPDATE")
+            .bind(retro_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
         let stamped = sqlx::query_scalar::<_, Uuid>(
             "UPDATE retro_columns
@@ -128,9 +132,7 @@ impl RetroRepository {
         .execute(&mut *tx)
         .await?;
 
-        // Safe to call after a partial reveal: only acts on revealed cards,
-        // which means unrevealed columns are skipped naturally.
-        order_cards_by_author(&mut tx, retro_id).await?;
+        order_cards_by_author(&mut tx, retro_id, Some(column_id)).await?;
 
         let remaining_unrevealed = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM retro_columns
@@ -311,6 +313,7 @@ impl RetroRepository {
 async fn order_cards_by_author(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     retro_id: Uuid,
+    only_column_id: Option<Uuid>,
 ) -> Result<(), sqlx::Error> {
     let column_ids = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM retro_columns WHERE retro_id = $1 ORDER BY position ASC",
@@ -331,6 +334,9 @@ async fn order_cards_by_author(
     .await?;
 
     for (index, column_id) in column_ids.iter().enumerate() {
+        if only_column_id.is_some_and(|only_column_id| only_column_id != *column_id) {
+            continue;
+        }
         // author -> card ids, insertion order = chronological.
         let mut blocks: Vec<(Uuid, Vec<Uuid>)> = Vec::new();
         for (card_id, card_column, author_id) in &cards {
