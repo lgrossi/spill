@@ -3600,7 +3600,7 @@ mod tests {
         })
         .await
         .unwrap();
-        repo.remove_cluster_member(created.retro.id, split_one.id)
+        repo.remove_cluster_member(created.retro.id, split_one.id, "ava")
             .await
             .unwrap()
             .unwrap();
@@ -4739,6 +4739,63 @@ mod tests {
         assert!(
             peer_update_response.author_participant_id.is_none(),
             "direct mutation responses must also redact peer authors"
+        );
+        let peer_move_response = repo
+            .move_draft_card(
+                created.retro.id,
+                ava_card.id,
+                created.columns[1].id,
+                None,
+                "lee",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            peer_move_response.author_participant_id.is_none(),
+            "move responses must redact peer authors"
+        );
+        let ava_member = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("Ava clustered card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        let lee_member = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id,
+                author_subject: "lee".to_owned(),
+                author_display_name: "Lee".to_owned(),
+                body_text: Some("Lee clustered card".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        repo.cluster_cards(ClusterCardsInput {
+            retro_id: created.retro.id,
+            card_id: ava_member.id,
+            target_card_id: lee_member.id,
+            subject: "lee".to_owned(),
+            display_name: "Lee".to_owned(),
+        })
+        .await
+        .unwrap();
+        let peer_remove_response = repo
+            .remove_cluster_member(created.retro.id, ava_member.id, "lee")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            peer_remove_response.author_participant_id.is_none(),
+            "cluster member removal responses must redact peer authors"
         );
 
         // Ava fetches: her own card keeps its author; Lee's is redacted.
