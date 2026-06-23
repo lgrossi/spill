@@ -3314,6 +3314,7 @@ async fn update_retro_details_can_toggle_reveal_mode(pool: sqlx::PgPool) {
     assert_eq!(response.status(), StatusCode::OK);
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/retros/{retro_id}"))
@@ -3326,6 +3327,22 @@ async fn update_retro_details_can_toggle_reveal_mode(pool: sqlx::PgPool) {
     let board: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(board["retro"]["reveal_mode"], "big_bang");
+    let column_id = board["columns"][0]["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "host@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"force":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 // Per-column reveal route: host-gated, ready-gated (or force=true bypass),
