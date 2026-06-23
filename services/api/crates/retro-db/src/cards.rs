@@ -204,11 +204,16 @@ impl RetroRepository {
         .await?;
 
         let moved = sqlx::query_as::<_, CardRecord>(
-            "SELECT c.id, c.retro_id, c.column_id, c.author_participant_id, c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden
+            "SELECT c.id, c.retro_id, c.column_id,
+                CASE WHEN r.anonymous_authors AND p.external_subject <> $2 THEN NULL ELSE c.author_participant_id END AS author_participant_id,
+                c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden
              FROM cards c
+             JOIN retros r ON r.id = c.retro_id
+             JOIN participants p ON p.id = c.author_participant_id
              WHERE c.id = $1",
         )
         .bind(card_id)
+        .bind(subject)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -291,6 +296,7 @@ impl RetroRepository {
         &self,
         retro_id: Uuid,
         member_card_id: Uuid,
+        subject: &str,
     ) -> Result<Option<CardRecord>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let removed = sqlx::query_as::<_, CardRecord>(
@@ -304,16 +310,20 @@ impl RetroRepository {
                     WHERE retro_id = $1 AND column_id = parent.column_id AND parent_card_id IS NULL
                  ),
                  updated_at = NOW()
-             FROM cards parent, retros r
+             FROM cards parent, retros r, participants p
              WHERE member.id = $2
                AND member.retro_id = $1
                AND parent.id = member.parent_card_id
                AND r.id = member.retro_id
+               AND p.id = member.author_participant_id
                AND r.phase <> 'completed'
-             RETURNING member.id, member.retro_id, member.column_id, member.author_participant_id, member.body_text, member.gif_url, member.gif_alt_text, member.state, member.position, member.cluster_id, member.parent_card_id, member.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
+             RETURNING member.id, member.retro_id, member.column_id,
+                CASE WHEN r.anonymous_authors AND p.external_subject <> $3 THEN NULL ELSE member.author_participant_id END AS author_participant_id,
+                member.body_text, member.gif_url, member.gif_alt_text, member.state, member.position, member.cluster_id, member.parent_card_id, member.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(retro_id)
         .bind(member_card_id)
+        .bind(subject)
         .fetch_optional(&mut *tx)
         .await?;
 

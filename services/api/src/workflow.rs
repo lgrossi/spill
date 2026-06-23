@@ -477,7 +477,7 @@ impl RetroWorkflow {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
         let card = self
             .repository
-            .remove_cluster_member(retro_id, card_id)
+            .remove_cluster_member(retro_id, card_id, &user.subject)
             .await
             .map_err(|error| {
                 ApiError::internal(format!("failed to remove cluster member: {error}"))
