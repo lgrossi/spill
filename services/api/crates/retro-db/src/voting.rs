@@ -67,10 +67,106 @@ impl RetroRepository {
             .execute(&mut *tx)
             .await?;
 
+        // Mirror what reveal_column does per column: any still-hidden column
+        // becomes implicitly revealed by the big-bang. Idempotent on a column
+        // someone already revealed individually.
+        sqlx::query(
+            "UPDATE retro_columns SET revealed_at = NOW()
+             WHERE retro_id = $1 AND revealed_at IS NULL",
+        )
+        .bind(retro_id)
+        .execute(&mut *tx)
+        .await?;
+
         order_cards_by_author(&mut tx, retro_id).await?;
 
         tx.commit().await?;
         Ok(retro)
+    }
+
+    /// Reveal a single column. Flips that column's drafts to 'revealed',
+    /// stamps `retro_columns.revealed_at`, re-runs the author-block sort, and
+    /// -- if this is the last unrevealed column -- auto-advances the retro
+    /// from 'writing' to 'discussion' in the same transaction. The caller
+    /// (workflow layer) decides which BoardEvent to publish based on the
+    /// returned outcome.
+    ///
+    /// Returns `NotFound` for both "no such column on this retro" and
+    /// "column already revealed" -- the column-not-found case is rare (the
+    /// workflow layer already authorized the retro), so collapsing them keeps
+    /// the API small. The workflow layer can pre-check if it ever wants to
+    /// distinguish 404 vs 409 in the HTTP response.
+    pub async fn reveal_column(
+        &self,
+        retro_id: Uuid,
+        column_id: Uuid,
+    ) -> Result<RevealColumnOutcome, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        let stamped = sqlx::query_scalar::<_, Uuid>(
+            "UPDATE retro_columns
+             SET revealed_at = NOW()
+             WHERE id = $2 AND retro_id = $1 AND revealed_at IS NULL
+             RETURNING id",
+        )
+        .bind(retro_id)
+        .bind(column_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if stamped.is_none() {
+            tx.rollback().await?;
+            return Ok(RevealColumnOutcome::NotFound);
+        }
+
+        sqlx::query(
+            "UPDATE cards SET state = 'revealed', updated_at = NOW()
+             WHERE retro_id = $1 AND column_id = $2 AND state = 'draft'",
+        )
+        .bind(retro_id)
+        .bind(column_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Safe to call after a partial reveal: only acts on revealed cards,
+        // which means unrevealed columns are skipped naturally.
+        order_cards_by_author(&mut tx, retro_id).await?;
+
+        let remaining_unrevealed = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM retro_columns
+             WHERE retro_id = $1 AND revealed_at IS NULL",
+        )
+        .bind(retro_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if remaining_unrevealed == 0 {
+            // Last column -- complete the writing -> discussion transition the
+            // same way reveal_board does. Phase guard ensures we only advance
+            // from 'writing' (defensive against concurrent transitions).
+            let retro = sqlx::query_as::<_, RetroRecord>(
+                "UPDATE retros
+                 SET phase = 'discussion'
+                 WHERE id = $1 AND phase = 'writing'
+                 RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
+                    card_edit_policy, anonymous_authors,
+                    to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
+                    to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
+            )
+            .bind(retro_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            // If the phase row didn't update (e.g. already advanced concurrently),
+            // still report Revealed -- the column flip itself succeeded.
+            return Ok(match retro {
+                Some(retro) => RevealColumnOutcome::RevealedAndCompleted(retro),
+                None => RevealColumnOutcome::Revealed,
+            });
+        }
+
+        tx.commit().await?;
+        Ok(RevealColumnOutcome::Revealed)
     }
 
     pub async fn start_scheduled_retro(

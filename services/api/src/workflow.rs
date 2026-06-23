@@ -569,6 +569,54 @@ impl RetroWorkflow {
         self.fetch_board_for_user(retro_id, &user).await
     }
 
+    /// Reveal a single column. Host-only: per-column reveal is a facilitation
+    /// choice ("let's discuss gladness first"), distinct from `reveal_board`
+    /// which is the collective "everyone is ready, go" action. Same ready
+    /// gate (or `force=true` bypass). When the last unrevealed column flips,
+    /// the retro auto-advances writing -> discussion in the same transaction.
+    pub async fn reveal_column(
+        &self,
+        user: CurrentUser,
+        retro_id: Uuid,
+        column_id: Uuid,
+        force: bool,
+    ) -> Result<retro_db::RetroBoard, ApiError> {
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
+        let board = self.fetch_board_for_user(retro_id, &user).await?;
+        if board.retro.phase != "writing" {
+            return Err(ApiError::bad_request(
+                "column reveal is only available during the writing phase",
+            ));
+        }
+        if !force && board.ready.ready_count < board.ready.participant_count {
+            return Err(ApiError::bad_request(
+                "everyone must be ready before reveal",
+            ));
+        }
+        let outcome = self
+            .repository
+            .reveal_column(retro_id, column_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to reveal column: {error}")))?;
+        match outcome {
+            retro_db::RevealColumnOutcome::NotFound => {
+                return Err(ApiError::not_found(
+                    "column not found on this retro or already revealed",
+                ));
+            }
+            retro_db::RevealColumnOutcome::Revealed => {
+                self.event_hub
+                    .publish(BoardEvent::CardChanged { retro_id });
+            }
+            retro_db::RevealColumnOutcome::RevealedAndCompleted(_) => {
+                self.event_hub
+                    .publish(BoardEvent::PhaseChanged { retro_id });
+            }
+        }
+        self.trigger_auto_clustering_compute(retro_id).await;
+        self.fetch_board_for_user(retro_id, &user).await
+    }
+
     pub async fn start_voting(
         &self,
         user: CurrentUser,
@@ -1791,6 +1839,7 @@ mod tests {
             title: title.to_owned(),
             position: 0,
             accent_color: None,
+            revealed_at: None,
             cards: vec![retro_db::CardRecord {
                 id: card_id,
                 retro_id: uuid::Uuid::from_u128(10),

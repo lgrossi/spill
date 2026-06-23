@@ -202,7 +202,7 @@ impl RetroRepository {
              FROM retro_columns
              WHERE retro_id = $1
              ORDER BY position
-             RETURNING id, retro_id, column_key, title, position, accent_color",
+             RETURNING id, retro_id, column_key, title, position, accent_color, NULL::TEXT AS revealed_at",
         )
         .bind(source_retro_id)
         .bind(retro.id)

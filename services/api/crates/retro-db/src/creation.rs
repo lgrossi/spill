@@ -107,7 +107,7 @@ pub(super) async fn create_retro(
         let record = sqlx::query_as::<_, RetroColumnRow>(
             "INSERT INTO retro_columns (retro_id, column_key, title, position, accent_color)
              VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, retro_id, column_key, title, position, accent_color",
+             RETURNING id, retro_id, column_key, title, position, accent_color, NULL::TEXT AS revealed_at",
         )
         .bind(retro.id)
         .bind(column_key(title, position))

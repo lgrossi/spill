@@ -187,6 +187,10 @@ fn api_router() -> Router<AppState> {
             post(mark_ready).delete(unmark_ready),
         )
         .route("/retros/{retro_id}/reveal", post(reveal_board))
+        .route(
+            "/retros/{retro_id}/columns/{column_id}/reveal",
+            post(reveal_column),
+        )
         .route("/retros/{retro_id}/voting/start", post(start_voting))
         .route("/retros/{retro_id}/votes", post(cast_vote))
         .route("/retros/{retro_id}/votes/{card_id}", delete(remove_vote))
@@ -572,6 +576,29 @@ async fn reveal_board(
     retro_workflow(repository, event_hub)?
         .with_ai_provider(ai_provider)
         .reveal_board(user, retro_id, force)
+        .await
+        .map(Json)
+}
+
+async fn reveal_column(
+    State(repository): State<Option<RetroRepository>>,
+    State(event_hub): State<BoardEventHub>,
+    State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
+    user: CurrentUser,
+    Path((retro_id, column_id)): Path<(Uuid, Uuid)>,
+    body: Option<Json<RevealBoardRequest>>,
+) -> Result<Json<retro_db::RetroBoard>, ApiError> {
+    let force = body.map(|b| b.force).unwrap_or(false);
+    // Host-only is enforced inside workflow.reveal_column too; the early check
+    // here mirrors reveal_board's force-bypass shape so the 403 lands before
+    // any further state read when callers pass force without being host.
+    if force {
+        let repo = configured_repository(repository.clone())?;
+        require_host(&repo, retro_id, &user.email).await?;
+    }
+    retro_workflow(repository, event_hub)?
+        .with_ai_provider(ai_provider)
+        .reveal_column(user, retro_id, column_id, force)
         .await
         .map(Json)
 }
