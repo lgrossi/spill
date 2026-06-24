@@ -59,7 +59,7 @@ export function BoardColumns({
               // same view -- a placeholder waiting for the host to reveal.
               const visibleCards = hiddenInDiscussion ? [] : column.cards;
               const isActiveColumn = activeColumnId === column.id;
-              const canDrag = isInteractive;
+              const canDrag = isInteractive && !hiddenInDiscussion;
               const canComposeHere = isInteractive && !hiddenInDiscussion;
               const canRevealHere = hiddenInDiscussion && isHost === true;
 

@@ -291,6 +291,11 @@ impl RetroWorkflow {
                     "board config cannot be updated after wrap-up has started",
                 ));
             }
+            if reveal_mode.is_some() && !matches!(retro.phase.as_str(), "scheduled" | "writing") {
+                return Err(ApiError::bad_request(
+                    "reveal_mode cannot be changed after discussion has started",
+                ));
+            }
             if retro.phase == "voting" && matches!(vote_limit, Some(0)) {
                 return Err(ApiError::bad_request(
                     "voting cannot be disabled after voting has started",
@@ -580,13 +585,16 @@ impl RetroWorkflow {
                 ));
             }
         }
-        self.repository
+        let retro = self
+            .repository
             .reveal_board(retro_id)
             .await
             .map_err(|error| ApiError::internal(format!("failed to reveal board: {error}")))?;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
-        self.trigger_auto_clustering_compute(retro_id).await;
+        if retro.reveal_mode == "big_bang" {
+            self.trigger_auto_clustering_compute(retro_id).await;
+        }
         self.fetch_board_for_user(retro_id, &user).await
     }
 
@@ -629,7 +637,9 @@ impl RetroWorkflow {
                 self.event_hub.publish(BoardEvent::CardChanged { retro_id });
             }
         }
-        self.trigger_auto_clustering_compute(retro_id).await;
+        if self.all_columns_revealed(retro_id).await? {
+            self.trigger_auto_clustering_compute(retro_id).await;
+        }
         self.fetch_board_for_user(retro_id, &user).await.map(Some)
     }
 
@@ -645,18 +655,8 @@ impl RetroWorkflow {
             .await
             .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
-        if retro.phase == "discussion" && retro.reveal_mode == "per_column" {
-            let columns = self
-                .repository
-                .fetch_columns(retro_id)
-                .await
-                .map_err(|error| ApiError::internal(format!("failed to fetch columns: {error}")))?;
-            if columns.iter().any(|column| column.revealed_at.is_none()) {
-                return Err(ApiError::bad_request(
-                    "all columns must be revealed before voting",
-                ));
-            }
-        }
+        self.ensure_columns_revealed_before_transition(retro_id, &retro.phase)
+            .await?;
         if retro.phase == "voting" {
             self.trigger_auto_clustering_apply(retro_id).await;
             return self.fetch_board_for_user(retro_id, &user).await;
@@ -825,6 +825,14 @@ impl RetroWorkflow {
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        let retro = self
+            .repository
+            .fetch_retro(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
+            .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        self.ensure_columns_revealed_before_transition(retro_id, &retro.phase)
+            .await?;
         self.repository
             .start_action_discussion(retro_id)
             .await
@@ -1011,6 +1019,28 @@ impl RetroWorkflow {
         });
         self.event_hub
             .publish(BoardEvent::ClusteringChanged { retro_id });
+    }
+
+    async fn all_columns_revealed(&self, retro_id: Uuid) -> Result<bool, ApiError> {
+        let columns = self
+            .repository
+            .fetch_columns(retro_id)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to fetch columns: {error}")))?;
+        Ok(columns.iter().all(|column| column.revealed_at.is_some()))
+    }
+
+    async fn ensure_columns_revealed_before_transition(
+        &self,
+        retro_id: Uuid,
+        phase: &str,
+    ) -> Result<(), ApiError> {
+        if matches!(phase, "discussion" | "voting") && !self.all_columns_revealed(retro_id).await? {
+            return Err(ApiError::bad_request(
+                "all columns must be revealed before leaving discussion",
+            ));
+        }
+        Ok(())
     }
 
     async fn fetch_board_for_user(

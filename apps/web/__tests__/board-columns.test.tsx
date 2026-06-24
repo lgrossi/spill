@@ -69,4 +69,9 @@ describe('BoardColumns composer affordance', () => {
     expect(screen.queryByRole('link', { name: 'add went well card' })).toBeNull();
     expect(screen.getByText('0 cards hidden')).toBeInTheDocument();
   });
+
+  it('does not expose unrevealed discussion columns as drop targets', () => {
+    render(<BoardColumns board={board('discussion', null)} query={{}} />);
+    expect(screen.getByText('0 cards hidden').closest('[data-spill-column-id]')).toBeNull();
+  });
 });
