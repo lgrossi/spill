@@ -48,6 +48,10 @@ export function BoardBehaviorToggles({
   className = "space-y-2.5",
 }: BoardBehaviorTogglesProps) {
   const [values, setValues] = useState<BoardBehaviorValues>(initial);
+  const [limitInputs, setLimitInputs] = useState(() => ({
+    voteLimit: String(Math.max(1, initial.voteLimit)),
+    actionDiscussionLimit: String(Math.max(1, initial.actionDiscussionLimit)),
+  }));
 
   // Notify in the same tick as the setState so callers see the new value
   // before the next render. Patch always reads the latest `values` from
@@ -59,11 +63,26 @@ export function BoardBehaviorToggles({
     onChange?.(merged);
   }
 
+  function patchLimit(key: "voteLimit" | "actionDiscussionLimit", raw: string) {
+    setLimitInputs((current) => ({ ...current, [key]: raw }));
+    const value = Number(raw);
+    if (raw.trim() !== "" && Number.isFinite(value)) {
+      patch(limitPatch(key, Math.max(1, value)));
+    }
+  }
+
+  function commitLimit(key: "voteLimit" | "actionDiscussionLimit", raw: string) {
+    const value = Number(raw);
+    const next = raw.trim() === "" || !Number.isFinite(value) ? Math.max(1, values[key]) : Math.max(1, value);
+    setLimitInputs((current) => ({ ...current, [key]: String(next) }));
+    patch(limitPatch(key, next));
+  }
+
   return (
     <div className={className}>
       <Tile className="flex items-center gap-3">
         <RuleMark>●●●</RuleMark>
-        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
+        <label className={`group/check flex min-w-0 flex-1 items-center justify-between gap-3 ${canToggleVoting ? "cursor-pointer" : "cursor-default"}`}>
           {canToggleVoting ? (
             <>
               <input name="voting_enabled" type="hidden" value="0" />
@@ -87,8 +106,9 @@ export function BoardBehaviorToggles({
                 name="vote_limit"
                 type="number"
                 min="1"
-                value={Math.max(1, values.voteLimit)}
-                onChange={(event) => patch({ voteLimit: Number(event.currentTarget.value) || 1 })}
+                value={limitInputs.voteLimit}
+                onBlur={(event) => commitLimit("voteLimit", event.currentTarget.value)}
+                onChange={(event) => patchLimit("voteLimit", event.currentTarget.value)}
                 disabled={!values.votingEnabled}
                 required={values.votingEnabled}
                 aria-label="Votes per person"
@@ -97,7 +117,7 @@ export function BoardBehaviorToggles({
               votes per person
             </span>
           </span>
-          <Check />
+          <Check active={!canToggleVoting && values.votingEnabled} />
         </label>
       </Tile>
 
@@ -123,8 +143,9 @@ export function BoardBehaviorToggles({
                   name="action_discussion_limit"
                   type="number"
                   min="1"
-                  value={Math.max(1, values.actionDiscussionLimit)}
-                  onChange={(event) => patch({ actionDiscussionLimit: Number(event.currentTarget.value) || 1 })}
+                  value={limitInputs.actionDiscussionLimit}
+                  onBlur={(event) => commitLimit("actionDiscussionLimit", event.currentTarget.value)}
+                  onChange={(event) => patchLimit("actionDiscussionLimit", event.currentTarget.value)}
                   disabled={!values.topVotedToActions}
                   required={values.topVotedToActions}
                   aria-label="Number of top voted cards moved to actions"
@@ -245,9 +266,16 @@ function RuleMark({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Check() {
+function limitPatch(
+  key: "voteLimit" | "actionDiscussionLimit",
+  value: number,
+): Partial<BoardBehaviorValues> {
+  return key === "voteLimit" ? { voteLimit: value } : { actionDiscussionLimit: value };
+}
+
+function Check({ active = false }: { active?: boolean }) {
   return (
-    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
+    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border text-[14px] font-extrabold transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white ${active ? "border-spill-well bg-spill-well text-white" : "border-spill-line bg-[var(--paper)] text-transparent"}`}>
       ✓
     </span>
   );
