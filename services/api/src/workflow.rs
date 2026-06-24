@@ -654,6 +654,14 @@ impl RetroWorkflow {
             self.trigger_auto_clustering_apply(retro_id).await;
             return self.fetch_board_for_user(retro_id, &user).await;
         }
+        // Repo `start_voting` SQL guards on `vote_limit > 0`; a 0-vote board
+        // would UPDATE zero rows and bubble up as 500. Reject it as 400 here
+        // with a clear message so the host knows the board's voting is off.
+        if retro.vote_limit <= 0 {
+            return Err(ApiError::bad_request(
+                "voting is disabled for this retro (vote_limit is 0)",
+            ));
+        }
         self.repository
             .start_voting(retro_id)
             .await
