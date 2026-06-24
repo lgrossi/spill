@@ -36,16 +36,6 @@ impl RetroRepository {
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
              FROM retros
              WHERE id = $1 AND phase NOT IN ('scheduled', 'completed')
-               -- Once a column is per-column revealed during writing, no more
-               -- drafts land in it. Other phases (discussion/voting) are
-               -- unaffected: by then all columns have been revealed already.
-               AND NOT EXISTS (
-                   SELECT 1 FROM retro_columns rc
-                   WHERE rc.id = $2
-                     AND rc.retro_id = $1
-                     AND rc.revealed_at IS NOT NULL
-                     AND phase = 'writing'
-               )
              RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, NULL::UUID AS cluster_id, NULL::UUID AS parent_card_id, NULL::TEXT AS cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(input.retro_id)
@@ -168,15 +158,6 @@ impl RetroRepository {
                AND rc.retro_id = $4
                AND r.phase <> 'completed'
                AND (c.state = 'revealed' OR (c.state = 'draft' AND p.external_subject = $2))
-               -- Drafts can't be moved into an already-revealed column during
-               -- writing: that would smuggle a hidden card into the room's
-               -- read-through. Revealed cards remain freely movable -- the
-               -- post-reveal reorg is a normal facilitator activity.
-               AND NOT (
-                   c.state = 'draft'
-                   AND r.phase = 'writing'
-                   AND rc.revealed_at IS NOT NULL
-               )
              RETURNING c.id, c.retro_id, c.column_id,
                 CASE WHEN r.anonymous_authors AND p.external_subject <> $2 THEN NULL ELSE c.author_participant_id END AS author_participant_id,
                 c.body_text, c.gif_url, c.gif_alt_text, c.state, c.position, c.cluster_id, c.parent_card_id, c.cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",

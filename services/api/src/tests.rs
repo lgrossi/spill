@@ -3220,12 +3220,12 @@ async fn retro_create_persists_reveal_mode_when_explicit(pool: sqlx::PgPool) {
     assert_eq!(created["retro"]["reveal_mode"], "big_bang");
 }
 
-// Default when reveal_mode is omitted from the create body is 'per_column'
-// -- the API layer's default mirrors the create form's ship-checked default.
-// The SQL column DEFAULT ('big_bang') only applies to backfill / non-API
-// paths.
+// Default when reveal_mode is omitted from the create body is 'big_bang'
+// (matches the SQL DEFAULT and historic non-form caller behavior). The web
+// create form always submits an explicit value, so users opting through the
+// UI get the per_column default from the form-side checkbox.
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
-async fn retro_create_defaults_reveal_mode_to_per_column(pool: sqlx::PgPool) {
+async fn retro_create_defaults_reveal_mode_to_big_bang(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app
         .clone()
@@ -3246,7 +3246,7 @@ async fn retro_create_defaults_reveal_mode_to_per_column(pool: sqlx::PgPool) {
     assert_eq!(response.status(), StatusCode::CREATED);
     let created: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
-    assert_eq!(created["retro"]["reveal_mode"], "per_column");
+    assert_eq!(created["retro"]["reveal_mode"], "big_bang");
 }
 
 // Unknown reveal_mode values are rejected with a clear 4xx before the SQL
@@ -3350,7 +3350,7 @@ async fn update_retro_details_can_toggle_reveal_mode(pool: sqlx::PgPool) {
 // existing `/reveal` integration test patterns but exercises the new
 // `/columns/{column_id}/reveal` endpoint and the row-level visibility flip.
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
-async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::PgPool) {
+async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
 
     let response = app
@@ -3363,19 +3363,18 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
                 .header(HEADER_USER_NAME, "Ava")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"title":"Per-column reveal","template":"standard","vote_limit":3,"action_discussion_limit":3,"invitees":[{"email":"lee@example.com","role":"member"}]}"#,
+                    r#"{"title":"Per-column reveal","template":"standard","vote_limit":3,"action_discussion_limit":3,"reveal_mode":"per_column","invitees":[{"email":"lee@example.com","role":"member"}]}"#,
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::CREATED);
     let created: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     let retro_id = created["retro"]["id"].as_str().unwrap();
     let column_id = created["columns"][0]["id"].as_str().unwrap();
 
-    // Lee joins by fetching the board (ensure-participant on read).
+    // Lee joins on first read.
     let _ = app
         .clone()
         .oneshot(
@@ -3389,13 +3388,11 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
         .await
         .unwrap();
 
-    // Drop one draft per author so masking has work to do.
     for (subject, body) in [
         ("ava@example.com", "Ava draft"),
         ("lee@example.com", "Lee draft"),
     ] {
-        let r = app
-            .clone()
+        app.clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -3409,25 +3406,9 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
             )
             .await
             .unwrap();
-        assert_eq!(r.status(), StatusCode::CREATED);
     }
 
-    // Non-host (Lee) cannot trigger per-column reveal.
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
-                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
-    // Host without everyone-ready -> rejected.
+    // Reveal during writing -> 4xx (column reveal is a discussion-phase action).
     let response = app
         .clone()
         .oneshot(
@@ -3442,13 +3423,14 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    // Host with force=true bypasses the ready gate.
+    // Advance to discussion via reveal_board. Per_column mode -> phase moves
+    // but no columns get stamped (host reveals each one individually).
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .uri(format!("/api/retros/{retro_id}/reveal"))
                 .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"force":true}"#))
@@ -3457,19 +3439,49 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+
+    // Non-host can't reveal a column.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Host reveals the column. No body needed -- no ready gate / force flag.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let revealed: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
-    // Phase still 'writing' -- other columns haven't been revealed yet.
-    assert_eq!(revealed["retro"]["phase"], "writing");
-    let revealed_column = revealed["columns"]
+    // Phase stays 'discussion' -- reveal_column never advances phases.
+    assert_eq!(revealed["retro"]["phase"], "discussion");
+    let col = revealed["columns"]
         .as_array()
         .unwrap()
         .iter()
         .find(|c| c["id"] == column_id)
-        .expect("revealed column");
-    assert!(revealed_column["revealed_at"].is_string());
+        .unwrap();
+    assert!(col["revealed_at"].is_string());
 
-    // Lee can now see Ava's previously-hidden draft.
+    // Lee now sees both authors' previously-hidden drafts.
     let response = app
         .clone()
         .oneshot(
@@ -3483,13 +3495,12 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
         .unwrap();
     let lee_board: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
-    let lee_view = lee_board["columns"]
+    let bodies: Vec<&str> = lee_board["columns"]
         .as_array()
         .unwrap()
         .iter()
         .find(|c| c["id"] == column_id)
-        .unwrap();
-    let bodies: Vec<&str> = lee_view["cards"]
+        .unwrap()["cards"]
         .as_array()
         .unwrap()
         .iter()
@@ -3498,7 +3509,7 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
     assert!(bodies.contains(&"Ava draft"));
     assert!(bodies.contains(&"Lee draft"));
 
-    // Re-revealing the same column is a 4xx (no events, no double-fire).
+    // Re-reveal collapses to 404 -- idempotent, no double event.
     let response = app
         .clone()
         .oneshot(
@@ -3506,33 +3517,10 @@ async fn reveal_column_route_is_host_only_and_respects_ready_gate(pool: sqlx::Pg
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
                 .header(HEADER_ON_BEHALF_OF, "ava@example.com")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"force":true}"#))
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-
-    // New drafts can no longer land in the revealed column.
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/retros/{retro_id}/cards"))
-                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
-                .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"column_id":"{column_id}","body_text":"too late"}}"#
-                )))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert!(
-        response.status().is_client_error(),
-        "creating a draft in a revealed column must return 4xx; got {}",
-        response.status(),
-    );
 }

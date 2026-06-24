@@ -31,18 +31,12 @@ export function BoardColumns({
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
   const isInteractive = board.retro.phase !== "completed" && board.retro.phase !== "scheduled";
   const isWriting = board.retro.phase === "writing";
-  // Per-column reveal starts behind the same ready gate as global reveal. Once
-  // the host starts the column walk, keep the remaining reveal pills available
-  // even if a late participant changes the ready denominator.
-  const everyoneReady =
-    board.ready.participant_count > 0
-    && board.ready.ready_count >= board.ready.participant_count;
-  // Reveal mode gates which affordance is shown: per_column means walk
-  // through columns one by one (pills appear; big-bang button hidden via
-  // phase-line.tsx); big_bang keeps the legacy single-action reveal.
+  // Per-column reveal is a host action *inside* the discussion phase: it
+  // never adds a new phase or substate, it just controls when each column's
+  // cards become visible. big_bang reveals everything on writing->discussion
+  // (see voting.rs::reveal_board), so column.revealed_at is always set there.
   const isPerColumnReveal = board.retro.reveal_mode === "per_column";
-  const revealWalkStarted = columns.some((column) => Boolean(column.revealed_at));
-  const canRevealColumns = isWriting && isHost && isPerColumnReveal && (everyoneReady || revealWalkStarted);
+  const isDiscussion = board.retro.phase === "discussion";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col p-3 md:p-4" id="board">
@@ -57,17 +51,18 @@ export function BoardColumns({
           >
             {columns.map((column) => {
               const semantic = columnSemantic(column);
+              const isColumnRevealed = column.revealed_at != null;
+              const hiddenInDiscussion = isDiscussion && isPerColumnReveal && !isColumnRevealed;
               // Render the server-persisted order for every phase. Notably,
-              // voting must NOT re-sort by votes: it would both disorient people
-              // and leak the otherwise-hidden relative vote tallies.
-              const visibleCards = column.cards;
+              // voting must NOT re-sort by votes (would leak vote tallies).
+              // In per_column discussion before reveal, hide everyone's
+              // cards (including the author's own) so the room sees the
+              // same view -- a placeholder waiting for the host to reveal.
+              const visibleCards = hiddenInDiscussion ? [] : column.cards;
               const isActiveColumn = activeColumnId === column.id;
               const canDrag = isInteractive;
-              const isColumnRevealed = column.revealed_at != null;
-              // Lock the composer once a column is revealed mid-writing: the
-              // backend rejects new drafts there anyway (see cards.rs guard),
-              // and surfacing the affordance would invite a confusing 4xx.
-              const canComposeHere = isInteractive && !(isWriting && isColumnRevealed);
+              const canComposeHere = isInteractive && isWriting;
+              const canRevealHere = hiddenInDiscussion && isHost === true;
 
               return (
                 <DropColumn columnId={column.id} enabled={canDrag} key={column.id}>
@@ -78,18 +73,14 @@ export function BoardColumns({
                     sub={semantic.kind === "mood" ? ". one per person" : semantic.kind === "action" ? ". action items" : undefined}
                   />
 
-                  {isWriting && isColumnRevealed ? (
-                    <div className="mb-2 flex items-center gap-1.5 px-0.5 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: semantic.color }}>
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: semantic.color }} />
-                      revealed
-                    </div>
-                  ) : canRevealColumns ? (
-                    <ColumnRevealPill board={board} columnId={column.id} color={semantic.color} />
-                  ) : null}
+                  {canRevealHere ? <ColumnRevealPill board={board} columnId={column.id} color={semantic.color} /> : null}
 
                   {canComposeHere ? <ColumnComposer board={board} columnId={column.id} columnLabel={semantic.label} color={semantic.color} isActive={isActiveColumn} /> : null}
 
                   <div className="sp-scroll min-h-0 flex-1 space-y-2.5 overflow-auto pr-1">
+                    {hiddenInDiscussion ? (
+                      <HiddenColumnPlaceholder color={semantic.color} count={column.cards.length} />
+                    ) : null}
                     {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />)}
                     <DropEndMarker accent={semantic.color} columnId={column.id} enabled={canDrag} />
                   </div>
@@ -135,11 +126,8 @@ function ColumnComposer({
   );
 }
 
-// Host-only affordance during writing: reveals just this column's drafts
-// (vs reveal_board which dumps the entire board at once). Submits a form
-// with retro_id + column_id to revealColumnCommand, which calls the
-// `/columns/{id}/reveal` route. force=true so a stragglers-but-host case
-// still works; the gate is the surrounding `canRevealColumns` calculation.
+// Host-only pill during per_column discussion: reveals this column's cards
+// to the room.
 function ColumnRevealPill({ board, columnId, color }: { board: RetroBoard; columnId: string; color: string }) {
   return (
     <form action={revealColumnCommand} className="mb-2.5">
@@ -153,6 +141,19 @@ function ColumnRevealPill({ board, columnId, color }: { board: RetroBoard; colum
         reveal this column
       </button>
     </form>
+  );
+}
+
+function HiddenColumnPlaceholder({ color, count }: { color: string; count: number }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-1 rounded-[10px] border border-dashed bg-[var(--panel-hi)]/40 p-5 text-center text-[11.5px] font-semibold leading-tight text-spill-muted"
+      style={{ borderColor: `${color}55` }}
+    >
+      <span className="text-[18px] leading-none">◐</span>
+      <span>{count} card{count === 1 ? "" : "s"} hidden</span>
+      <span className="text-[10.5px] font-normal text-spill-muted/80">waiting for host to reveal</span>
+    </div>
   );
 }
 

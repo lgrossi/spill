@@ -128,12 +128,9 @@ export async function forceRevealRetro(retroId: string): Promise<RetroBoard> {
 export async function revealColumn(
   retroId: string,
   columnId: string,
-  options?: { force?: boolean },
 ): Promise<RetroBoard> {
   return apiFetch(`/api/retros/${retroId}/columns/${columnId}/reveal`, {
     method: "POST",
-    body: JSON.stringify({ force: options?.force ?? false }),
-    headers: { "content-type": "application/json" },
     cache: "no-store",
   });
 }

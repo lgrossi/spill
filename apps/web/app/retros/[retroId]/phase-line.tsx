@@ -28,7 +28,6 @@ type Props = {
   participantCount: number;
   readyCount: number;
   allReady: boolean;
-  revealMode: "per_column" | "big_bang";
 };
 
 // Replaces the old stepper. Renders the current phase as a verb + ellipsis,
@@ -45,7 +44,6 @@ export function PhaseLine({
   participantCount,
   readyCount,
   allReady,
-  revealMode,
 }: Props) {
   const verb = PHASE_VERB[phase] ?? phase;
   const gated = phase === "writing" || phase === "voting";
@@ -63,7 +61,6 @@ export function PhaseLine({
         participantCount={participantCount}
         readyCount={readyCount}
         allReady={allReady}
-        revealMode={revealMode}
       />
     </div>
   );
@@ -79,7 +76,6 @@ function PhaseHint({
   participantCount,
   readyCount,
   allReady,
-  revealMode,
 }: Props & { gated: boolean }) {
   const autoCluster = clusteringMode === "auto_on_vote_start";
   // Discussion-phase organization: compute happens here and the host applies it
@@ -131,14 +127,8 @@ function PhaseHint({
         );
       }
     }
-    if (allReady && !(phase === "writing" && revealMode === "per_column")) {
-      return <Countdown retroId={retroId} />;
-    }
-    // In per_column reveal mode the writing-phase 'start discussing' link is
-    // hidden: the host walks one column at a time via the per-column pills,
-    // and the last reveal auto-advances the retro. Voting-phase 'wrap up'
-    // is unaffected (reveal_mode only governs writing -> discussion).
-    const hostLink = isHost ? gatedHostAdvance(phase, revealMode) : null;
+    if (allReady) return <Countdown retroId={retroId} />;
+    const hostLink = isHost ? gatedHostAdvance(phase) : null;
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
         <span>{readyCount} of {participantCount} ready</span>
@@ -163,12 +153,8 @@ function PhaseHint({
 
 function gatedHostAdvance(
   phase: string,
-  revealMode: "per_column" | "big_bang",
 ): { action: (formData: FormData) => void | Promise<void>; label: string } | null {
-  if (phase === "writing") {
-    if (revealMode === "per_column") return null;
-    return { action: forceRevealRetroAction, label: "start discussing" };
-  }
+  if (phase === "writing") return { action: forceRevealRetroAction, label: "start discussing" };
   if (phase === "voting") return { action: startActionDiscussionAction, label: "wrap up" };
   return null;
 }

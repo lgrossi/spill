@@ -62,40 +62,33 @@ impl RetroRepository {
         .fetch_one(&mut *tx)
         .await?;
 
-        sqlx::query("UPDATE cards SET state = 'revealed', updated_at = NOW() WHERE retro_id = $1")
+        // big_bang reveals on writing->discussion; per_column waits for the
+        // host to reveal each column individually during discussion.
+        if retro.reveal_mode == "big_bang" {
+            sqlx::query("UPDATE cards SET state = 'revealed', updated_at = NOW() WHERE retro_id = $1")
+                .bind(retro_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "UPDATE retro_columns SET revealed_at = NOW()
+                 WHERE retro_id = $1 AND revealed_at IS NULL",
+            )
             .bind(retro_id)
             .execute(&mut *tx)
             .await?;
-
-        // Mirror what reveal_column does per column: any still-hidden column
-        // becomes implicitly revealed by the big-bang. Idempotent on a column
-        // someone already revealed individually.
-        sqlx::query(
-            "UPDATE retro_columns SET revealed_at = NOW()
-             WHERE retro_id = $1 AND revealed_at IS NULL",
-        )
-        .bind(retro_id)
-        .execute(&mut *tx)
-        .await?;
-
-        order_cards_by_author(&mut tx, retro_id, None).await?;
+            order_cards_by_author(&mut tx, retro_id, None).await?;
+        }
 
         tx.commit().await?;
         Ok(retro)
     }
 
-    /// Reveal a single column. Flips that column's drafts to 'revealed',
-    /// stamps `retro_columns.revealed_at`, re-runs the author-block sort, and
-    /// -- if this is the last unrevealed column -- auto-advances the retro
-    /// from 'writing' to 'discussion' in the same transaction. The caller
-    /// (workflow layer) decides which BoardEvent to publish based on the
-    /// returned outcome.
+    /// Reveal a single column during discussion. Flips that column's drafts
+    /// to 'revealed', stamps `retro_columns.revealed_at`, re-sorts by author
+    /// block. No phase transition -- reveal is a presentation action inside
+    /// the existing phases, not its own step.
     ///
-    /// Returns `NotFound` for both "no such column on this retro" and
-    /// "column already revealed" -- the column-not-found case is rare (the
-    /// workflow layer already authorized the retro), so collapsing them keeps
-    /// the API small. The workflow layer can pre-check if it ever wants to
-    /// distinguish 404 vs 409 in the HTTP response.
+    /// `NotFound` collapses unknown-column and already-revealed (both no-op).
     pub async fn reveal_column(
         &self,
         retro_id: Uuid,
@@ -133,39 +126,6 @@ impl RetroRepository {
         .await?;
 
         order_cards_by_author(&mut tx, retro_id, Some(column_id)).await?;
-
-        let remaining_unrevealed = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM retro_columns
-             WHERE retro_id = $1 AND revealed_at IS NULL",
-        )
-        .bind(retro_id)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if remaining_unrevealed == 0 {
-            // Last column -- complete the writing -> discussion transition the
-            // same way reveal_board does. Phase guard ensures we only advance
-            // from 'writing' (defensive against concurrent transitions).
-            let retro = sqlx::query_as::<_, RetroRecord>(
-                "UPDATE retros
-                 SET phase = 'discussion'
-                 WHERE id = $1 AND phase = 'writing'
-                 RETURNING id, title, phase, vote_limit, action_discussion_limit, creator_email, cover_gif_url, cover_gif_alt_text,
-                    card_edit_policy, anonymous_authors, reveal_mode,
-                    to_char(planned_for, 'YYYY-MM-DD') AS planned_for,
-                    to_char(happened_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS happened_at",
-            )
-            .bind(retro_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            // If the phase row didn't update (e.g. already advanced concurrently),
-            // still report Revealed -- the column flip itself succeeded.
-            return Ok(match retro {
-                Some(retro) => RevealColumnOutcome::RevealedAndCompleted(retro),
-                None => RevealColumnOutcome::Revealed,
-            });
-        }
 
         tx.commit().await?;
         Ok(RevealColumnOutcome::Revealed)

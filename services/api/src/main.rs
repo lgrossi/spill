@@ -586,19 +586,10 @@ async fn reveal_column(
     State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     user: CurrentUser,
     Path((retro_id, column_id)): Path<(Uuid, Uuid)>,
-    body: Option<Json<RevealBoardRequest>>,
 ) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    let force = body.map(|b| b.force).unwrap_or(false);
-    // Host-only is enforced inside workflow.reveal_column too; the early check
-    // here mirrors reveal_board's force-bypass shape so the 403 lands before
-    // any further state read when callers pass force without being host.
-    if force {
-        let repo = configured_repository(repository.clone())?;
-        require_host(&repo, retro_id, &user.email).await?;
-    }
     retro_workflow(repository, event_hub)?
         .with_ai_provider(ai_provider)
-        .reveal_column(user, retro_id, column_id, force)
+        .reveal_column(user, retro_id, column_id)
         .await
         .map(Json)
 }
