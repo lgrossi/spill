@@ -2822,6 +2822,115 @@ async fn auto_clustering_computes_on_reveal_and_applies_on_voting(pool: sqlx::Pg
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn per_column_auto_clustering_waits_until_all_columns_revealed(pool: sqlx::PgPool) {
+    let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
+        r#"{"groups":[{"title":"Deploy noise","summary":"deploy alerts","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"delivery","tags":["delivery"]}]}"#,
+    )));
+    let app = app_with_repository_and_ai(retro_db::RetroRepository::new(pool), Some(provider));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/retros")
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Per-column cluster","template":"standard","clustering_mode":"auto_on_vote_start","reveal_mode":"per_column"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let retro_id = created["retro"]["id"].as_str().unwrap().to_owned();
+    let column_ids: Vec<String> = created["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|column| column["id"].as_str().map(str::to_owned))
+        .collect();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/cards"))
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"column_id":"{}","body_text":"deploy alerts are noisy"}}"#,
+                    column_ids[1]
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for path in ["ready", "reveal"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/{path}"))
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "phase transition {path}");
+    }
+
+    let board = fetch_board(&app, &retro_id).await;
+    assert_eq!(board["retro"]["phase"], "discussion");
+    assert_eq!(board["retro"]["clustering_status"], "not_run");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/retros/{retro_id}/columns/{}/reveal",
+                    column_ids[0]
+                ))
+                .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let board = fetch_board(&app, &retro_id).await;
+    assert_eq!(board["retro"]["clustering_status"], "not_run");
+
+    for column_id in column_ids.iter().skip(1) {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                    .header(HEADER_ON_BEHALF_OF, AUTHOR)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    wait_for_clustering_status(&app, &retro_id, "ready").await;
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn enabling_auto_clustering_during_voting_applies(pool: sqlx::PgPool) {
     let provider = Arc::new(AiProvider::Fake(FakeProvider::responding_with(
         r#"{"groups":[{"title":"Deploy noise","summary":"deploy alerts","card_ids":["11111111-1111-1111-1111-111111111111"],"category":"delivery","tags":["delivery"]}]}"#,
@@ -3554,6 +3663,35 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
                 .uri(format!("/api/retros/{retro_id}/voting/start"))
                 .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/actions/start"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"reveal_mode":"big_bang"}"#))
                 .unwrap(),
         )
         .await
