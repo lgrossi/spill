@@ -61,12 +61,12 @@ function board(phase: RetroBoard['retro']['phase'], revealedAt: string | null = 
 describe('BoardColumns composer affordance', () => {
   it('keeps add-card available after writing for revealed columns', () => {
     render(<BoardColumns board={board('discussion')} query={{}} />);
-    expect(screen.getByRole('link', { name: 'add Went well card' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'add went well card' })).toBeInTheDocument();
   });
 
   it('hides add-card while a per-column discussion column is unrevealed', () => {
     render(<BoardColumns board={board('discussion', null)} query={{}} />);
-    expect(screen.queryByRole('link', { name: 'add Went well card' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'add went well card' })).toBeNull();
     expect(screen.getByText('0 cards hidden')).toBeInTheDocument();
   });
 });

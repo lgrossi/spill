@@ -38,11 +38,15 @@ pub enum SetParticipationResult {
     LastActive,
 }
 
-/// Outcome of [`RetroRepository::reveal_column`]. `NotFound` collapses
-/// unknown-column + already-revealed (both no-op, workflow skips event).
+/// Outcome of [`RetroRepository::reveal_column`].
+///
+/// `AlreadyRevealed` is split from `NotFound` so the workflow can return
+/// a quiet 204 on accidental host double-clicks while still surfacing
+/// genuine "wrong column id" typos as 404s.
 #[derive(Debug, Clone)]
 pub enum RevealColumnOutcome {
     NotFound,
+    AlreadyRevealed,
     Revealed,
 }
 
@@ -5381,8 +5385,8 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            matches!(second, RevealColumnOutcome::NotFound),
-            "already-revealed column reports NotFound (collapsed with wrong-id)",
+            matches!(second, RevealColumnOutcome::AlreadyRevealed),
+            "already-revealed column is distinguished from wrong-id so the workflow can 204 vs 404",
         );
         let bogus = repo
             .reveal_column(created.retro.id, Uuid::from_u128(0xdeadbeef))

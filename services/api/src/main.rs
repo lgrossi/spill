@@ -586,12 +586,18 @@ async fn reveal_column(
     State(ai_provider): State<Option<Arc<ai_provider::AiProvider>>>,
     user: CurrentUser,
     Path((retro_id, column_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<retro_db::RetroBoard>, ApiError> {
-    retro_workflow(repository, event_hub)?
+) -> Result<Response, ApiError> {
+    let result = retro_workflow(repository, event_hub)?
         .with_ai_provider(ai_provider)
         .reveal_column(user, retro_id, column_id)
-        .await
-        .map(Json)
+        .await?;
+    // Some(board) on a real reveal, None on a quiet no-op (already
+    // revealed). The 204 lets the client treat any 2xx as "we're good"
+    // without a special body-shape branch.
+    Ok(match result {
+        Some(board) => Json(board).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    })
 }
 
 async fn start_scheduled_retro(

@@ -598,7 +598,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
         column_id: Uuid,
-    ) -> Result<retro_db::RetroBoard, ApiError> {
+    ) -> Result<Option<retro_db::RetroBoard>, ApiError> {
         ensure_retro_host(&self.repository, retro_id, &user.email).await?;
         let board = self.fetch_board_for_user(retro_id, &user).await?;
         if board.retro.reveal_mode != "per_column" {
@@ -618,16 +618,19 @@ impl RetroWorkflow {
             .map_err(|error| ApiError::internal(format!("failed to reveal column: {error}")))?;
         match outcome {
             retro_db::RevealColumnOutcome::NotFound => {
-                return Err(ApiError::not_found(
-                    "column not found on this retro or already revealed",
-                ));
+                return Err(ApiError::not_found("column not found on this retro"));
+            }
+            retro_db::RevealColumnOutcome::AlreadyRevealed => {
+                // Quiet no-op for double-clicks. Skip the event publish so
+                // we don't redundantly nudge SSE subscribers.
+                return Ok(None);
             }
             retro_db::RevealColumnOutcome::Revealed => {
                 self.event_hub.publish(BoardEvent::CardChanged { retro_id });
             }
         }
         self.trigger_auto_clustering_compute(retro_id).await;
-        self.fetch_board_for_user(retro_id, &user).await
+        self.fetch_board_for_user(retro_id, &user).await.map(Some)
     }
 
     pub async fn start_voting(
