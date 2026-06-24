@@ -29,6 +29,21 @@ function renderDiscussion(status: string, isHost: boolean) {
   );
 }
 
+function renderPhase(phase: string, isHost: boolean, allReady: boolean) {
+  render(
+    <PhaseLine
+      retroId="r1"
+      phase={phase}
+      clusteringMode="manual"
+      clusteringStatus="idle"
+      isHost={isHost}
+      participantCount={3}
+      readyCount={allReady ? 3 : 2}
+      allReady={allReady}
+    />,
+  );
+}
+
 describe('PhaseLine discussion-phase organization', () => {
   it('host can apply a ready proposal and still start voting', () => {
     renderDiscussion('ready', true);
@@ -55,5 +70,19 @@ describe('PhaseLine discussion-phase organization', () => {
     expect(screen.getByText('organized')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'apply organizing' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'start voting' })).toBeNull();
+  });
+});
+
+describe('PhaseLine auto-advance countdown', () => {
+  it('renders countdown only for hosts when everyone is ready', () => {
+    renderPhase('voting', true, true);
+    expect(screen.getByText(/advancing in/)).toBeInTheDocument();
+    expect(screen.queryByText('all ready')).toBeNull();
+  });
+
+  it('does not submit host-only auto-advance from non-host tabs', () => {
+    renderPhase('voting', false, true);
+    expect(screen.getByText('all ready')).toBeInTheDocument();
+    expect(screen.queryByText(/advancing in/)).toBeNull();
   });
 });
