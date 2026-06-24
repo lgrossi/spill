@@ -12,6 +12,12 @@ export const spillColors = {
   paper: "#f3e8cf",
   panel: "#fbf3df",
   line: "#d9c89e",
+  // Brand inks. ink mirrors --fg (the primary body-text token); inkSoft
+  // mirrors --fg-2 (the warm secondary-text token used everywhere else in
+  // the UI). readableCardTextColor below picks between them and #ffffff so
+  // card text stays on the brand palette instead of an orphan near-black.
+  ink: "#1f1812",
+  inkSoft: "#4a3d2e",
 } as const;
 
 export type ColumnAccent = "mood" | "well" | "improve" | "action" | "neutral";
@@ -616,15 +622,36 @@ function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+// Perceptual lightness (CIE L*, 0-100) is a better axis than raw WCAG
+// contrast for picking light-vs-dark text on saturated mid-tone backgrounds.
+// The previous WCAG-min-on-gradient picker chose dark text for Mollie green
+// and red by tiny margins (4.50 vs 3.82 / 3.72), which technically passed AA
+// but read as muddy on bright saturated cards.
+function perceptualLightness(hex: string): number {
+  const y = relativeLuminance(hex);
+  // CIE 1976 L* (Lab L). The 0.008856 threshold avoids the cube-root
+  // singularity at black; for our card backgrounds we are always above it.
+  return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
+}
+
+// Two-tier dark text:
+//   * inkSoft (#4a3d2e, --fg-2) on truly light backgrounds (L* >= 75) where
+//     contrast headroom is generous and the softer brown matches the rest
+//     of the brand UI.
+//   * ink     (#1f1812, --fg)   on borderline-light backgrounds (60..75)
+//     where AA contrast for normal-weight text would be marginal with the
+//     softer ink.
+//   * white otherwise -- saturated and mid-luminance cards read cleaner
+//     with white text even when the dark variant technically wins on raw
+//     WCAG contrast.
 export function readableCardTextColor(hex: string): string {
-  const normalized = `#${normalizeHex(hex)}`;
-  const gradientStops = [shade(normalized, 4), normalized, shade(normalized, -6)];
-  const minimumWhiteContrast = Math.min(...gradientStops.map((stop) => contrastRatio("#ffffff", stop)));
-  const minimumDarkContrast = Math.min(...gradientStops.map((stop) => contrastRatio("#241a12", stop)));
-  return minimumWhiteContrast >= minimumDarkContrast ? "#ffffff" : "#241a12";
+  const lightness = perceptualLightness(`#${normalizeHex(hex)}`);
+  if (lightness < 60) return "#ffffff";
+  if (lightness >= 75) return spillColors.inkSoft;
+  return spillColors.ink;
 }
 
 export function readableCardControlColor(hex: string): string {
   const normalized = `#${normalizeHex(hex)}`;
-  return contrastRatio(normalized, "#ffffff") >= 4.5 ? normalized : "#241a12";
+  return contrastRatio(normalized, "#ffffff") >= 4.5 ? normalized : spillColors.ink;
 }
