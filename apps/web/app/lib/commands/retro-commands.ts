@@ -121,6 +121,10 @@ export async function updateRetroDetailsCommand(formData: FormData) {
   if (formData.has("anonymous_authors")) {
     payload.anonymous_authors = formData.getAll("anonymous_authors").at(-1) === "1";
   }
+  if (formData.has("reveal_mode")) {
+    payload.reveal_mode =
+      formData.getAll("reveal_mode").at(-1) === "big_bang" ? "big_bang" : "per_column";
+  }
 
   await updateRetroDetails(retroId, payload);
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/retros/${retroId}`);

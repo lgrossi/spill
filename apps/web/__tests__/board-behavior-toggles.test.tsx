@@ -92,6 +92,20 @@ describe('BoardBehaviorToggles', () => {
     expect(inputs[0].type).toBe('hidden');
   });
 
+  it('keeps number inputs editable while the user clears and retypes', () => {
+    const { submit, submitted } = renderInForm();
+    const voteLimit = screen.getByLabelText('Votes per person') as HTMLInputElement;
+
+    fireEvent.change(voteLimit, { target: { value: '' } });
+    expect(voteLimit.value).toBe('');
+
+    fireEvent.change(voteLimit, { target: { value: '12' } });
+    expect(voteLimit.value).toBe('12');
+
+    submit();
+    expect(submitted.at(-1)!.vote_limit.at(-1)).toBe('12');
+  });
+
   it('showActionDiscussion=false hides the action_discussion fields entirely', () => {
     renderInForm({ showActionDiscussion: false });
     expect(

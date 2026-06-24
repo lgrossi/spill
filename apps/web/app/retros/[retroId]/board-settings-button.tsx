@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { RetroBoard } from "@/lib/contracts";
 import { BoardConfigForm } from "./board-config-editor";
 
@@ -31,8 +31,10 @@ export function BoardSettingsButton({
   revealMode: RevealMode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [openCount, setOpenCount] = useState(0);
 
   function open() {
+    setOpenCount((count) => count + 1);
     dialogRef.current?.showModal();
   }
 
@@ -86,6 +88,7 @@ export function BoardSettingsButton({
             </button>
           </div>
           <BoardConfigForm
+            key={openCount}
             retroId={retroId}
             phase={phase}
             returnTo={returnTo}
