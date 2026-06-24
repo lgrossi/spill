@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Btn, Tile, spillColors } from "@/components/spill-ui";
+import { useTransition } from "react";
+import { Btn, spillColors } from "@/components/spill-ui";
+import { BoardBehaviorToggles } from "@/components/board-behavior-toggles";
 import { updateRetroDetailsAction } from "@/lib/actions";
 import type { RetroBoard } from "@/lib/contracts";
 
 type CardEditPolicy = RetroBoard["retro"]["card_edit_policy"];
+type RevealMode = RetroBoard["retro"]["reveal_mode"];
 
-const numberInputStyle = {
-  borderWidth: "0 0 1px",
-  borderStyle: "solid",
-  borderColor: "var(--line)",
-  borderRadius: 0,
-  boxShadow: "none",
-} as const;
-
+// Settings-dialog form: shares every behavior toggle with the create form
+// via <BoardBehaviorToggles />. This wrapper only owns: the form action, the
+// retro_id / return_to hidden inputs, the cancel + save buttons, and the
+// phase-aware gating of the voting toggle. Anything visual or field-level
+// belongs in the shared component so the two contexts can't drift again.
 export function BoardConfigForm({
   retroId,
   phase,
@@ -25,6 +24,7 @@ export function BoardConfigForm({
   hasActionColumn,
   cardEditPolicy,
   anonymousAuthors,
+  revealMode,
   onCancel,
   className,
 }: {
@@ -37,15 +37,13 @@ export function BoardConfigForm({
   hasActionColumn: boolean;
   cardEditPolicy: CardEditPolicy;
   anonymousAuthors: boolean;
+  revealMode: RevealMode;
   onCancel?: () => void;
   className?: string;
 }) {
-  const [votingEnabled, setVotingEnabled] = useState(voteLimit > 0);
-  const [topVotedToActions, setTopVotedToActions] = useState(actionDiscussionLimit > 0);
-  const [autoOrganize, setAutoOrganize] = useState(clusteringMode === "auto_on_vote_start");
-  const [authorOnly, setAuthorOnly] = useState(cardEditPolicy === "author_only");
-  const [hideAuthors, setHideAuthors] = useState(anonymousAuthors);
   const [isPending, startTransition] = useTransition();
+  // Voting can't be turned off mid-flight -- existing votes have nowhere to
+  // live if vote_limit drops to 0 while the phase is voting.
   const canToggleVoting = phase !== "voting";
 
   return (
@@ -55,107 +53,20 @@ export function BoardConfigForm({
     >
       <input name="retro_id" type="hidden" value={retroId} />
       <input name="return_to" type="hidden" value={returnTo} />
-      <Tile className="flex items-center gap-3">
-        <RuleMark>●●●</RuleMark>
-        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-          {canToggleVoting ? (
-            <>
-              <input name="voting_enabled" type="hidden" value="0" />
-              <input className="sr-only" name="voting_enabled" type="checkbox" value="1" checked={votingEnabled} onChange={(event) => setVotingEnabled(event.currentTarget.checked)} />
-            </>
-          ) : (
-            <input name="voting_enabled" type="hidden" value="1" />
-          )}
-          <span className="min-w-0">
-            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">voting</span>
-            <span className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold transition ${votingEnabled ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-              <input
-                className="h-6 w-8 bg-transparent px-0 text-center text-[12px] font-extrabold text-spill-fg outline-none disabled:text-spill-muted/45"
-                name="vote_limit"
-                type="number"
-                min="1"
-                defaultValue={Math.max(1, voteLimit)}
-                disabled={!votingEnabled}
-                required={votingEnabled}
-                aria-label="Votes per person"
-                style={numberInputStyle}
-              />
-              votes per person
-            </span>
-          </span>
-          <Check />
-        </label>
-      </Tile>
-      {hasActionColumn ? (
-        <Tile className="flex items-center gap-3">
-          <RuleMark>★</RuleMark>
-          <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-            <input name="action_discussion_enabled" type="hidden" value="0" />
-            <input className="sr-only" name="action_discussion_enabled" type="checkbox" value="1" checked={topVotedToActions} onChange={(event) => setTopVotedToActions(event.currentTarget.checked)} />
-            <span className="min-w-0">
-              <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">top voted to actions</span>
-              <span className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold transition ${topVotedToActions ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                move
-                <input
-                  className="h-6 w-8 bg-transparent px-0 text-center text-[12px] font-extrabold text-spill-fg outline-none disabled:text-spill-muted/45"
-                  name="action_discussion_limit"
-                  type="number"
-                  min="1"
-                  defaultValue={Math.max(1, actionDiscussionLimit)}
-                  disabled={!topVotedToActions}
-                  required={topVotedToActions}
-                  aria-label="Number of top voted cards moved to actions"
-                  style={numberInputStyle}
-                />
-                top voted cards
-              </span>
-            </span>
-            <Check />
-          </label>
-        </Tile>
-      ) : null}
-      <Tile className="flex items-center gap-3">
-        <RuleMark>◆</RuleMark>
-        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-          <input name="clustering_mode" type="hidden" value="disabled" />
-          <input className="sr-only" name="clustering_mode" type="checkbox" value="auto_on_vote_start" checked={autoOrganize} onChange={(event) => setAutoOrganize(event.currentTarget.checked)} />
-          <span className="min-w-0">
-            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">AI clustering</span>
-            <span className={`mt-1 block text-[11px] font-semibold transition ${autoOrganize ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-              {autoOrganize ? "AI groups and tags cards before voting" : "manual grouping"}
-            </span>
-          </span>
-          <Check />
-        </label>
-      </Tile>
-      <Tile className="flex items-center gap-3">
-        <RuleMark>✎</RuleMark>
-        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-          <input name="card_edit_policy" type="hidden" value="collaborative" />
-          <input className="sr-only" name="card_edit_policy" type="checkbox" value="author_only" checked={authorOnly} onChange={(event) => setAuthorOnly(event.currentTarget.checked)} />
-          <span className="min-w-0">
-            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card editing</span>
-            <span className={`mt-1 block text-[11px] font-semibold transition ${authorOnly ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-              {authorOnly ? "only the author (or host) can edit / delete a card" : "anyone on the board can edit / delete any card"}
-            </span>
-          </span>
-          <Check />
-        </label>
-      </Tile>
-      <Tile className="flex items-center gap-3">
-        <RuleMark>◐</RuleMark>
-        <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-          <input name="anonymous_authors" type="hidden" value="0" />
-          <input className="sr-only" name="anonymous_authors" type="checkbox" value="1" checked={hideAuthors} onChange={(event) => setHideAuthors(event.currentTarget.checked)} />
-          <span className="min-w-0">
-            <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card authors</span>
-            <span className={`mt-1 block text-[11px] font-semibold transition ${hideAuthors ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-              {hideAuthors ? "anonymous — only you see your own cards as yours" : "everyone sees who wrote each card"}
-            </span>
-          </span>
-          <Check />
-        </label>
-      </Tile>
+      <BoardBehaviorToggles
+        initial={{
+          votingEnabled: voteLimit > 0,
+          voteLimit: Math.max(1, voteLimit),
+          topVotedToActions: actionDiscussionLimit > 0,
+          actionDiscussionLimit: Math.max(1, actionDiscussionLimit),
+          autoOrganize: clusteringMode === "auto_on_vote_start",
+          authorOnly: cardEditPolicy === "author_only",
+          hideAuthors: anonymousAuthors,
+          perColumnReveal: revealMode === "per_column",
+        }}
+        canToggleVoting={canToggleVoting}
+        showActionDiscussion={hasActionColumn}
+      />
       <div className="flex items-center justify-end gap-2">
         {onCancel ? (
           <button
@@ -171,21 +82,5 @@ export function BoardConfigForm({
         </Btn>
       </div>
     </form>
-  );
-}
-
-function RuleMark({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] border border-spill-line bg-[var(--paper)] text-[10px] font-extrabold tracking-[-0.04em] text-spill-muted">
-      {children}
-    </span>
-  );
-}
-
-function Check() {
-  return (
-    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-      ✓
-    </span>
   );
 }

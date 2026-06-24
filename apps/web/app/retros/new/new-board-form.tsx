@@ -6,6 +6,7 @@ import { createRetroAction } from "@/lib/actions";
 import { InvitePanel } from "@/components/invite-panel";
 import { localDateString } from "@/lib/retro-dates";
 import { RetroCoverPicker } from "@/components/retro-cover-picker";
+import { BoardBehaviorToggles, type BoardBehaviorValues } from "@/components/board-behavior-toggles";
 
 export type TemplateId = "standard" | "4ls" | "custom";
 
@@ -28,16 +29,21 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
   const [template, setTemplate] = useState<TemplateId>(selectedTemplate);
   const [customColumns, setCustomColumns] = useState(defaultCustomColumns);
   const [customColors, setCustomColors] = useState(defaultCustomColors);
-  const [votingEnabled, setVotingEnabled] = useState(true);
-  const [topVotedToActions, setTopVotedToActions] = useState(true);
-  const [autoOrganize, setAutoOrganize] = useState(false);
-  const [authorOnly, setAuthorOnly] = useState(false);
-  const [hideAuthors, setHideAuthors] = useState(false);
-  // Reveal flow toggle. Default true == 'per_column' (the new recommended
-  // mode); uncheck to fall back to the legacy 'big_bang' single-action
-  // reveal. The hidden + checkbox pair below mirrors how anonymous_authors
-  // is wired so unchecked submits as 'big_bang'.
-  const [perColumnReveal, setPerColumnReveal] = useState(true);
+  // Behavior toggles are owned by <BoardBehaviorToggles />. We mirror them
+  // here only because the live preview needs to know whether the action
+  // column is enabled. New boards default to: voting on (3 votes), top voted
+  // to actions on (3 cards), manual grouping, collaborative editing,
+  // visible authors, per-column reveal (recommended).
+  const [behavior, setBehavior] = useState<BoardBehaviorValues>({
+    votingEnabled: true,
+    voteLimit: 3,
+    topVotedToActions: true,
+    actionDiscussionLimit: 3,
+    autoOrganize: false,
+    authorOnly: false,
+    hideAuthors: false,
+    perColumnReveal: true,
+  });
   const [invitees, setInvitees] = useState<{ email: string; role: "host" | "member" }[]>([]);
   const today = localDateString(new Date());
 
@@ -111,131 +117,11 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
             <StepNum n="5" />
             <p className="text-[13px] font-bold text-spill-fg">House rules</p>
           </div>
-          <div className="grid gap-2.5 md:grid-cols-2">
-            <Tile className="flex items-center gap-3">
-              <RuleMark>●●●</RuleMark>
-              <div className="min-w-0 flex-1">
-                <label className="group/check flex min-w-0 cursor-pointer items-center justify-between gap-3">
-                  <input name="voting_enabled" type="hidden" value="0" />
-                  <input className="sr-only" name="voting_enabled" type="checkbox" value="1" checked={votingEnabled} onChange={(event) => setVotingEnabled(event.currentTarget.checked)} />
-                  <span className="min-w-0">
-                    <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">voting</span>
-                    <span className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold transition ${votingEnabled ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                      <input
-                        className="h-6 w-8 bg-transparent px-0 text-center text-[12px] font-extrabold text-spill-fg outline-none disabled:text-spill-muted/45"
-                        name="vote_limit"
-                        type="number"
-                        min="1"
-                        defaultValue="3"
-                        disabled={!votingEnabled}
-                        required={votingEnabled}
-                        aria-label="Votes per person"
-                        style={{ borderWidth: "0 0 1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 0, boxShadow: "none" }}
-                      />
-                      votes per person
-                    </span>
-                  </span>
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                    ✓
-                  </span>
-                </label>
-              </div>
-            </Tile>
-            <Tile className="flex items-center gap-3">
-              <RuleMark>★</RuleMark>
-              <div className="min-w-0 flex-1">
-                <label className="group/check flex min-w-0 cursor-pointer items-center justify-between gap-3">
-                  <input name="action_discussion_enabled" type="hidden" value="0" />
-                  <input className="sr-only" name="action_discussion_enabled" type="checkbox" value="1" checked={topVotedToActions} onChange={(event) => setTopVotedToActions(event.currentTarget.checked)} />
-                  <span className="min-w-0">
-                    <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">action column</span>
-                    <span className={`mt-1 flex items-center gap-1.5 text-[12px] font-semibold transition ${topVotedToActions ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                      move
-                      <input
-                        className="h-6 w-8 bg-transparent px-0 text-center text-[12px] font-extrabold text-spill-fg outline-none disabled:text-spill-muted/45"
-                        name="action_discussion_limit"
-                        type="number"
-                        min="1"
-                        defaultValue="3"
-                        disabled={!topVotedToActions}
-                        required={topVotedToActions}
-                        aria-label="Number of top voted cards moved to actions"
-                        style={{ borderWidth: "0 0 1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 0, boxShadow: "none" }}
-                      />
-                      top voted cards to actions
-                    </span>
-                  </span>
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                    ✓
-                  </span>
-                </label>
-              </div>
-            </Tile>
-            <Tile className="flex items-center gap-3">
-              <RuleMark>◆</RuleMark>
-              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-                <input name="clustering_mode" type="hidden" value="disabled" />
-                <input className="sr-only" name="clustering_mode" type="checkbox" value="auto_on_vote_start" checked={autoOrganize} onChange={(event) => setAutoOrganize(event.currentTarget.checked)} />
-                <span className="min-w-0">
-                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">organize before voting</span>
-                  <span className={`mt-1 block text-[11px] font-semibold transition ${autoOrganize ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                    {autoOrganize ? "AI groups and tags cards first" : "manual grouping"}
-                  </span>
-                </span>
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                  ✓
-                </span>
-              </label>
-            </Tile>
-            <Tile className="flex items-center gap-3">
-              <RuleMark>✎</RuleMark>
-              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-                <input name="card_edit_policy" type="hidden" value="collaborative" />
-                <input className="sr-only" name="card_edit_policy" type="checkbox" value="author_only" checked={authorOnly} onChange={(event) => setAuthorOnly(event.currentTarget.checked)} />
-                <span className="min-w-0">
-                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card editing</span>
-                  <span className={`mt-1 block text-[11px] font-semibold transition ${authorOnly ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                    {authorOnly ? "only the author (or host) can edit / delete a card" : "anyone on the board can edit / delete any card"}
-                  </span>
-                </span>
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                  ✓
-                </span>
-              </label>
-            </Tile>
-            <Tile className="flex items-center gap-3">
-              <RuleMark>◐</RuleMark>
-              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-                <input name="anonymous_authors" type="hidden" value="0" />
-                <input className="sr-only" name="anonymous_authors" type="checkbox" value="1" checked={hideAuthors} onChange={(event) => setHideAuthors(event.currentTarget.checked)} />
-                <span className="min-w-0">
-                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">card authors</span>
-                  <span className={`mt-1 block text-[11px] font-semibold transition ${hideAuthors ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                    {hideAuthors ? "anonymous — only you see your own cards as yours" : "everyone sees who wrote each card"}
-                  </span>
-                </span>
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                  ✓
-                </span>
-              </label>
-            </Tile>
-            <Tile className="flex items-center gap-3">
-              <RuleMark>☉</RuleMark>
-              <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-                <input name="reveal_mode" type="hidden" value="big_bang" />
-                <input className="sr-only" name="reveal_mode" type="checkbox" value="per_column" checked={perColumnReveal} onChange={(event) => setPerColumnReveal(event.currentTarget.checked)} />
-                <span className="min-w-0">
-                  <span className="block text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">reveal mode</span>
-                  <span className={`mt-1 block text-[11px] font-semibold transition ${perColumnReveal ? "text-[var(--fg-2)]" : "text-spill-muted/60"}`}>
-                    {perColumnReveal ? "host reveals one column at a time" : "reveal everything at once when the room is ready"}
-                  </span>
-                </span>
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-                  ✓
-                </span>
-              </label>
-            </Tile>
-          </div>
+          <BoardBehaviorToggles
+            initial={behavior}
+            onChange={setBehavior}
+            className="grid gap-2.5 md:grid-cols-2"
+          />
         </div>
 
         <div>
@@ -255,7 +141,7 @@ export function NewBoardForm({ selectedTemplate }: { selectedTemplate: TemplateI
 
       <aside className="space-y-4">
         <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">live preview</p>
-        <BoardPreview columns={previewColumns(template, customColumns, customColors, topVotedToActions)} />
+        <BoardPreview columns={previewColumns(template, customColumns, customColors, behavior.topVotedToActions)} />
 
         <Tile className="border-spill-action/60 bg-spill-action/10">
           <p className="text-[10.5px] font-extrabold uppercase tracking-[0.1em] text-spill-action">how it works</p>
@@ -391,33 +277,6 @@ function colorForPreviewColumn(label: string, index = 0) {
 
 function StepNum({ n }: { n: string }) {
   return <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-spill-fg text-[11px] font-extrabold text-[var(--paper)] shadow-[var(--shadow-1)]">{n}</span>;
-}
-
-function RuleMark({ children }: { children: string }) {
-  return <span className="grid h-[34px] w-[42px] shrink-0 place-items-center rounded-[8px] border border-spill-action/35 bg-spill-action/10 text-[12px] font-extrabold text-spill-action">{children}</span>;
-}
-
-function CheckboxRule({
-  label,
-  name,
-  offValue,
-  onValue,
-}: {
-  label: string;
-  name: string;
-  offValue: string;
-  onValue: string;
-}) {
-  return (
-    <label className="group/check flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3">
-      <input name={name} type="hidden" value={offValue} />
-      <input className="sr-only" name={name} type="checkbox" value={onValue} defaultChecked />
-      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-spill-muted">{label}</p>
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] border border-spill-line bg-[var(--paper)] text-[14px] font-extrabold text-transparent transition group-has-[input:checked]/check:border-spill-well group-has-[input:checked]/check:bg-spill-well group-has-[input:checked]/check:text-white">
-        ✓
-      </span>
-    </label>
-  );
 }
 
 function Line({ children }: { children: string }) {
