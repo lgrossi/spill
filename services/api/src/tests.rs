@@ -3509,13 +3509,33 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
     assert!(bodies.contains(&"Ava draft"));
     assert!(bodies.contains(&"Lee draft"));
 
-    // Re-reveal collapses to 404 -- idempotent, no double event.
+    // Re-reveal is a quiet 204 -- the host double-clicked, no need to
+    // surface an error. No board body, no second event publish.
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/retros/{retro_id}/columns/{column_id}/reveal"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // A typoed (unknown-on-this-retro) column ID still 404s -- the split
+    // outcome means quiet success is reserved for legitimate double-clicks.
+    let bogus_column_id = uuid::Uuid::from_u128(0xdeadbeef);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/retros/{retro_id}/columns/{bogus_column_id}/reveal"
+                ))
                 .header(HEADER_ON_BEHALF_OF, "ava@example.com")
                 .body(Body::empty())
                 .unwrap(),

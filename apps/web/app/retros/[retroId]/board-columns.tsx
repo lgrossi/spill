@@ -113,11 +113,12 @@ function ColumnComposer({
         <InlineComposer columnId={columnId} columnTitle={columnLabel} color={color} draftText="" retroId={board.retro.id} />
       ) : (
         <Link
+          aria-label={`add ${columnLabel} card`}
           className="flex h-10 items-center justify-center gap-2 rounded-[8px] border border-dashed bg-[var(--panel-hi)]/35 text-[11.5px] font-extrabold leading-none shadow-none transition hover:bg-[var(--panel-hi)]"
           href={`/retros/${board.retro.id}?addColumn=${columnId}`}
           style={{ borderColor: `${color}66`, color }}
         >
-          <span className="text-[15px] leading-none" style={{ color }}>+</span>
+          <span aria-hidden="true" className="text-[15px] leading-none" style={{ color }}>+</span>
           add {columnLabel} card
         </Link>
       )}

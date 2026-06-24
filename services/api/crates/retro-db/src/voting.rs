@@ -90,7 +90,9 @@ impl RetroRepository {
     /// block. No phase transition -- reveal is a presentation action inside
     /// the existing phases, not its own step.
     ///
-    /// `NotFound` collapses unknown-column and already-revealed (both no-op).
+    /// Disambiguates unknown-column (`NotFound`) from already-revealed
+    /// (`AlreadyRevealed`) so the workflow layer can return a quiet 204
+    /// on host double-clicks while still 404-ing on typoed IDs.
     pub async fn reveal_column(
         &self,
         retro_id: Uuid,
@@ -114,8 +116,21 @@ impl RetroRepository {
         .await?;
 
         if stamped.is_none() {
+            // No stamp -> column either doesn't exist on this retro or was
+            // already revealed. One follow-up SELECT disambiguates.
+            let exists = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM retro_columns WHERE id = $2 AND retro_id = $1",
+            )
+            .bind(retro_id)
+            .bind(column_id)
+            .fetch_optional(&mut *tx)
+            .await?;
             tx.rollback().await?;
-            return Ok(RevealColumnOutcome::NotFound);
+            return Ok(if exists.is_some() {
+                RevealColumnOutcome::AlreadyRevealed
+            } else {
+                RevealColumnOutcome::NotFound
+            });
         }
 
         sqlx::query(

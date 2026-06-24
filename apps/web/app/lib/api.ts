@@ -128,8 +128,11 @@ export async function forceRevealRetro(retroId: string): Promise<RetroBoard> {
 export async function revealColumn(
   retroId: string,
   columnId: string,
-): Promise<RetroBoard> {
-  return apiFetch(`/api/retros/${retroId}/columns/${columnId}/reveal`, {
+): Promise<void> {
+  // 200 + board JSON on a real reveal, 204 + empty on a quiet re-reveal
+  // (host double-clicked). Either way the route revalidates the board, so
+  // we don't need the body here.
+  await apiFetchNoJson(`/api/retros/${retroId}/columns/${columnId}/reveal`, {
     method: "POST",
     cache: "no-store",
   });
