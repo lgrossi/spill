@@ -5352,6 +5352,76 @@ mod tests {
         assert!(ava_b_card.body_text.is_none());
     }
 
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn stale_creates_and_moves_respect_per_column_reveal_state(pool: PgPool) {
+        let repo = RetroRepository::new(pool);
+        let created = repo
+            .create_retro(CreateRetroInput {
+                title: "Stale per-column writes".to_owned(),
+                creator_subject: "ava".to_owned(),
+                creator_email: "".to_owned(),
+                creator_display_name: "Ava".to_owned(),
+                group_name: None,
+                cover_gif_url: None,
+                cover_gif_alt_text: None,
+                planned_for: None,
+                template: RetroTemplate::Standard,
+                vote_limit: 3,
+                action_discussion_limit: 3,
+                column_colors: Vec::new(),
+                reveal_mode: Some("per_column".to_owned()),
+            })
+            .await
+            .unwrap();
+        let revealed_column_id = created.columns[0].id;
+        let hidden_column_id = created.columns[1].id;
+
+        repo.reveal_board(created.retro.id).await.unwrap();
+        repo.reveal_column(created.retro.id, revealed_column_id)
+            .await
+            .unwrap();
+
+        let stale_create = repo
+            .create_draft_card(DraftCardInput {
+                retro_id: created.retro.id,
+                column_id: hidden_column_id,
+                author_subject: "ava".to_owned(),
+                author_display_name: "Ava".to_owned(),
+                body_text: Some("created from stale form".to_owned()),
+                gif_url: None,
+                gif_alt_text: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(stale_create.state, "draft");
+
+        let moved_to_revealed = repo
+            .move_draft_card(
+                created.retro.id,
+                stale_create.id,
+                revealed_column_id,
+                None,
+                "ava",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(moved_to_revealed.state, "revealed");
+
+        let moved_back_to_hidden = repo
+            .move_draft_card(
+                created.retro.id,
+                stale_create.id,
+                hidden_column_id,
+                None,
+                "ava",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(moved_back_to_hidden.state, "draft");
+    }
+
     // Idempotent + unknown-column behavior: NotFound, no DB mutation. Stops
     // concurrent reveal clicks from double-firing events.
     #[sqlx::test(migrator = "MIGRATOR")]

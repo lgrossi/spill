@@ -3653,36 +3653,6 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    // Voting cannot start while per-column discussion still has unrevealed
-    // columns; otherwise those drafts would be hidden with no later reveal path.
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/retros/{retro_id}/voting/start"))
-                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/retros/{retro_id}/actions/start"))
-                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
     let response = app
         .clone()
         .oneshot(
@@ -3696,32 +3666,10 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::OK);
 
-    for remaining_column_id in revealed["columns"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|column| column["id"].as_str() != Some(column_id))
-        .filter_map(|column| column["id"].as_str())
-    {
-        let response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!(
-                        "/api/retros/{retro_id}/columns/{remaining_column_id}/reveal"
-                    ))
-                    .header(HEADER_ON_BEHALF_OF, "ava@example.com")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
+    // Starting voting reveals any skipped per-column columns instead of failing
+    // the host's normal phase transition.
     let response = app
         .clone()
         .oneshot(
@@ -3738,4 +3686,11 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
     let voting: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(voting["retro"]["phase"], "voting");
+    assert!(
+        voting["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|column| column["revealed_at"].is_string())
+    );
 }

@@ -32,10 +32,15 @@ impl RetroRepository {
                 $4,
                 $5,
                 $6,
-                CASE WHEN phase = 'writing' THEN 'draft' ELSE 'revealed' END,
+                CASE
+                    WHEN r.phase = 'writing' THEN 'draft'
+                    WHEN r.reveal_mode = 'per_column' AND rc.revealed_at IS NULL THEN 'draft'
+                    ELSE 'revealed'
+                END,
                 (SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE retro_id = $1 AND column_id = $2)
-             FROM retros
-             WHERE id = $1 AND phase NOT IN ('scheduled', 'completed')
+             FROM retros r
+             JOIN retro_columns rc ON rc.id = $2 AND rc.retro_id = r.id
+             WHERE r.id = $1 AND r.phase NOT IN ('scheduled', 'completed')
              RETURNING id, retro_id, column_id, author_participant_id, body_text, gif_url, gif_alt_text, state, position, NULL::UUID AS cluster_id, NULL::UUID AS parent_card_id, NULL::TEXT AS cluster_details, NULL::TEXT AS cluster_title, NULL::TEXT AS cluster_category, 0::BIGINT AS vote_count, 0::BIGINT AS current_user_vote_count, false AS hidden",
         )
         .bind(input.retro_id)
@@ -143,6 +148,11 @@ impl RetroRepository {
         let moved = sqlx::query_as::<_, CardRecord>(
             "UPDATE cards c
              SET column_id = $3,
+	                 state = CASE
+	                     WHEN r.phase <> 'writing' AND r.reveal_mode = 'per_column' AND rc.revealed_at IS NULL THEN 'draft'
+	                     WHEN r.phase <> 'writing' THEN 'revealed'
+	                     ELSE c.state
+	                 END,
 	                 position = (
 	                     SELECT COALESCE(MAX(position) + 1, 0)
 	                     FROM cards

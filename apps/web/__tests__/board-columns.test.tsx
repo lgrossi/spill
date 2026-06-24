@@ -71,7 +71,7 @@ describe('BoardColumns composer affordance', () => {
   });
 
   it('does not expose unrevealed discussion columns as drop targets', () => {
-    render(<BoardColumns board={board('discussion', null)} query={{}} />);
-    expect(screen.getByText('0 cards hidden').closest('[data-spill-column-id]')).toBeNull();
+    const { container } = render(<BoardColumns board={board('discussion', null)} query={{}} />);
+    expect(container.querySelector('[data-spill-column-id="col-1"]')).toBeNull();
   });
 });
