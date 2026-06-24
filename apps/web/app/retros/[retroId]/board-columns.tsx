@@ -30,7 +30,6 @@ export function BoardColumns({
   const activeColumnId = query.editCard ? undefined : query.addColumn;
   const hasDeck = board.retro.phase === "writing" && board.deck.length > 0;
   const isInteractive = board.retro.phase !== "completed" && board.retro.phase !== "scheduled";
-  const isWriting = board.retro.phase === "writing";
   // Per-column reveal is a host action *inside* the discussion phase: it
   // never adds a new phase or substate, it just controls when each column's
   // cards become visible. big_bang reveals everything on writing->discussion
@@ -61,7 +60,7 @@ export function BoardColumns({
               const visibleCards = hiddenInDiscussion ? [] : column.cards;
               const isActiveColumn = activeColumnId === column.id;
               const canDrag = isInteractive;
-              const canComposeHere = isInteractive && isWriting;
+              const canComposeHere = isInteractive && !hiddenInDiscussion;
               const canRevealHere = hiddenInDiscussion && isHost === true;
 
               return (

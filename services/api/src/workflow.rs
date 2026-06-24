@@ -642,6 +642,18 @@ impl RetroWorkflow {
             .await
             .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
+        if retro.phase == "discussion" && retro.reveal_mode == "per_column" {
+            let columns = self
+                .repository
+                .fetch_columns(retro_id)
+                .await
+                .map_err(|error| ApiError::internal(format!("failed to fetch columns: {error}")))?;
+            if columns.iter().any(|column| column.revealed_at.is_none()) {
+                return Err(ApiError::bad_request(
+                    "all columns must be revealed before voting",
+                ));
+            }
+        }
         if retro.phase == "voting" {
             self.trigger_auto_clustering_apply(retro_id).await;
             return self.fetch_board_for_user(retro_id, &user).await;

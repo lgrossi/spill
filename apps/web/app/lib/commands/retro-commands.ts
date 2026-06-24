@@ -233,13 +233,12 @@ function customPayload(
     vote_limit: voteLimit,
     action_discussion_limit: actionDiscussionLimit,
     clustering_mode: clusteringMode === "auto_on_vote_start" ? "auto_on_vote_start" : "disabled",
-    // Only include privacy/flow fields when they diverge from defaults so we
-    // don't expand serialized payload size unnecessarily — the server treats
-    // missing values as the per-field default (collaborative card edits,
-    // visible authors, per_column reveal).
+    // Only omit fields whose API defaults match the create form. reveal_mode
+    // stays explicit because the form default is per_column while the API
+    // default for non-form callers is big_bang.
     ...(cardEditPolicy === "author_only" ? { card_edit_policy: "author_only" as const } : {}),
     ...(anonymousAuthors ? { anonymous_authors: true as const } : {}),
-    ...(revealMode === "big_bang" ? { reveal_mode: "big_bang" as const } : {}),
+    reveal_mode: revealMode,
     invitees,
   };
 }

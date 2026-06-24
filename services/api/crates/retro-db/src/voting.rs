@@ -65,10 +65,12 @@ impl RetroRepository {
         // big_bang reveals on writing->discussion; per_column waits for the
         // host to reveal each column individually during discussion.
         if retro.reveal_mode == "big_bang" {
-            sqlx::query("UPDATE cards SET state = 'revealed', updated_at = NOW() WHERE retro_id = $1")
-                .bind(retro_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE cards SET state = 'revealed', updated_at = NOW() WHERE retro_id = $1",
+            )
+            .bind(retro_id)
+            .execute(&mut *tx)
+            .await?;
             sqlx::query(
                 "UPDATE retro_columns SET revealed_at = NOW()
                  WHERE retro_id = $1 AND revealed_at IS NULL",
