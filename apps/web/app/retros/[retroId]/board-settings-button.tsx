@@ -5,6 +5,7 @@ import type { RetroBoard } from "@/lib/contracts";
 import { BoardConfigForm } from "./board-config-editor";
 
 type CardEditPolicy = RetroBoard["retro"]["card_edit_policy"];
+type RevealMode = RetroBoard["retro"]["reveal_mode"];
 
 export function BoardSettingsButton({
   retroId,
@@ -16,6 +17,7 @@ export function BoardSettingsButton({
   hasActionColumn,
   cardEditPolicy,
   anonymousAuthors,
+  revealMode,
 }: {
   retroId: string;
   phase: string;
@@ -26,6 +28,7 @@ export function BoardSettingsButton({
   hasActionColumn: boolean;
   cardEditPolicy: CardEditPolicy;
   anonymousAuthors: boolean;
+  revealMode: RevealMode;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -92,6 +95,7 @@ export function BoardSettingsButton({
             hasActionColumn={hasActionColumn}
             cardEditPolicy={cardEditPolicy}
             anonymousAuthors={anonymousAuthors}
+            revealMode={revealMode}
             onCancel={close}
           />
         </div>
