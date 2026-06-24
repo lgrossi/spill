@@ -643,15 +643,13 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
-        authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
         let retro = self
             .repository
             .fetch_retro(retro_id)
             .await
             .map_err(|error| ApiError::internal(format!("failed to fetch retro: {error}")))?
             .ok_or_else(|| ApiError::not_found("retro not found"))?;
-        self.reveal_remaining_columns_before_transition(retro_id, &retro.phase)
-            .await?;
         if retro.phase == "voting" {
             self.trigger_auto_clustering_apply(retro_id).await;
             return self.fetch_board_for_user(retro_id, &user).await;
@@ -660,6 +658,8 @@ impl RetroWorkflow {
             .start_voting(retro_id)
             .await
             .map_err(voting_error)?;
+        self.reveal_remaining_columns_before_transition(retro_id, &retro.phase)
+            .await?;
         self.trigger_auto_clustering_apply(retro_id).await;
         self.event_hub
             .publish(BoardEvent::PhaseChanged { retro_id });
@@ -819,7 +819,7 @@ impl RetroWorkflow {
         user: CurrentUser,
         retro_id: Uuid,
     ) -> Result<retro_db::RetroBoard, ApiError> {
-        authorize_retro_participant(&self.repository, &user, retro_id).await?;
+        ensure_retro_host(&self.repository, retro_id, &user.email).await?;
         let retro = self
             .repository
             .fetch_retro(retro_id)

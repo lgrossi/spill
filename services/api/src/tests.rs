@@ -3668,6 +3668,85 @@ async fn reveal_column_route_is_host_only_and_discussion_only(pool: sqlx::PgPool
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_ON_BEHALF_OF, "lee@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"vote_limit":0}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/retros/{retro_id}/voting/start"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/retros/{retro_id}"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let board: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert!(
+        board["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|column| column["revealed_at"].is_null()),
+        "failed start-voting must not consume skipped column reveals"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/retros/{retro_id}/details"))
+                .header(HEADER_ON_BEHALF_OF, "ava@example.com")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"vote_limit":3}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
     // Starting voting reveals any skipped per-column columns instead of failing
     // the host's normal phase transition.
     let response = app
