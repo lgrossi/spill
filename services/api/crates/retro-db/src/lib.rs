@@ -38,16 +38,12 @@ pub enum SetParticipationResult {
     LastActive,
 }
 
-/// Outcome of [`RetroRepository::reveal_column`].
-///
-/// `NotFound` covers both "no such column on this retro" and "column already
-/// revealed" -- the workflow layer treats both as "nothing changed, do not
-/// re-publish events".
+/// Outcome of [`RetroRepository::reveal_column`]. `NotFound` collapses
+/// unknown-column + already-revealed (both no-op, workflow skips event).
 #[derive(Debug, Clone)]
 pub enum RevealColumnOutcome {
     NotFound,
     Revealed,
-    RevealedAndCompleted(RetroRecord),
 }
 
 impl RetroRepository {
@@ -758,16 +754,21 @@ impl RetroRepository {
                 c.retro_id,
                 c.column_id,
                 c.author_participant_id,
+                -- Draft state is the visibility marker: hidden from everyone
+                -- except the author until the column is revealed (which flips
+                -- state to 'revealed'). This works in both modes -- big_bang
+                -- promotes on reveal_board; per_column promotes per column
+                -- during discussion.
                 CASE
-                    WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
+                    WHEN c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
                     ELSE c.body_text
                 END AS body_text,
                 CASE
-                    WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
+                    WHEN c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
                     ELSE c.gif_url
                 END AS gif_url,
                 CASE
-                    WHEN r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
+                    WHEN c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2 THEN NULL
                     ELSE c.gif_alt_text
                 END AS gif_alt_text,
                 c.state,
@@ -779,7 +780,7 @@ impl RetroRepository {
                 cc.category AS cluster_category,
                 COALESCE(SUM(v.count), 0)::BIGINT AS vote_count,
                 COALESCE(SUM(CASE WHEN vp.external_subject = $2 THEN v.count ELSE 0 END), 0)::BIGINT AS current_user_vote_count,
-                (r.phase = 'writing' AND c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2) AS hidden
+                (c.state = 'draft' AND p.external_subject IS DISTINCT FROM $2) AS hidden
              FROM cards c
              JOIN participants p ON p.id = c.author_participant_id
              JOIN retros r ON r.id = c.retro_id
@@ -5242,11 +5243,11 @@ mod tests {
         );
     }
 
-    // Per-column reveal: flipping one column unveils only its drafts, stamps
-    // `revealed_at`, and leaves other columns hidden until they're revealed
-    // individually (or the host hits "reveal all" via reveal_board).
+    // Per-column reveal during discussion: flipping one column unveils only
+    // its drafts and stamps `revealed_at`. Other columns stay hidden until
+    // the host reveals them too.
     #[sqlx::test(migrator = "MIGRATOR")]
-    async fn reveal_column_flips_one_columns_drafts_and_stamps_timestamp(pool: PgPool) {
+    async fn reveal_column_flips_one_columns_drafts_during_discussion(pool: PgPool) {
         let repo = RetroRepository::new(pool);
         let created = repo
             .create_retro(CreateRetroInput {
@@ -5262,7 +5263,7 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
-                reveal_mode: None,
+                reveal_mode: Some("per_column".to_owned()),
             })
             .await
             .unwrap();
@@ -5287,6 +5288,10 @@ mod tests {
             .await
             .unwrap();
         }
+        // Transition writing -> discussion. In per_column mode reveal_board
+        // only advances the phase; cards stay as drafts until each column
+        // is individually revealed.
+        repo.reveal_board(created.retro.id).await.unwrap();
 
         let outcome = repo
             .reveal_column(created.retro.id, column_a)
@@ -5294,7 +5299,7 @@ mod tests {
             .unwrap();
         assert!(
             matches!(outcome, RevealColumnOutcome::Revealed),
-            "still other columns unrevealed -> Revealed, not RevealedAndCompleted",
+            "reveal_column always reports Revealed -- no auto-advance any more",
         );
 
         let lee_board = repo
@@ -5302,7 +5307,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(lee_board.retro.phase, "writing", "phase stays writing");
+        assert_eq!(
+            lee_board.retro.phase, "discussion",
+            "phase stays discussion -- reveal_column doesn't move it",
+        );
         // Column A: both drafts visible to Lee now; revealed_at stamped.
         let revealed_col = lee_board
             .columns
@@ -5340,58 +5348,8 @@ mod tests {
         assert!(ava_b_card.body_text.is_none());
     }
 
-    // Revealing the last hidden column auto-advances the retro to discussion.
-    // This mirrors what reveal_board does atomically.
-    #[sqlx::test(migrator = "MIGRATOR")]
-    async fn reveal_column_last_one_completes_retro(pool: PgPool) {
-        let repo = RetroRepository::new(pool);
-        let created = repo
-            .create_retro(CreateRetroInput {
-                title: "Last column completes".to_owned(),
-                creator_subject: "ava".to_owned(),
-                creator_email: "".to_owned(),
-                creator_display_name: "Ava".to_owned(),
-                group_name: None,
-                cover_gif_url: None,
-                cover_gif_alt_text: None,
-                planned_for: None,
-                template: RetroTemplate::Standard,
-                vote_limit: 3,
-                action_discussion_limit: 3,
-                column_colors: Vec::new(),
-                reveal_mode: None,
-            })
-            .await
-            .unwrap();
-        let column_ids: Vec<Uuid> = created.columns.iter().map(|c| c.id).collect();
-        let last_index = column_ids.len() - 1;
-        for (index, column_id) in column_ids.iter().enumerate() {
-            let outcome = repo
-                .reveal_column(created.retro.id, *column_id)
-                .await
-                .unwrap();
-            if index < last_index {
-                assert!(
-                    matches!(outcome, RevealColumnOutcome::Revealed),
-                    "intermediate column {index} should not complete the retro",
-                );
-                let retro = repo.fetch_retro(created.retro.id).await.unwrap().unwrap();
-                assert_eq!(retro.phase, "writing", "still writing while columns remain");
-            } else {
-                assert!(
-                    matches!(outcome, RevealColumnOutcome::RevealedAndCompleted(_)),
-                    "last column reveal should complete the retro",
-                );
-                let retro = repo.fetch_retro(created.retro.id).await.unwrap().unwrap();
-                assert_eq!(retro.phase, "discussion");
-            }
-        }
-    }
-
-    // Revealing a column that's already revealed (or doesn't exist on the
-    // retro) is a no-op from the repo's point of view: NotFound, zero DB
-    // mutation. The workflow layer turns that into a 4xx, but we want the
-    // repo to fail-quiet so concurrent reveal clicks don't double-fire events.
+    // Idempotent + unknown-column behavior: NotFound, no DB mutation. Stops
+    // concurrent reveal clicks from double-firing events.
     #[sqlx::test(migrator = "MIGRATOR")]
     async fn reveal_column_is_noop_on_already_revealed(pool: PgPool) {
         let repo = RetroRepository::new(pool);
@@ -5409,11 +5367,12 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
-                reveal_mode: None,
+                reveal_mode: Some("per_column".to_owned()),
             })
             .await
             .unwrap();
         let column_a = created.columns[0].id;
+        repo.reveal_board(created.retro.id).await.unwrap();
         repo.reveal_column(created.retro.id, column_a)
             .await
             .unwrap();
@@ -5432,16 +5391,15 @@ mod tests {
         assert!(matches!(bogus, RevealColumnOutcome::NotFound));
     }
 
-    // Once a column is revealed during writing, no more drafts may land in it
-    // -- otherwise the host walks back into a column they've already discussed
-    // and finds a hidden card. The insert fails at the SQL guard; the
-    // workflow layer surfaces this as a 4xx.
+    // reveal_board's per-mode behavior: big_bang stamps every column's
+    // revealed_at (cards visible immediately in discussion); per_column
+    // leaves them null (host reveals each one during discussion).
     #[sqlx::test(migrator = "MIGRATOR")]
-    async fn create_draft_card_rejects_revealed_column(pool: PgPool) {
+    async fn reveal_board_stamps_columns_only_in_big_bang_mode(pool: PgPool) {
         let repo = RetroRepository::new(pool);
-        let created = repo
+        let big_bang = repo
             .create_retro(CreateRetroInput {
-                title: "Lock on reveal".to_owned(),
+                title: "Big bang".to_owned(),
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -5453,54 +5411,21 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
-                reveal_mode: None,
+                reveal_mode: Some("big_bang".to_owned()),
             })
             .await
             .unwrap();
-        let column_a = created.columns[0].id;
-        let column_b = created.columns[1].id;
-        repo.reveal_column(created.retro.id, column_a)
-            .await
-            .unwrap();
-
-        let attempt = repo
-            .create_draft_card(DraftCardInput {
-                retro_id: created.retro.id,
-                column_id: column_a,
-                author_subject: "ava".to_owned(),
-                author_display_name: "Ava".to_owned(),
-                body_text: Some("too late".to_owned()),
-                gif_url: None,
-                gif_alt_text: None,
-            })
-            .await;
+        repo.reveal_board(big_bang.retro.id).await.unwrap();
+        let bb_columns = repo.fetch_columns(big_bang.retro.id).await.unwrap();
+        assert!(!bb_columns.is_empty());
         assert!(
-            matches!(attempt, Err(sqlx::Error::RowNotFound)),
-            "insert into revealed column fails on the guard, got {attempt:?}",
+            bb_columns.iter().all(|c| c.revealed_at.is_some()),
+            "big_bang stamps every column on reveal_board",
         );
-        // Unrevealed column still accepts drafts.
-        repo.create_draft_card(DraftCardInput {
-            retro_id: created.retro.id,
-            column_id: column_b,
-            author_subject: "ava".to_owned(),
-            author_display_name: "Ava".to_owned(),
-            body_text: Some("still allowed".to_owned()),
-            gif_url: None,
-            gif_alt_text: None,
-        })
-        .await
-        .expect("unrevealed column still accepts drafts");
-    }
 
-    // Drafts can't be moved INTO a revealed column either (mirror of the
-    // create guard). Revealed cards moving freely is fine -- post-reveal
-    // reorg is a normal facilitator activity.
-    #[sqlx::test(migrator = "MIGRATOR")]
-    async fn move_draft_card_rejects_target_revealed_column(pool: PgPool) {
-        let repo = RetroRepository::new(pool);
-        let created = repo
+        let per_column = repo
             .create_retro(CreateRetroInput {
-                title: "Move guard".to_owned(),
+                title: "Per column".to_owned(),
                 creator_subject: "ava".to_owned(),
                 creator_email: "".to_owned(),
                 creator_display_name: "Ava".to_owned(),
@@ -5512,75 +5437,16 @@ mod tests {
                 vote_limit: 3,
                 action_discussion_limit: 3,
                 column_colors: Vec::new(),
-                reveal_mode: None,
+                reveal_mode: Some("per_column".to_owned()),
             })
             .await
             .unwrap();
-        let column_a = created.columns[0].id;
-        let column_b = created.columns[1].id;
-        // Draft owned by Ava starts in column B.
-        let draft = repo
-            .create_draft_card(DraftCardInput {
-                retro_id: created.retro.id,
-                column_id: column_b,
-                author_subject: "ava".to_owned(),
-                author_display_name: "Ava".to_owned(),
-                body_text: Some("Ava draft".to_owned()),
-                gif_url: None,
-                gif_alt_text: None,
-            })
-            .await
-            .unwrap();
-        repo.reveal_column(created.retro.id, column_a)
-            .await
-            .unwrap();
-
-        let attempt = repo
-            .move_draft_card(created.retro.id, draft.id, column_a, None, "ava")
-            .await
-            .unwrap();
+        repo.reveal_board(per_column.retro.id).await.unwrap();
+        let pc_columns = repo.fetch_columns(per_column.retro.id).await.unwrap();
         assert!(
-            attempt.is_none(),
-            "moving a draft into a revealed column must fail (got {attempt:?})",
+            pc_columns.iter().all(|c| c.revealed_at.is_none()),
+            "per_column leaves every column unrevealed -- host walks them in discussion",
         );
-    }
-
-    // The big-bang reveal_board still works and now also stamps every
-    // column's revealed_at so the new UI affordances stay coherent.
-    #[sqlx::test(migrator = "MIGRATOR")]
-    async fn reveal_board_stamps_revealed_at_on_every_column(pool: PgPool) {
-        let repo = RetroRepository::new(pool);
-        let created = repo
-            .create_retro(CreateRetroInput {
-                title: "Reveal all stamps columns".to_owned(),
-                creator_subject: "ava".to_owned(),
-                creator_email: "".to_owned(),
-                creator_display_name: "Ava".to_owned(),
-                group_name: None,
-                cover_gif_url: None,
-                cover_gif_alt_text: None,
-                planned_for: None,
-                template: RetroTemplate::Standard,
-                vote_limit: 3,
-                action_discussion_limit: 3,
-                column_colors: Vec::new(),
-                reveal_mode: None,
-            })
-            .await
-            .unwrap();
-        repo.reveal_board(created.retro.id).await.unwrap();
-        let columns = repo.fetch_columns(created.retro.id).await.unwrap();
-        assert!(
-            !columns.is_empty(),
-            "standard template seeds at least one column",
-        );
-        for column in &columns {
-            assert!(
-                column.revealed_at.is_some(),
-                "reveal_board must stamp every column, missing on {}",
-                column.title,
-            );
-        }
     }
 
     // CreateRetroInput::reveal_mode = None falls through to the SQL DEFAULT

@@ -55,13 +55,13 @@ impl RetroWorkflow {
             Some(value) => Some(validate_card_edit_policy(value)?),
             None => None,
         };
-        // Default for omitted/absent reveal_mode mirrors the create form
-        // checkbox default: 'per_column' for new boards. The DB column's own
-        // DEFAULT ('big_bang') only applies to migration backfill paths --
-        // any API-driven create lands an explicit value.
+        // API default matches the SQL DEFAULT (big_bang) so non-form callers
+        // (tests, CLI) get the simpler historic behavior. The create form
+        // always submits an explicit reveal_mode (defaults to per_column),
+        // so users opting through the UI keep getting per-column boards.
         let requested_reveal_mode = match request.reveal_mode.as_deref() {
             Some(value) => validate_reveal_mode(value)?,
-            None => "per_column".to_owned(),
+            None => "big_bang".to_owned(),
         };
         let invitees = request.invitees;
         let creator_email_lc = user.email.to_lowercase();
@@ -590,17 +590,14 @@ impl RetroWorkflow {
         self.fetch_board_for_user(retro_id, &user).await
     }
 
-    /// Reveal a single column. Host-only: per-column reveal is a facilitation
-    /// choice ("let's discuss gladness first"), distinct from `reveal_board`
-    /// which is the collective "everyone is ready, go" action. Same ready
-    /// gate (or `force=true` bypass). When the last unrevealed column flips,
-    /// the retro auto-advances writing -> discussion in the same transaction.
+    /// Host action to reveal a column's cards during discussion. Only valid
+    /// for per_column boards (big_bang reveals everything on writing->
+    /// discussion already).
     pub async fn reveal_column(
         &self,
         user: CurrentUser,
         retro_id: Uuid,
         column_id: Uuid,
-        force: bool,
     ) -> Result<retro_db::RetroBoard, ApiError> {
         ensure_retro_host(&self.repository, retro_id, &user.email).await?;
         let board = self.fetch_board_for_user(retro_id, &user).await?;
@@ -609,14 +606,9 @@ impl RetroWorkflow {
                 "column reveal is only available when reveal_mode is per_column",
             ));
         }
-        if board.retro.phase != "writing" {
+        if board.retro.phase != "discussion" {
             return Err(ApiError::bad_request(
-                "column reveal is only available during the writing phase",
-            ));
-        }
-        if !force && board.ready.ready_count < board.ready.participant_count {
-            return Err(ApiError::bad_request(
-                "everyone must be ready before reveal",
+                "column reveal is only available during the discussion phase",
             ));
         }
         let outcome = self
@@ -632,10 +624,6 @@ impl RetroWorkflow {
             }
             retro_db::RevealColumnOutcome::Revealed => {
                 self.event_hub.publish(BoardEvent::CardChanged { retro_id });
-            }
-            retro_db::RevealColumnOutcome::RevealedAndCompleted(_) => {
-                self.event_hub
-                    .publish(BoardEvent::PhaseChanged { retro_id });
             }
         }
         self.trigger_auto_clustering_compute(retro_id).await;
