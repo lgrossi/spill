@@ -127,7 +127,10 @@ function PhaseHint({
         );
       }
     }
-    if (allReady) return <Countdown retroId={retroId} />;
+    if (allReady) {
+      if (isHost) return <Countdown retroId={retroId} />;
+      return <span className="text-[10px] text-spill-muted">all ready</span>;
+    }
     const hostLink = isHost ? gatedHostAdvance(phase) : null;
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] text-spill-muted">
