@@ -2,16 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { readableCardControlColor, readableCardTextColor, spillColors } from '../app/components/spill-ui';
 
 describe('readableCardTextColor', () => {
-  it('uses white text on saturated mid-tone brand colors (L* < 60)', () => {
-    // Mollie green (L* ~54) and red (L* ~52) used to pick dark on raw WCAG
-    // contrast but read muddy. With the L*-threshold picker they flip to
-    // white -- the visually cleaner choice across all three real cards in
-    // the user-reported screenshot.
-    expect(readableCardTextColor(spillColors.well)).toBe('#ffffff');
-    expect(readableCardTextColor(spillColors.wrong)).toBe('#ffffff');
-    // Purple action and pure bright blue stay white (unchanged behavior).
+  it('keeps saturated mid-tone brand colors above normal-text contrast minimum', () => {
+    // Green and red sit near the 4.5:1 threshold for white text; keep normal
+    // card body text readable even when the perceptual lightness picker would
+    // prefer white.
+    expect(readableCardTextColor(spillColors.well)).toBe(spillColors.ink);
+    expect(readableCardTextColor(spillColors.wrong)).toBe('#000000');
+    // Purple action stays white because it clears AA with the cleaner light text.
     expect(readableCardTextColor(spillColors.action)).toBe('#ffffff');
-    expect(readableCardTextColor('#0078fc')).toBe('#ffffff');
+    expect(readableCardTextColor('#0078fc')).toBe('#000000');
   });
 
   it('uses the soft brand ink on truly light backgrounds (L* >= 75)', () => {

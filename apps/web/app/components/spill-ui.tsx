@@ -634,21 +634,19 @@ function perceptualLightness(hex: string): number {
   return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
 }
 
-// Two-tier dark text:
-//   * inkSoft (#4a3d2e, --fg-2) on truly light backgrounds (L* >= 75) where
-//     contrast headroom is generous and the softer brown matches the rest
-//     of the brand UI.
-//   * ink     (#1f1812, --fg)   on borderline-light backgrounds (60..75)
-//     where AA contrast for normal-weight text would be marginal with the
-//     softer ink.
-//   * white otherwise -- saturated and mid-luminance cards read cleaner
-//     with white text even when the dark variant technically wins on raw
-//     WCAG contrast.
+// Prefer the brand text color suggested by perceptual lightness, but keep the
+// final choice above WCAG AA for normal-weight card body text. Some saturated
+// mid-tone cards look cleaner with white, but green/red sit near the threshold
+// where white can fall below 4.5:1.
 export function readableCardTextColor(hex: string): string {
-  const lightness = perceptualLightness(`#${normalizeHex(hex)}`);
-  if (lightness < 60) return "#ffffff";
-  if (lightness >= 75) return spillColors.inkSoft;
-  return spillColors.ink;
+  const normalized = `#${normalizeHex(hex)}`;
+  const lightness = perceptualLightness(normalized);
+  const preferred =
+    lightness < 60 ? "#ffffff" : lightness >= 75 ? spillColors.inkSoft : spillColors.ink;
+  if (contrastRatio(preferred, normalized) >= 4.5) return preferred;
+  if (contrastRatio(spillColors.ink, normalized) >= 4.5) return spillColors.ink;
+  if (contrastRatio("#ffffff", normalized) >= 4.5) return "#ffffff";
+  return "#000000";
 }
 
 export function readableCardControlColor(hex: string): string {
