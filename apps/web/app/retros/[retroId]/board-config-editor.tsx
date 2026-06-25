@@ -48,7 +48,17 @@ export function BoardConfigForm({
 
   return (
     <form
-      action={(formData) => startTransition(() => void updateRetroDetailsAction(formData))}
+      // Plain onSubmit (not action={...}) so React 19's form-action
+      // auto-reset doesn't fire after save. The reset would flip every
+      // controlled checkbox's DOM `checked` back to its initial render
+      // value (the state when the dialog opened), out of sync with the
+      // useState the toggles are driven by. The DOM only re-synced when
+      // the dialog closed + reopened.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        startTransition(() => void updateRetroDetailsAction(formData));
+      }}
       className={`space-y-2.5 text-left ${className ?? ""}`}
     >
       <input name="retro_id" type="hidden" value={retroId} />
