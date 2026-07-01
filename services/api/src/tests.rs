@@ -877,6 +877,41 @@ async fn gif_endpoints_search_attach_and_degrade_gracefully(pool: sqlx::PgPool) 
 }
 
 #[sqlx::test(migrator = "retro_db::MIGRATOR")]
+async fn gif_search_kind_gif_degrades_gracefully_without_erroring(pool: sqlx::PgPool) {
+    // Regression coverage for the `kind=gif` path the web picker actually uses
+    // (apps/web .../gif-search-data.ts always sends `kind=gif`). This kind
+    // used to hit a Klipy sub-endpoint that returned empty results for every
+    // query, silently degrading GIF search; it must resolve through the same
+    // provider as `kind=all` instead.
+    let app = app_with_repository(retro_db::RetroRepository::new(pool));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/gifs/search?q=high%20five&kind=gif")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let search: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    if search["degraded"].as_bool().unwrap() {
+        assert_eq!(search["results"].as_array().unwrap().len(), 0);
+    } else {
+        assert_eq!(search["results"].as_array().unwrap().len(), 8);
+        assert_eq!(search["results"][0]["kind"], "gif");
+        assert!(
+            search["results"][0]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http")
+        );
+    }
+}
+
+#[sqlx::test(migrator = "retro_db::MIGRATOR")]
 async fn voting_endpoints_track_remaining_votes_and_limits(pool: sqlx::PgPool) {
     let app = app_with_repository(retro_db::RetroRepository::new(pool));
     let response = app

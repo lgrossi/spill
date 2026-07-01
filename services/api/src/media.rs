@@ -84,9 +84,8 @@ async fn search_klipy(
     kind: MediaSearchKind,
 ) -> Result<Vec<GifResult>, ()> {
     match kind {
-        MediaSearchKind::Gif => search_klipy_typed(query, page, "gifs", kind).await,
         MediaSearchKind::Sticker => search_klipy_typed(query, page, "stickers", kind).await,
-        MediaSearchKind::All | MediaSearchKind::Clip => {
+        MediaSearchKind::All | MediaSearchKind::Gif | MediaSearchKind::Clip => {
             search_klipy_unified(query, page, kind).await
         }
     }
