@@ -136,9 +136,14 @@ async fn search_klipy_unified(
             } else {
                 image.or(video)
             }?;
-            let preview = select_klipy_media(formats, &["gifpreview", "nanogif", "tinygif"])
-                .map(|media| media.url.clone())
-                .unwrap_or_else(|| media.url.clone());
+            // Klipy's "*preview" formats (gifpreview, preview, tinygifpreview, ...) are
+            // static JPG poster frames despite the name -- picking them made search
+            // thumbnails and the composer's selected-GIF preview render as static images.
+            // Use small *animated* formats instead so previews actually loop.
+            let preview =
+                select_klipy_media(formats, &["nanogif", "tinygif", "webp", "mediumgif", "gif"])
+                    .map(|media| media.url.clone())
+                    .unwrap_or_else(|| media.url.clone());
             Some(GifResult {
                 id: format!("klipy-{}", result.id),
                 url: media.url.clone(),
