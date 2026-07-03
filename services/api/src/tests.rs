@@ -908,6 +908,14 @@ async fn gif_search_kind_gif_degrades_gracefully_without_erroring(pool: sqlx::Pg
                 .unwrap()
                 .starts_with("http")
         );
+        // Klipy's "*preview" formats (gifpreview, preview, ...) are static JPG
+        // poster frames despite the name; picking them made search thumbnails
+        // and the card's selected-GIF preview render as static images.
+        let preview_url = search["results"][0]["preview_url"].as_str().unwrap();
+        assert!(
+            !preview_url.ends_with(".jpg") && !preview_url.ends_with(".jpeg"),
+            "preview_url must resolve to an animated format, got {preview_url}"
+        );
     }
 }
 
