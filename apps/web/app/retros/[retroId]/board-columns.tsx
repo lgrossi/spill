@@ -80,7 +80,7 @@ export function BoardColumns({
                     {hiddenInDiscussion ? (
                       <HiddenColumnPlaceholder color={semantic.color} count={column.cards.length} />
                     ) : null}
-                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} semanticLabel={semantic.label} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />)}
+                    {visibleCards.map((card) => <CardView board={board} card={card} color={semantic.color} draggable={canDrag} editing={query.editCard === card.id} key={card.id} moving={canDrag} clustering={canDrag} isHost={isHost} currentUserParticipantId={currentUserParticipantId} />)}
                     <DropEndMarker accent={semantic.color} columnId={column.id} enabled={canDrag} />
                   </div>
                 </DropColumn>
@@ -110,7 +110,7 @@ function ColumnComposer({
   return (
     <div className="mb-2.5">
       {isActive ? (
-        <InlineComposer columnId={columnId} columnTitle={columnLabel} color={color} draftText="" retroId={board.retro.id} />
+        <InlineComposer columnId={columnId} color={color} draftText="" retroId={board.retro.id} />
       ) : (
         <Link
           aria-label={`add ${columnLabel} card`}

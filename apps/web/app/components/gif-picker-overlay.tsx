@@ -18,7 +18,6 @@ export function GifPickerOverlay({
   emptyText,
   kicker,
   onClose,
-  placeholder,
   renderResult,
   selected,
   title,
@@ -28,7 +27,6 @@ export function GifPickerOverlay({
   emptyText: string;
   kicker: string;
   onClose: () => void;
-  placeholder: string;
   renderResult: (gif: GifResult, selected: boolean, className: string, image: ReactNode) => ReactNode;
   selected: (gif: GifResult) => boolean;
   title: string;
@@ -145,7 +143,7 @@ export function GifPickerOverlay({
             event.stopPropagation();
           }
         }}
-        placeholder={placeholder}
+        placeholder="Search KLIPY"
         type="search"
         value={query}
       />

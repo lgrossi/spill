@@ -15,7 +15,6 @@ export function CardView({
   editing,
   moving,
   clustering,
-  semanticLabel,
   isHost,
   currentUserParticipantId,
 }: {
@@ -26,7 +25,6 @@ export function CardView({
   editing: boolean;
   moving: boolean;
   clustering: boolean;
-  semanticLabel: string;
   isHost: boolean;
   currentUserParticipantId: string | null;
 }) {
@@ -44,7 +42,7 @@ export function CardView({
     || (currentUserParticipantId !== null && card.author_participant_id === currentUserParticipantId);
 
   if (editing && !isEditingGroup && board.retro.phase !== "completed" && card.parent_card_id === null && canModifyCard) {
-    return <DraftCardEditor board={board} card={card} color={color} semanticLabel={semanticLabel} />;
+    return <DraftCardEditor board={board} card={card} color={color} />;
   }
 
   const hasMedia = !card.cluster_id && Boolean(card.gif_url);
