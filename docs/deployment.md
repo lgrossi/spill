@@ -17,6 +17,11 @@ API:
 - `SPILLIO_KLIPY_API_KEY` for real Klipy media search. Without it the API falls back to local fixture media.
 - `RUST_LOG` (recommended: `info`)
 
+Klipy's production API key requires the mandatory "Search KLIPY" search
+placeholder (https://docs.klipy.com/attribution). It's hardcoded on
+`GifPickerOverlay`'s input; don't reintroduce per-surface placeholder
+overrides there.
+
 Web:
 
 - `SPILLIO_API_URL`

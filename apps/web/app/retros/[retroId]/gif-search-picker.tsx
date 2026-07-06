@@ -4,7 +4,7 @@ import { useState } from "react";
 import { GifPickerOverlay } from "@/components/gif-picker-overlay";
 import { useGifDraft } from "./gif-draft";
 
-export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
+export function GifSearchPicker() {
   const { selectedGif, selectGif } = useGifDraft();
   const [open, setOpen] = useState(false);
 
@@ -25,7 +25,6 @@ export function GifSearchPicker({ columnTitle }: { columnTitle: string }) {
           emptyText="Search for a GIF to add to this card."
           kicker="opened from card"
           onClose={() => setOpen(false)}
-          placeholder={`search ${columnTitle}`}
           selected={(gif) => selectedGif?.id === gif.id}
           title="Pick a GIF"
           renderResult={(gif, selected, className, image) => (

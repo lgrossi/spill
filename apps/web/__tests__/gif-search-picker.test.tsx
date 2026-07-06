@@ -28,7 +28,7 @@ function renderInForm() {
     <form onSubmit={onSubmit}>
       <GifDraftProvider>
         <GifSelectedPreview />
-        <GifSearchPicker columnTitle="things" />
+        <GifSearchPicker />
         <button data-intent-card-submit type="submit">save</button>
       </GifDraftProvider>
     </form>,

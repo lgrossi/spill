@@ -165,7 +165,6 @@ function CoverPickerPopover({
       emptyText="Search for a GIF to use as the board cover."
       kicker="opened from square"
       onClose={onClose}
-      placeholder="team celebration"
       selected={(gif) => cover.url === gif.url}
       title="Pick a cover GIF"
       renderResult={(gif, selected, className, image) =>

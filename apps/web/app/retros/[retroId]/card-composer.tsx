@@ -6,7 +6,7 @@ import { ComposerSubmit } from "./composer-submit";
 import { GifDraftProvider, GifSelectedPreview } from "./gif-draft";
 import { GifSearchPicker } from "./gif-search-picker";
 
-export function DraftCardEditor({ board, card, color, semanticLabel }: { board: RetroBoard; card: RetroCard; color: string; semanticLabel: string }) {
+export function DraftCardEditor({ board, card, color }: { board: RetroBoard; card: RetroCard; color: string }) {
   return (
     <form action={updateDraftCardAction} className="grid min-w-0 gap-2">
       <input name="card_id" type="hidden" value={card.id} />
@@ -18,7 +18,7 @@ export function DraftCardEditor({ board, card, color, semanticLabel }: { board: 
           before={<GifSelectedPreview />}
           actions={
             <>
-              <GifSearchPicker columnTitle={semanticLabel} />
+              <GifSearchPicker />
               <Link aria-label="Cancel edit" className={composerButtonClass("ghost")} href={`/retros/${board.retro.id}?addColumn=${card.column_id}`}>×</Link>
               <ComposerSubmit className={composerButtonClass("solid")} existingGif={Boolean(card.gif_url)} />
             </>
@@ -35,13 +35,11 @@ export function DraftCardEditor({ board, card, color, semanticLabel }: { board: 
 
 export function InlineComposer({
   columnId,
-  columnTitle,
   color,
   draftText,
   retroId,
 }: {
   columnId: string;
-  columnTitle: string;
   color: string;
   draftText: string;
   retroId: string;
@@ -54,7 +52,7 @@ export function InlineComposer({
           before={<GifSelectedPreview />}
           actions={
             <>
-              <GifSearchPicker columnTitle={columnTitle} />
+              <GifSearchPicker />
               <Link aria-label="Cancel card" className={composerButtonClass("ghost")} href={`/retros/${retroId}`}>×</Link>
               <ComposerSubmit className={composerButtonClass("solid")} />
             </>
